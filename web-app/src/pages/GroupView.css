@@ -1,11 +1,11 @@
-.league-view-page {
+.group-view-page {
   min-height: 100vh;
   background: var(--background-light);
   display: flex;
   flex-direction: column;
 }
 
-.league-header {
+.group-header {
   background: white;
   border-bottom: 1px solid var(--border-color);
   padding: 1.5rem 2rem;
@@ -37,24 +37,24 @@
   color: var(--text-primary);
 }
 
-.league-info {
+.group-info {
   flex: 1;
 }
 
-.league-info h1 {
+.group-info h1 {
   font-size: 1.75rem;
   color: var(--text-primary);
   margin: 0 0 0.5rem 0;
   font-weight: 700;
 }
 
-.league-description {
+.group-description {
   color: var(--text-secondary);
   margin: 0 0 1rem 0;
   font-size: 0.95rem;
 }
 
-.league-meta {
+.group-meta {
   display: flex;
   gap: 1rem;
   align-items: center;
@@ -200,13 +200,13 @@
   font-weight: 500;
 }
 
-.league-main {
+.group-main {
   flex: 1;
   padding: 2rem;
   width: 100%;
 }
 
-.league-content {
+.group-content {
   width: 100%;
   max-width: 100%;
   display: grid;
@@ -214,7 +214,7 @@
   gap: 2rem;
 }
 
-.league-sidebar {
+.group-sidebar {
   background: white;
   border-radius: 12px;
   border: 1px solid var(--border-color);
@@ -225,7 +225,7 @@
   top: 2rem;
 }
 
-.league-nav {
+.group-nav {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
@@ -283,7 +283,7 @@
   background: #7f1d1d;
 }
 
-.league-main-content {
+.group-main-content {
   background: white;
   border-radius: 12px;
   border: 1px solid var(--border-color);
@@ -1987,21 +1987,21 @@
 
 /* Responsive Design */
 @media (max-width: 1024px) {
-  .league-content {
+  .group-content {
     grid-template-columns: 1fr;
   }
 
-  .league-sidebar {
+  .group-sidebar {
     order: 2;
   }
 
-  .league-main-content {
+  .group-main-content {
     order: 1;
   }
 }
 
 @media (max-width: 768px) {
-  .league-header {
+  .group-header {
     padding: 1rem;
   }
 
@@ -2021,11 +2021,11 @@
     min-width: 120px;
   }
 
-  .league-main {
+  .group-main {
     padding: 1rem;
   }
 
-  .league-main-content {
+  .group-main-content {
     padding: 1.5rem;
   }
 
@@ -2033,7 +2033,7 @@
     font-size: 1.5rem;
   }
 
-  .league-meta {
+  .group-meta {
     flex-wrap: wrap;
   }
 
@@ -2049,7 +2049,7 @@
     grid-template-columns: 1fr;
   }
 
-  .league-nav {
+  .group-nav {
     flex-direction: row;
     overflow-x: auto;
   }
@@ -2060,11 +2060,11 @@
 }
 
 @media (min-width: 1280px) {
-  .league-main {
+  .group-main {
     padding: 3rem;
   }
 
-  .league-content {
+  .group-content {
     grid-template-columns: 1fr 300px;
     gap: 3rem;
   }
@@ -2083,7 +2083,7 @@
 }
 
 @media (min-width: 1536px) {
-  .league-content {
+  .group-content {
     width: 100%;
   }
 

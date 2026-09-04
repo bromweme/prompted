@@ -2,16 +2,16 @@ import { useState, useEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
-import './LeagueView.css'
+import './GroupView.css'
 
-function LeagueView() {
-  const { leagueId } = useParams()
+function GroupView() {
+  const { groupId } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
   const { socket, isConnected } = useSocket()
   const { user } = useUser()
   
-  const [league, setLeague] = useState(null)
+  const [group, setGroup] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [showSubmitModal, setShowSubmitModal] = useState(false)
   const [spotifyUri, setSpotifyUri] = useState('')
@@ -25,13 +25,14 @@ function LeagueView() {
   const [showRoundLeaderModal, setShowRoundLeaderModal] = useState(false)
   const [showPlayerSelection, setShowPlayerSelection] = useState(false)
   const [timeRemaining, setTimeRemaining] = useState(null)
+  const [isRoundLeader, setIsRoundLeader] = useState(false)
 
   useEffect(() => {
     // Countdown timer for round deadline
-    if (league?.currentTheme?.deadline) {
+    if (group?.currentTheme?.deadline) {
       const interval = setInterval(() => {
         const now = new Date().getTime()
-        const deadline = new Date(league.currentTheme.deadline).getTime()
+        const deadline = new Date(group.currentTheme.deadline).getTime()
         const remaining = deadline - now
 
         if (remaining <= 0) {
@@ -44,22 +45,19 @@ function LeagueView() {
 
       return () => clearInterval(interval)
     }
-  }, [league?.currentTheme?.deadline])
+  }, [group?.currentTheme?.deadline])
 
   useEffect(() => {
     if (!socket || !isConnected) return
 
-    // Set username on socket for league operations
-    socket.data.username = user.name
-
-    // Get league data from navigation state or fetch from server
-    if (location.state?.leagueData) {
-      const leagueData = location.state.leagueData
+    // Get group data from navigation state or fetch from server
+    if (location.state?.groupData) {
+      const groupData = location.state.groupData
       
-      // Ensure league has all required fields
-      const fullLeagueData = {
-        ...leagueData,
-        settings: leagueData.settings || {
+      // Ensure group has all required fields
+      const fullGroupData = {
+        ...groupData,
+        settings: groupData.settings || {
           totalRounds: 6,
           maxPlayers: 12,
           minPlayers: 2,
@@ -81,83 +79,86 @@ function LeagueView() {
           enableSongPreview: true,
           showVoterIdentity: false
         },
-        status: leagueData.status || 'waiting',
-        currentRound: leagueData.currentRound || 0,
-        players: leagueData.players || [
+        status: groupData.status || 'waiting',
+        currentRound: groupData.currentRound || 0,
+        players: groupData.players || [
           { id: 'user123', username: 'MusicLover', score: 0, isHost: true }
         ],
-        currentTheme: leagueData.currentTheme || null,
-        history: leagueData.history || []
+        currentTheme: groupData.currentTheme || null,
+        history: groupData.history || []
       }
       
-      setLeague(fullLeagueData)
+      setGroup(fullGroupData)
     } else {
-      // Fetch league data from server
-      socket.emit('get_league', { leagueId })
+      // Fetch group data from server
+      socket.emit('get_group', { groupId, username: user.name })
 
-      socket.once('league_details', ({ league }) => {
-        // Transform server league data to match UI format
-        const fullLeagueData = {
-          id: league.id,
-          name: league.name,
-          description: league.description,
+      socket.once('group_details', ({ group }) => {
+        // Transform server group data to match UI format
+        const fullGroupData = {
+          id: group.id,
+          name: group.name,
+          description: group.description,
           settings: {
-            totalRounds: league.settings.totalRounds || 6,
-            maxPlayers: league.settings.maxPlayers || 12,
-            minPlayers: league.settings.minPlayers || 2,
-            czarPoints: league.settings.czarPoints || 5,
-            allowSkipCzar: league.settings.allowSkipCzar !== false,
-            anonymousCzar: league.settings.anonymousCzar !== false,
-            maxJuryPoints: league.settings.maxJuryPoints || 3,
-            allowDownvotes: league.settings.allowDownvotes !== false,
-            downvoteCost: league.settings.downvoteCost || 1,
-            allowOverride: league.settings.allowOverride !== false,
-            overrideThreshold: (league.settings.overrideThreshold || 0.7) * 100,
-            submissionTime: league.settings.submissionTime || 24,
-            votingTime: league.settings.votingTime || 24,
-            autoStart: league.settings.autoStart || false,
-            topicSelection: league.settings.topicSelection || 'czar',
-            allowCustomTopics: league.settings.allowCustomTopics !== false,
-            presetTopics: league.settings.presetTopics || [],
-            enableChat: league.settings.enableChat || false,
-            enableSongPreview: league.settings.enableSongPreview !== false,
-            showVoterIdentity: league.settings.showVoterIdentity || false
+            totalRounds: group.settings.totalRounds || 6,
+            maxPlayers: group.settings.maxPlayers || 12,
+            minPlayers: group.settings.minPlayers || 2,
+            czarPoints: group.settings.czarPoints || 5,
+            allowSkipCzar: group.settings.allowSkipCzar !== false,
+            anonymousCzar: group.settings.anonymousCzar !== false,
+            maxJuryPoints: group.settings.maxJuryPoints || 3,
+            allowDownvotes: group.settings.allowDownvotes !== false,
+            downvoteCost: group.settings.downvoteCost || 1,
+            allowOverride: group.settings.allowOverride !== false,
+            overrideThreshold: (group.settings.overrideThreshold || 0.7) * 100,
+            submissionTime: group.settings.submissionTime || 24,
+            votingTime: group.settings.votingTime || 24,
+            autoStart: group.settings.autoStart || false,
+            topicSelection: group.settings.topicSelection || 'czar',
+            allowCustomTopics: group.settings.allowCustomTopics !== false,
+            presetTopics: group.settings.presetTopics || [],
+            enableChat: group.settings.enableChat || false,
+            enableSongPreview: group.settings.enableSongPreview !== false,
+            showVoterIdentity: group.settings.showVoterIdentity || false
           },
-          status: league.status,
-          currentRound: league.currentRound,
-          players: league.players.map(player => ({
+          status: group.status,
+          currentRound: group.currentRound,
+          players: group.players.map(player => ({
             id: player.id,
             username: player.username,
             score: player.score,
-            isHost: player.id === league.host
+            isHost: player.id === group.host
           })),
           currentTheme: null,
-          history: league.history || []
+          history: group.history || []
         }
         
-        setLeague(fullLeagueData)
+        setGroup(fullGroupData)
       })
 
       socket.once('error', ({ message }) => {
-        console.error('Error fetching league:', message)
-        alert(`Failed to load league: ${message}`)
+        console.error('Error fetching group:', message)
+        alert(`Failed to load group: ${message}`)
       })
     }
 
-    // Listen for league updates
-    socket.on('league_updated', ({ league }) => {
-      setLeague(prev => ({
+    // Listen for group updates
+    socket.on('group_updated', ({ group, isRoundLeader: youAreRoundLeader }) => {
+      setGroup(prev => ({
         ...prev,
-        ...league,
+        ...group,
         settings: {
           ...prev.settings,
-          ...league.settings
+          ...group.settings
         }
       }))
+      if (typeof youAreRoundLeader === 'boolean') {
+        setIsRoundLeader(youAreRoundLeader)
+      }
     })
 
-    socket.on('player_joined_league', ({ players }) => {
-      setLeague(prev => ({
+    socket.on('player_joined_group', ({ players }) => {
+      setGroup(prev => ({
         ...prev,
         players: players.map(player => ({
           id: player.id,
@@ -169,12 +170,12 @@ function LeagueView() {
     })
 
     return () => {
-      socket.off('league_updated')
-      socket.off('player_joined_league')
-      socket.off('league_details')
+      socket.off('group_updated')
+      socket.off('player_joined_group')
+      socket.off('group_details')
       socket.off('error')
     }
-  }, [leagueId, location.state, socket, isConnected, user.name])
+  }, [groupId, location.state, socket, isConnected, user.name])
 
   const handleStartRound = () => {
     // Show modal to choose round leader selection method
@@ -183,8 +184,8 @@ function LeagueView() {
 
   const handleRandomAssign = () => {
     // Randomly select a Round Leader from players
-    const randomIndex = Math.floor(Math.random() * league.players.length)
-    const selectedPlayer = league.players[randomIndex]
+    const randomIndex = Math.floor(Math.random() * group.players.length)
+    const selectedPlayer = group.players[randomIndex]
     setSelectedRoundLeader(selectedPlayer)
     setShowRoundLeaderModal(false)
     
@@ -195,10 +196,10 @@ function LeagueView() {
       description: 'This round\'s music challenge',
       status: 'active',
       submissions: 0,
-      deadline: new Date(new Date().getTime() + (league.settings.submissionTime * 60 * 60 * 1000)).toISOString()
+      deadline: new Date(new Date().getTime() + (group.settings.submissionTime * 60 * 60 * 1000)).toISOString()
     }
     
-    setLeague(prev => ({ 
+    setGroup(prev => ({ 
       ...prev, 
       currentTheme: newTheme,
       currentRound: prev.currentRound + 1
@@ -224,10 +225,10 @@ function LeagueView() {
       description: 'This round\'s music challenge',
       status: 'active',
       submissions: 0,
-      deadline: new Date(new Date().getTime() + (league.settings.submissionTime * 60 * 60 * 1000)).toISOString()
+      deadline: new Date(new Date().getTime() + (group.settings.submissionTime * 60 * 60 * 1000)).toISOString()
     }
     
-    setLeague(prev => ({ 
+    setGroup(prev => ({ 
       ...prev, 
       currentTheme: newTheme,
       currentRound: prev.currentRound + 1
@@ -236,14 +237,26 @@ function LeagueView() {
     alert(`Round Leader selected: ${player.username}\nRound started!`)
   }
 
-  const handleStartLeague = () => {
-    // In production, this would start the league
-    setLeague(prev => ({ ...prev, status: 'active' }))
-    alert('League started! First round beginning.')
+  const handleStartGroup = () => {
+    if (!socket || !isConnected) {
+      alert('Please wait for server connection')
+      return
+    }
+
+    socket.emit('start_group', { groupId })
+
+    socket.once('group_updated', () => {
+      alert('Group started! First round beginning.')
+    })
+
+    socket.once('error', ({ message }) => {
+      console.error('Error starting group:', message)
+      alert(`Failed to start group: ${message}`)
+    })
   }
 
   const handleEditRules = () => {
-    setEditedSettings({ ...league.settings })
+    setEditedSettings({ ...group.settings })
     setIsEditingRules(true)
   }
 
@@ -259,20 +272,20 @@ function LeagueView() {
       overrideThreshold: editedSettings.overrideThreshold / 100
     }
 
-    socket.emit('update_league', { 
-      leagueId, 
+    socket.emit('update_group', { 
+      groupId, 
       settings: serverSettings 
     })
 
-    socket.once('league_updated', ({ league }) => {
-      setLeague(prev => ({ ...prev, settings: editedSettings }))
+    socket.once('group_updated', ({ group }) => {
+      setGroup(prev => ({ ...prev, settings: editedSettings }))
       setIsEditingRules(false)
-      alert('League rules updated!')
+      alert('Group rules updated!')
     })
 
     socket.once('error', ({ message }) => {
-      console.error('Error updating league:', message)
-      alert(`Failed to update league: ${message}`)
+      console.error('Error updating group:', message)
+      alert(`Failed to update group: ${message}`)
     })
   }
 
@@ -281,19 +294,19 @@ function LeagueView() {
     setEditedSettings(null)
   }
 
-  const handleLeaveLeague = () => {
-    if (confirm('Are you sure you want to leave this league?')) {
+  const handleLeaveGroup = () => {
+    if (confirm('Are you sure you want to leave this group?')) {
       navigate('/dashboard')
     }
   }
 
   const handleInvitePlayer = () => {
-    // Generate a simple 6-digit league code for testing
-    const leagueCode = Math.random().toString(36).substring(2, 8).toUpperCase()
-    const inviteLink = `${window.location.origin}/league/${leagueId}?code=${leagueCode}`
+    // Generate a simple 6-digit group code for testing
+    const groupCode = Math.random().toString(36).substring(2, 8).toUpperCase()
+    const inviteLink = `${window.location.origin}/group/${groupId}?code=${groupCode}`
     
     // For testing purposes, show the code instead of copying to clipboard
-    alert(`Share this league code with your friends:\n\n${leagueCode}\n\nOr share this link:\n${inviteLink}`)
+    alert(`Share this group code with your friends:\n\n${groupCode}\n\nOr share this link:\n${inviteLink}`)
   }
 
   const handleSubmitSong = () => {
@@ -332,15 +345,15 @@ function LeagueView() {
     }
   }
 
-  if (!league) {
-    return <div className="loading">Loading league...</div>
+  if (!group) {
+    return <div className="loading">Loading group...</div>
   }
 
   return (
-    <div className="league-view-page">
+    <div className="group-view-page">
       <a href="#main-content" className="skip-link">Skip to main content</a>
       
-      <header className="league-header">
+      <header className="group-header">
         <div className="header-content">
           <button 
             className="back-button"
@@ -350,15 +363,15 @@ function LeagueView() {
             ← Dashboard
           </button>
           
-          <div className="league-info">
-            <h1>{league.name}</h1>
-            <p className="league-description">{league.description}</p>
-            <div className="league-meta">
-              <span className={`status-badge ${league.status}`}>
-                {league.status}
+          <div className="group-info">
+            <h1>{group.name}</h1>
+            <p className="group-description">{group.description}</p>
+            <div className="group-meta">
+              <span className={`status-badge ${group.status}`}>
+                {group.status}
               </span>
-              <span className="round-info">Round {league.currentRound}/{league.settings.totalRounds}</span>
-              <span className="player-count">{league.players.length} players</span>
+              <span className="round-info">Round {group.currentRound}/{group.settings.totalRounds}</span>
+              <span className="player-count">{group.players.length} players</span>
             </div>
           </div>
 
@@ -374,7 +387,7 @@ function LeagueView() {
             <button 
               className="action-button"
               onClick={handleInvitePlayer}
-              aria-label="Invite players to league"
+              aria-label="Invite players to group"
             >
               Invite Players
             </button>
@@ -385,7 +398,7 @@ function LeagueView() {
             >
               Account
             </button>
-            {league.players.find(p => p.id === user.id)?.isHost && (
+            {group.players.find(p => p.id === user.id)?.isHost && (
               <button 
                 className="action-button primary"
                 onClick={handleStartRound}
@@ -398,20 +411,20 @@ function LeagueView() {
         </div>
       </header>
 
-      <main id="main-content" className="league-main">
-        <div className="league-content">
+      <main id="main-content" className="group-main">
+        <div className="group-content">
           {/* Main Content Area */}
-          <div className="league-main-content">
+          <div className="group-main-content">
             {activeTab === 'overview' && (
               <section className="tab-content">
-                <h2>League Overview</h2>
+                <h2>Group Overview</h2>
                 
-                {league.status === 'setup' && (
+                {group.status === 'setup' && (
                   /* Setup State - Host can invite players */
                   <div className="setup-state">
                     <div className="setup-icon" aria-hidden="true">🎯</div>
-                    <h3>League Setup</h3>
-                    <p>Invite players to join your league before starting the first round.</p>
+                    <h3>Group Setup</h3>
+                    <p>Invite players to join your group before starting the first round.</p>
                     
                     <div className="setup-actions">
                       <button 
@@ -422,57 +435,63 @@ function LeagueView() {
                       </button>
                       <button 
                         className="setup-button secondary"
-                        onClick={handleStartLeague}
-                        disabled={league.players.length < 1}
+                        onClick={handleStartGroup}
+                        disabled={group.players.length < 1}
                       >
-                        Start League
+                        Start Group
                       </button>
                     </div>
                     
                     <div className="setup-info">
-                      <p>Players joined: {league.players.length}</p>
-                      <p className="setup-hint">League can start with 1 player for testing</p>
+                      <p>Players joined: {group.players.length}</p>
+                      <p className="setup-hint">Group can start with 1 player for testing</p>
                     </div>
                   </div>
                 )}
 
-                {league.status === 'setup' && !league.players.find(p => p.id === user.id)?.isHost && (
-                  /* Waiting State - Non-host waiting for league to start */
+                {group.status === 'setup' && !group.players.find(p => p.id === user.id)?.isHost && (
+                  /* Waiting State - Non-host waiting for group to start */
                   <div className="waiting-state">
                     <div className="waiting-icon" aria-hidden="true">⏳</div>
                     <h3>Waiting for Host</h3>
-                    <p>The host is setting up the league. You'll be notified when it starts.</p>
+                    <p>The host is setting up the group. You'll be notified when it starts.</p>
                     
                     <div className="waiting-info">
-                      <p>Players joined: {league.players.length}</p>
-                      <p>League status: Setup in progress</p>
+                      <p>Players joined: {group.players.length}</p>
+                      <p>Group status: Setup in progress</p>
                     </div>
                   </div>
                 )}
 
-                {league.status === 'active' && league.currentTheme && selectedRoundLeader && (
+                {group.status === 'active' && group.currentTheme && (
                   /* Current Round */
                   <div className="current-theme-card">
                     <div className="theme-header">
                       <h3>Current Theme</h3>
                       <div className="theme-meta">
                         <span className="theme-status">Active</span>
-                        <span className="round-leader-badge">Round Leader: {selectedRoundLeader.username}</span>
+                        <span className="round-leader-badge">
+                          {isRoundLeader
+                            ? 'You are the Round Leader'
+                            : group.currentTheme.czarUsername
+                              ? `Round Leader: ${group.currentTheme.czarUsername}`
+                              : 'Round Leader: Anonymous'}
+                        </span>
                       </div>
                     </div>
                     <div className="theme-body">
-                      <h4>{league.currentTheme.title}</h4>
-                      <p className="theme-description">{league.currentTheme.description}</p>
+                      <h4>{group.currentTheme.title}</h4>
+                      <p className="theme-description">{group.currentTheme.description}</p>
                       
                       <div className="theme-stats">
                         <div className="theme-stat">
                           <span className="stat-label">Submissions</span>
-                          <span className="stat-value">{league.currentTheme.submissions}</span>
+                          <span className="stat-value">{group.currentTheme.submissions}</span>
                         </div>
                         <div className="theme-stat">
                           <span className="stat-label">Deadline</span>
                           <span className="stat-value">
-                            {new Date(league.currentTheme.deadline).toLocaleDateString()}
+                            {new Date(group.currentTheme.deadline).toLocaleDateString()}
                           </span>
                         </div>
                       </div>
@@ -528,13 +547,13 @@ function LeagueView() {
                   </div>
                 )}
 
-                {league.status === 'active' && !league.currentTheme && (
+                {group.status === 'active' && !group.currentTheme && (
                   /* No Active Round - Host can start round */
                   <div className="no-theme-card">
                     <div className="no-theme-icon" aria-hidden="true">🎵</div>
                     <h3>No Active Round</h3>
                     <p>Waiting for the host to start a new round.</p>
-                    {league.players.find(p => p.id === user.id)?.isHost && (
+                    {group.players.find(p => p.id === user.id)?.isHost && (
                       <button 
                         className="theme-action-button"
                         onClick={handleStartRound}
@@ -549,7 +568,7 @@ function LeagueView() {
                 <div className="leaderboard-card">
                   <h3>Leaderboard</h3>
                   <div className="leaderboard-list">
-                    {league.players
+                    {group.players
                       .sort((a, b) => b.score - a.score)
                       .map((player, index) => (
                         <div key={player.id} className="leaderboard-item">
@@ -567,31 +586,31 @@ function LeagueView() {
                   <div className="stat-card">
                     <div className="stat-icon" aria-hidden="true">🎵</div>
                     <h4>Total Songs</h4>
-                    <p>{league.history.reduce((sum, h) => sum + (h.totalSubmissions || 0), 0) + (league.currentTheme?.submissions || 0)} submitted</p>
+                    <p>{group.history.reduce((sum, h) => sum + (h.totalSubmissions || 0), 0) + (group.currentTheme?.submissions || 0)} submitted</p>
                   </div>
                   <div className="stat-card">
                     <div className="stat-icon" aria-hidden="true">🏆</div>
                     <h4>Themes Played</h4>
-                    <p>{league.history.length} completed</p>
+                    <p>{group.history.length} completed</p>
                   </div>
                   <div className="stat-card">
                     <div className="stat-icon" aria-hidden="true">⏱️</div>
                     <h4>Time Remaining</h4>
-                    <p>{league.currentTheme ? `${Math.ceil((new Date(league.currentTheme.deadline) - new Date()) / (1000 * 60 * 60))} hours` : 'No active theme'}</p>
+                    <p>{group.currentTheme ? `${Math.ceil((new Date(group.currentTheme.deadline) - new Date()) / (1000 * 60 * 60))} hours` : 'No active theme'}</p>
                   </div>
                   <div className="stat-card">
                     <div className="stat-icon" aria-hidden="true">👥</div>
                     <h4>Active Players</h4>
-                    <p>{league.players.length}/{league.settings.maxPlayers}</p>
+                    <p>{group.players.length}/{group.settings.maxPlayers}</p>
                   </div>
                 </div>
               </section>
             )}
 
-            {activeTab === 'round' && league.currentTheme && (
+            {activeTab === 'round' && group.currentTheme && (
               <section className="tab-content">
                 <div className="round-header">
-                  <h2>Round {league.currentRound}</h2>
+                  <h2>Round {group.currentRound}</h2>
                   {timeRemaining !== null && timeRemaining > 0 && (
                     <div className="round-countdown">
                       <span className="countdown-icon">⏱️</span>
@@ -608,21 +627,25 @@ function LeagueView() {
                     <div className="round-info-header">
                       <h3>Current Theme</h3>
                       <span className="round-leader-badge">
-                        Round Leader: {selectedRoundLeader?.username || 'Loading...'}
+                        {isRoundLeader
+                          ? 'You are the Round Leader'
+                          : group.currentTheme.czarUsername
+                            ? `Round Leader: ${group.currentTheme.czarUsername}`
+                            : 'Round Leader: Anonymous'}
                       </span>
                     </div>
                     <div className="round-info-body">
-                      <h4>{league.currentTheme.title}</h4>
-                      <p className="round-description">{league.currentTheme.description}</p>
+                      <h4>{group.currentTheme.title}</h4>
+                      <p className="round-description">{group.currentTheme.description}</p>
                       <div className="round-stats">
                         <div className="round-stat">
                           <span className="stat-label">Submissions</span>
-                          <span className="stat-value">{league.currentTheme.submissions}</span>
+                          <span className="stat-value">{group.currentTheme.submissions}</span>
                         </div>
                         <div className="round-stat">
                           <span className="stat-label">Deadline</span>
                           <span className="stat-value">
-                            {new Date(league.currentTheme.deadline).toLocaleDateString()} at {new Date(league.currentTheme.deadline).toLocaleTimeString()}
+                            {new Date(group.currentTheme.deadline).toLocaleDateString()} at {new Date(group.currentTheme.deadline).toLocaleTimeString()}
                           </span>
                         </div>
                       </div>
@@ -632,10 +655,10 @@ function LeagueView() {
                   {/* Submissions Section */}
                   <div className="submissions-section">
                     <h3>Submissions</h3>
-                    <p className="submissions-count">{league.currentTheme.submissions} player(s) have submitted songs</p>
+                    <p className="submissions-count">{group.currentTheme.submissions} player(s) have submitted songs</p>
                     
                     <div className="submissions-list">
-                      {league.players.filter(p => p.id !== selectedRoundLeader?.id).map(player => (
+                      {group.players.filter(p => p.id !== selectedRoundLeader?.id).map(player => (
                         <div key={player.id} className="submission-item">
                           <div className="submission-player">
                             <span className="submission-avatar" aria-hidden="true">{player.username[0]}</span>
@@ -705,7 +728,7 @@ function LeagueView() {
               </section>
             )}
 
-            {activeTab === 'round' && !league.currentTheme && (
+            {activeTab === 'round' && !group.currentTheme && (
               <section className="tab-content">
                 <div className="no-round-state">
                   <div className="no-round-icon" aria-hidden="true">🎵</div>
@@ -720,7 +743,7 @@ function LeagueView() {
                 <h2>Participants</h2>
                 
                 <div className="participants-list">
-                  {league.players
+                  {group.players
                     .sort((a, b) => b.score - a.score)
                     .map((player, index) => (
                     <article key={player.id} className="participant-card">
@@ -738,11 +761,11 @@ function LeagueView() {
                       <div className="participant-stats">
                         <div className="mini-stat">
                           <span className="mini-label">Rounds Won</span>
-                          <span className="mini-value">{Math.floor(player.score / league.settings.czarPoints)}</span>
+                          <span className="mini-value">{Math.floor(player.score / group.settings.czarPoints)}</span>
                         </div>
                         <div className="mini-stat">
                           <span className="mini-label">Songs Submitted</span>
-                          <span className="mini-value">{league.currentRound}</span>
+                          <span className="mini-value">{group.currentRound}</span>
                         </div>
                         <div className="mini-stat">
                           <span className="mini-label">Current Rank</span>
@@ -766,7 +789,7 @@ function LeagueView() {
                 <h2>Theme History</h2>
                 
                 <div className="history-list">
-                  {league.history.map((theme, index) => (
+                  {group.history.map((theme, index) => (
                     <article key={theme.id} className="history-item">
                       <div className="history-header">
                         <div className="round-number">Round {index + 1}</div>
@@ -805,7 +828,7 @@ function LeagueView() {
                   ))}
                 </div>
 
-                {league.history.length === 0 && (
+                {group.history.length === 0 && (
                   <div className="empty-state">
                     <div className="empty-icon" aria-hidden="true">📜</div>
                     <h3>No history yet</h3>
@@ -818,8 +841,8 @@ function LeagueView() {
             {activeTab === 'rules' && (
               <section className="tab-content">
                 <div className="rules-header">
-                  <h2>League Rules</h2>
-                  {league.players.find(p => p.id === user.id)?.isHost && !isEditingRules && (
+                  <h2>Group Rules</h2>
+                  {group.players.find(p => p.id === user.id)?.isHost && !isEditingRules && (
                     <button 
                       className="edit-rules-button"
                       onClick={handleEditRules}
@@ -1079,64 +1102,64 @@ function LeagueView() {
                     <div className="rules-section">
                       <h3>Game Settings</h3>
                       <ul className="rules-list">
-                        <li><strong>Total Rounds:</strong> {league.settings.totalRounds}</li>
-                        <li><strong>Max Players:</strong> {league.settings.maxPlayers}</li>
-                        <li><strong>Min Players to Start:</strong> {league.settings.minPlayers}</li>
+                        <li><strong>Total Rounds:</strong> {group.settings.totalRounds}</li>
+                        <li><strong>Max Players:</strong> {group.settings.maxPlayers}</li>
+                        <li><strong>Min Players to Start:</strong> {group.settings.minPlayers}</li>
                       </ul>
                     </div>
 
                     <div className="rules-section">
                       <h3>Round Leader Rules</h3>
                       <ul className="rules-list">
-                        <li><strong>Points for Leader Pick:</strong> {league.settings.czarPoints}</li>
-                        <li><strong>Anonymous Leader:</strong> {league.settings.anonymousCzar ? 'Yes' : 'No'}</li>
-                        <li><strong>Allow Skip Leader:</strong> {league.settings.allowSkipCzar ? 'Yes' : 'No'}</li>
+                        <li><strong>Points for Leader Pick:</strong> {group.settings.czarPoints}</li>
+                        <li><strong>Anonymous Leader:</strong> {group.settings.anonymousCzar ? 'Yes' : 'No'}</li>
+                        <li><strong>Allow Skip Leader:</strong> {group.settings.allowSkipCzar ? 'Yes' : 'No'}</li>
                       </ul>
                     </div>
 
                     <div className="rules-section">
                       <h3>Jury Rules</h3>
                       <ul className="rules-list">
-                        <li><strong>Max Jury Points:</strong> {league.settings.maxJuryPoints}</li>
-                        <li><strong>Allow Downvotes:</strong> {league.settings.allowDownvotes ? 'Yes' : 'No'}</li>
-                        <li><strong>Downvote Cost:</strong> {league.settings.downvoteCost} points</li>
+                        <li><strong>Max Jury Points:</strong> {group.settings.maxJuryPoints}</li>
+                        <li><strong>Allow Downvotes:</strong> {group.settings.allowDownvotes ? 'Yes' : 'No'}</li>
+                        <li><strong>Downvote Cost:</strong> {group.settings.downvoteCost} points</li>
                       </ul>
                     </div>
 
                     <div className="rules-section">
                       <h3>Override Rules</h3>
                       <ul className="rules-list">
-                        <li><strong>Allow Override:</strong> {league.settings.allowOverride ? 'Yes' : 'No'}</li>
-                        <li><strong>Override Threshold:</strong> {league.settings.overrideThreshold}%</li>
+                        <li><strong>Allow Override:</strong> {group.settings.allowOverride ? 'Yes' : 'No'}</li>
+                        <li><strong>Override Threshold:</strong> {group.settings.overrideThreshold}%</li>
                       </ul>
                     </div>
 
                     <div className="rules-section">
                       <h3>Timing</h3>
                       <ul className="rules-list">
-                        <li><strong>Submission Time:</strong> {league.settings.submissionTime} hours</li>
-                        <li><strong>Voting Time:</strong> {league.settings.votingTime} hours</li>
-                        <li><strong>Auto-Start:</strong> {league.settings.autoStart ? 'Yes' : 'No'}</li>
+                        <li><strong>Submission Time:</strong> {group.settings.submissionTime} hours</li>
+                        <li><strong>Voting Time:</strong> {group.settings.votingTime} hours</li>
+                        <li><strong>Auto-Start:</strong> {group.settings.autoStart ? 'Yes' : 'No'}</li>
                       </ul>
                     </div>
 
                     <div className="rules-section">
                       <h3>Additional Features</h3>
                       <ul className="rules-list">
-                        <li><strong>Chat:</strong> {league.settings.enableChat ? 'Enabled' : 'Disabled'}</li>
-                        <li><strong>Song Preview:</strong> {league.settings.enableSongPreview ? 'Enabled' : 'Disabled'}</li>
-                        <li><strong>Show Voter Identity:</strong> {league.settings.showVoterIdentity ? 'Yes' : 'No'}</li>
+                        <li><strong>Chat:</strong> {group.settings.enableChat ? 'Enabled' : 'Disabled'}</li>
+                        <li><strong>Song Preview:</strong> {group.settings.enableSongPreview ? 'Enabled' : 'Disabled'}</li>
+                        <li><strong>Show Voter Identity:</strong> {group.settings.showVoterIdentity ? 'Yes' : 'No'}</li>
                       </ul>
                     </div>
 
                     <div className="rules-section">
                       <h3>Topic Settings</h3>
                       <ul className="rules-list">
-                        <li><strong>Topic Selection:</strong> {league.settings.topicSelection === 'czar' ? 'Round Leader Chooses' : league.settings.topicSelection === 'random' ? 'Random Selection' : 'Player Vote'}</li>
-                        <li><strong>Allow Custom Topics:</strong> {league.settings.allowCustomTopics ? 'Yes' : 'No'}</li>
-                        <li><strong>Preset Topics:</strong> {league.settings.presetTopics?.length || 0} topics available</li>
-                        {league.settings.presetTopics && league.settings.presetTopics.length > 0 && (
-                          <li><strong>Topics:</strong> {league.settings.presetTopics.join(', ')}</li>
+                        <li><strong>Topic Selection:</strong> {group.settings.topicSelection === 'czar' ? 'Round Leader Chooses' : group.settings.topicSelection === 'random' ? 'Random Selection' : 'Player Vote'}</li>
+                        <li><strong>Allow Custom Topics:</strong> {group.settings.allowCustomTopics ? 'Yes' : 'No'}</li>
+                        <li><strong>Preset Topics:</strong> {group.settings.presetTopics?.length || 0} topics available</li>
+                        {group.settings.presetTopics && group.settings.presetTopics.length > 0 && (
+                          <li><strong>Topics:</strong> {group.settings.presetTopics.join(', ')}</li>
                         )}
                       </ul>
                     </div>
@@ -1147,15 +1170,15 @@ function LeagueView() {
           </div>
 
           {/* Sidebar with Navigation */}
-          <aside className="league-sidebar">
-            <nav className="league-nav" aria-label="League navigation">
+          <aside className="group-sidebar">
+            <nav className="group-nav" aria-label="Group navigation">
               <button 
                 className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`}
                 onClick={() => setActiveTab('overview')}
               >
                 Overview
               </button>
-              {league.currentTheme && (
+              {group.currentTheme && (
                 <button 
                   className={`nav-item ${activeTab === 'round' ? 'active' : ''}`}
                   onClick={() => setActiveTab('round')}
@@ -1184,25 +1207,25 @@ function LeagueView() {
             </nav>
 
             <div className="sidebar-footer">
-              {league.players.find(p => p.id === user.id)?.isHost ? (
+              {group.players.find(p => p.id === user.id)?.isHost ? (
                 <button 
                   className="leave-button delete"
                   onClick={() => {
-                    if (confirm('Are you sure you want to delete this league? This cannot be undone.')) {
+                    if (confirm('Are you sure you want to delete this group? This cannot be undone.')) {
                       navigate('/dashboard')
                     }
                   }}
-                  aria-label="Delete league"
+                  aria-label="Delete group"
                 >
-                  Delete League
+                  Delete Group
                 </button>
               ) : (
                 <button 
                   className="leave-button"
-                  onClick={handleLeaveLeague}
-                  aria-label="Leave league"
+                  onClick={handleLeaveGroup}
+                  aria-label="Leave group"
                 >
-                  Leave League
+                  Leave Group
                 </button>
               )}
             </div>
@@ -1322,7 +1345,7 @@ function LeagueView() {
                   <div className="option-icon">🎲</div>
                   <div className="option-content">
                     <h3>Randomly Assign</h3>
-                    <p>Let the system randomly pick a Round Leader from the league players</p>
+                    <p>Let the system randomly pick a Round Leader from the group players</p>
                   </div>
                 </button>
                 
@@ -1368,7 +1391,7 @@ function LeagueView() {
             <div className="modal-body">
               <p>Select a player to be the Round Leader for this round:</p>
               <div className="player-selection-list">
-                {league.players.map(player => (
+                {group.players.map(player => (
                   <button 
                     key={player.id}
                     className="player-selection-item"
@@ -1398,4 +1421,4 @@ function LeagueView() {
   )
 }
 
-export default LeagueView
+export default GroupView

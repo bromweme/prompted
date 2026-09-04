@@ -5,7 +5,7 @@ import { useUser } from '../context/UserContext'
 import './Dashboard.css'
 
 function Dashboard() {
-  const [leagues, setLeagues] = useState([])
+  const [groups, setGroups] = useState([])
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [joinCode, setJoinCode] = useState('')
   const { socket, isConnected } = useSocket()
@@ -16,116 +16,113 @@ function Dashboard() {
   useEffect(() => {
     if (!socket || !isConnected) return
 
-    // Fetch user's leagues from server
-    socket.emit('get_leagues')
+    // Fetch user's groups from server
+    socket.emit('get_groups')
 
-    socket.on('leagues_list', ({ leagues: serverLeagues }) => {
-      // Transform server leagues to match UI format
-      const transformedLeagues = serverLeagues.map(league => ({
-        id: league.id,
-        name: league.name,
-        description: league.description,
-        players: league.players.length,
-        currentRound: league.currentRound,
-        totalRounds: league.settings.totalRounds || 6,
-        status: league.status,
-        host: league.host
+    socket.on('groups_list', ({ groups: serverGroups }) => {
+      // Transform server groups to match UI format
+      const transformedGroups = serverGroups.map(group => ({
+        id: group.id,
+        name: group.name,
+        description: group.description,
+        players: group.players.length,
+        currentRound: group.currentRound,
+        totalRounds: group.settings.totalRounds || 6,
+        status: group.status,
+        host: group.host
       }))
-      setLeagues(transformedLeagues)
+      setGroups(transformedGroups)
     })
 
     return () => {
-      socket.off('leagues_list')
+      socket.off('groups_list')
     }
   }, [socket, isConnected])
 
   useEffect(() => {
-    // Check if there's a new league from navigation state
-    if (location.state?.newLeague) {
-      setLeagues(prev => {
-        // Check if league already exists
-        if (prev.find(l => l.id === location.state.newLeague.id)) {
+    // Check if there's a new group from navigation state
+    if (location.state?.newGroup) {
+      setGroups(prev => {
+        // Check if group already exists
+        if (prev.find(l => l.id === location.state.newGroup.id)) {
           return prev
         }
         return [...prev, {
-          id: location.state.newLeague.id,
-          name: location.state.newLeague.name,
-          description: location.state.newLeague.description,
-          players: location.state.newLeague.players.length,
-          currentRound: location.state.newLeague.currentRound,
-          totalRounds: location.state.newLeague.settings.totalRounds,
-          status: location.state.newLeague.status,
-          host: location.state.newLeague.players[0]?.id
+          id: location.state.newGroup.id,
+          name: location.state.newGroup.name,
+          description: location.state.newGroup.description,
+          players: location.state.newGroup.players.length,
+          currentRound: location.state.newGroup.currentRound,
+          totalRounds: location.state.newGroup.settings.totalRounds,
+          status: location.state.newGroup.status,
+          host: location.state.newGroup.players[0]?.id
         }]
       })
     }
   }, [location.state])
 
-  const handleJoinLeague = (leagueId) => {
+  const handleJoinGroup = (groupId) => {
     if (!socket || !isConnected) {
       alert('Please wait for server connection')
       return
     }
 
-    // Set username on socket for league join
-    socket.data.username = user.name
-    
-    // Fetch league details from server
-    socket.emit('get_league', { leagueId })
+    // Fetch group details from server
+    socket.emit('get_group', { groupId, username: user.name })
 
-    socket.once('league_details', ({ league }) => {
-      // Transform server league data to match UI format
-      const fullLeagueData = {
-        id: league.id,
-        name: league.name,
-        description: league.description,
+    socket.once('group_details', ({ group }) => {
+      // Transform server group data to match UI format
+      const fullGroupData = {
+        id: group.id,
+        name: group.name,
+        description: group.description,
         settings: {
-          totalRounds: league.settings.totalRounds || 6,
-          maxPlayers: league.settings.maxPlayers || 12,
-          minPlayers: league.settings.minPlayers || 2,
-          czarPoints: league.settings.czarPoints || 5,
-          allowSkipCzar: league.settings.allowSkipCzar !== false,
-          anonymousCzar: league.settings.anonymousCzar !== false,
-          maxJuryPoints: league.settings.maxJuryPoints || 3,
-          allowDownvotes: league.settings.allowDownvotes !== false,
-          downvoteCost: league.settings.downvoteCost || 1,
-          allowOverride: league.settings.allowOverride !== false,
-          overrideThreshold: (league.settings.overrideThreshold || 0.7) * 100, // Convert to percentage
-          submissionTime: league.settings.submissionTime || 24,
-          votingTime: league.settings.votingTime || 24,
-          autoStart: league.settings.autoStart || false,
-          topicSelection: league.settings.topicSelection || 'czar',
-          allowCustomTopics: league.settings.allowCustomTopics !== false,
-          presetTopics: league.settings.presetTopics || [],
-          enableChat: league.settings.enableChat || false,
-          enableSongPreview: league.settings.enableSongPreview !== false,
-          showVoterIdentity: league.settings.showVoterIdentity || false
+          totalRounds: group.settings.totalRounds || 6,
+          maxPlayers: group.settings.maxPlayers || 12,
+          minPlayers: group.settings.minPlayers || 2,
+          czarPoints: group.settings.czarPoints || 5,
+          allowSkipCzar: group.settings.allowSkipCzar !== false,
+          anonymousCzar: group.settings.anonymousCzar !== false,
+          maxJuryPoints: group.settings.maxJuryPoints || 3,
+          allowDownvotes: group.settings.allowDownvotes !== false,
+          downvoteCost: group.settings.downvoteCost || 1,
+          allowOverride: group.settings.allowOverride !== false,
+          overrideThreshold: (group.settings.overrideThreshold || 0.7) * 100, // Convert to percentage
+          submissionTime: group.settings.submissionTime || 24,
+          votingTime: group.settings.votingTime || 24,
+          autoStart: group.settings.autoStart || false,
+          topicSelection: group.settings.topicSelection || 'czar',
+          allowCustomTopics: group.settings.allowCustomTopics !== false,
+          presetTopics: group.settings.presetTopics || [],
+          enableChat: group.settings.enableChat || false,
+          enableSongPreview: group.settings.enableSongPreview !== false,
+          showVoterIdentity: group.settings.showVoterIdentity || false
         },
-        status: league.status,
-        currentRound: league.currentRound,
-        players: league.players.map(player => ({
+        status: group.status,
+        currentRound: group.currentRound,
+        players: group.players.map(player => ({
           id: player.id,
           username: player.username,
           score: player.score,
-          isHost: player.id === league.host
+          isHost: player.id === group.host
         })),
-        currentTheme: null, // Will be populated when league becomes active
-        history: league.history || []
+        currentTheme: null, // Will be populated when group becomes active
+        history: group.history || []
       }
       
-      navigate(`/league/${leagueId}`, { state: { leagueData: fullLeagueData } })
+      navigate(`/group/${groupId}`, { state: { groupData: fullGroupData } })
     })
 
     socket.once('error', ({ message }) => {
-      console.error('Error fetching league:', message)
-      alert(`Failed to load league: ${message}`)
+      console.error('Error fetching group:', message)
+      alert(`Failed to load group: ${message}`)
     })
   }
 
-  const handleJoinLeagueByCode = () => {
-    // In production, this would validate the code and join the league
+  const handleJoinGroupByCode = () => {
+    // In production, this would validate the code and join the group
     if (joinCode.trim()) {
-      alert(`Joining league with code: ${joinCode}`)
+      alert(`Joining group with code: ${joinCode}`)
       setShowJoinModal(false)
       setJoinCode('')
     }
@@ -186,48 +183,48 @@ function Dashboard() {
 
       <main id="main-content" className="dashboard-main">
         <div className="dashboard-content">
-          {/* Show My Leagues first if user has leagues */}
-          {leagues.length > 0 && (
-            <section className="leagues-section">
+          {/* Show My Groups first if user has groups */}
+          {groups.length > 0 && (
+            <section className="groups-section">
               <div className="section-header">
-                <h2>My Leagues</h2>
-                <div className="league-tabs">
+                <h2>My Groups</h2>
+                <div className="group-tabs">
                   <button className="tab-button active">Active</button>
                   <button className="tab-button">Completed</button>
                   <button className="tab-button">Archived</button>
                 </div>
               </div>
 
-              <div className="leagues-grid">
-                {leagues.map((league) => (
+              <div className="groups-grid">
+                {groups.map((group) => (
                   <article 
-                    key={league.id} 
-                    className="league-card"
-                    onClick={() => handleJoinLeague(league.id)}
+                    key={group.id} 
+                    className="group-card"
+                    onClick={() => handleJoinGroup(group.id)}
                     style={{ cursor: 'pointer' }}
                   >
-                    <div className="league-header">
-                      <h3>{league.name}</h3>
-                      <span className={`status-badge ${league.status}`}>
-                        {league.status}
+                    <div className="group-header">
+                      <h3>{group.name}</h3>
+                      <span className={`status-badge ${group.status}`}>
+                        {group.status}
                       </span>
                     </div>
                     
-                    <p className="league-description">{league.description}</p>
+                    <p className="group-description">{group.description}</p>
                     
-                    <div className="league-stats">
+                    <div className="group-stats">
                       <div className="stat">
                         <span className="stat-label">Players</span>
-                        <span className="stat-value">{league.players}</span>
+                        <span className="stat-value">{group.players}</span>
                       </div>
                       <div className="stat">
                         <span className="stat-label">Round</span>
-                        <span className="stat-value">{league.currentRound}/{league.totalRounds}</span>
+                        <span className="stat-value">{group.currentRound}/{group.totalRounds}</span>
                       </div>
                     </div>
 
-                    <div className="league-actions">
-                      {league.host === user.id ? (
+                    <div className="group-actions">
+                      {group.host === user.id ? (
                         <span className="host-badge">You're the host</span>
                       ) : (
                         <span className="member-badge">Member</span>
@@ -247,41 +244,41 @@ function Dashboard() {
             
             <div className="welcome-actions">
               <button 
-                className="create-league-button"
-                onClick={() => navigate('/create-league')}
-                aria-label="Create new league"
+                className="create-group-button"
+                onClick={() => navigate('/create-group')}
+                aria-label="Create new group"
               >
                 <span className="button-icon" aria-hidden="true">+</span>
-                Create New League
+                Create New Group
               </button>
               <button 
-                className="join-league-button"
+                className="join-group-button"
                 onClick={() => setShowJoinModal(true)}
-                aria-label="Join existing league"
+                aria-label="Join existing group"
               >
                 <span className="button-icon" aria-hidden="true">🔗</span>
-                Join League
+                Join Group
               </button>
             </div>
           </section>
 
-          {leagues.length === 0 && (
-            <section className="leagues-section">
+          {groups.length === 0 && (
+            <section className="groups-section">
               <div className="section-header">
-                <h2>My Leagues</h2>
-                <div className="league-tabs">
+                <h2>My Groups</h2>
+                <div className="group-tabs">
                   <button className="tab-button active">Active</button>
                   <button className="tab-button">Completed</button>
                   <button className="tab-button">Archived</button>
                 </div>
               </div>
 
-              <div className="leagues-grid">
-                {leagues.length === 0 && (
+              <div className="groups-grid">
+                {groups.length === 0 && (
                   <div className="empty-state">
                     <div className="empty-icon" aria-hidden="true">🎵</div>
-                    <h3>No leagues yet</h3>
-                    <p>Create your first league to get started!</p>
+                    <h3>No groups yet</h3>
+                    <p>Create your first group to get started!</p>
                   </div>
                 )}
               </div>
@@ -293,13 +290,13 @@ function Dashboard() {
             <div className="quick-actions-grid">
               <button className="quick-action-card">
                 <div className="action-icon" aria-hidden="true">🔍</div>
-                <h3>Browse Leagues</h3>
-                <p>Find public leagues to join</p>
+                <h3>Browse Groups</h3>
+                <p>Find public groups to join</p>
               </button>
               <button className="quick-action-card">
                 <div className="action-icon" aria-hidden="true">👥</div>
                 <h3>Invite Friends</h3>
-                <p>Share your league with friends</p>
+                <p>Share your group with friends</p>
               </button>
               <button className="quick-action-card">
                 <div className="action-icon" aria-hidden="true">📊</div>
@@ -320,7 +317,7 @@ function Dashboard() {
         <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="join-modal-title">
           <div className="modal-content">
             <div className="modal-header">
-              <h2 id="join-modal-title">Join League</h2>
+              <h2 id="join-modal-title">Join Group</h2>
               <button 
                 className="close-button"
                 onClick={() => setShowJoinModal(false)}
@@ -330,19 +327,19 @@ function Dashboard() {
               </button>
             </div>
             
-            <form className="modal-body" onSubmit={(e) => { e.preventDefault(); handleJoinLeagueByCode(); }}>
+            <form className="modal-body" onSubmit={(e) => { e.preventDefault(); handleJoinGroupByCode(); }}>
               <div className="form-group">
-                <label htmlFor="join-code">League Code</label>
+                <label htmlFor="join-code">Group Code</label>
                 <input
                   id="join-code"
                   type="text"
                   value={joinCode}
                   onChange={(e) => setJoinCode(e.target.value)}
-                  placeholder="Enter 6-digit league code"
+                  placeholder="Enter 6-digit group code"
                   required
                   maxLength={6}
                 />
-                <small className="form-hint">Get the league code from the host</small>
+                <small className="form-hint">Get the group code from the host</small>
               </div>
 
               <div className="modal-actions">
@@ -358,7 +355,7 @@ function Dashboard() {
                   className="submit-button"
                   disabled={!joinCode.trim()}
                 >
-                  Join League
+                  Join Group
                 </button>
               </div>
             </form>

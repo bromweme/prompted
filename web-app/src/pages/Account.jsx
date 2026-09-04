@@ -390,7 +390,7 @@ function Account() {
                 <div className="setting-item">
                   <div className="setting-info">
                     <h3>Email Notifications</h3>
-                    <p>Receive updates about your leagues and submissions</p>
+                    <p>Receive updates about your groups and submissions</p>
                   </div>
                   <label className="toggle-switch">
                     <input type="checkbox" defaultChecked />

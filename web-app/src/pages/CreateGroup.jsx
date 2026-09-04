@@ -2,47 +2,47 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
-import './CreateLeague.css'
+import './CreateGroup.css'
 
-function CreateLeague() {
+function CreateGroup() {
   const navigate = useNavigate()
   const { socket, isConnected } = useSocket()
   const { user } = useUser()
-  
-  // Basic League Info
-  const [leagueName, setLeagueName] = useState('')
-  const [leagueDescription, setLeagueDescription] = useState('')
+
+  // Basic Group Info
+  const [groupName, setGroupName] = useState('')
+  const [groupDescription, setGroupDescription] = useState('')
   const [isPrivate, setIsPrivate] = useState(false)
-  
+
   // Game Settings
   const [totalRounds, setTotalRounds] = useState(6)
   const [maxPlayers, setMaxPlayers] = useState(12)
   const [minPlayers, setMinPlayers] = useState(2)
-  
+
   // Card Czar Settings
   const [czarPoints, setCzarPoints] = useState(5)
   const [allowSkipCzar, setAllowSkipCzar] = useState(true)
   const [anonymousCzar, setAnonymousCzar] = useState(true)
-  
+
   // Jury Settings
   const [maxJuryPoints, setMaxJuryPoints] = useState(3)
   const [allowDownvotes, setAllowDownvotes] = useState(true)
   const [downvoteCost, setDownvoteCost] = useState(1)
-  
+
   // Override Settings
   const [allowOverride, setAllowOverride] = useState(true)
   const [overrideThreshold, setOverrideThreshold] = useState(70)
-  
+
   // Timing Settings
   const [submissionTime, setSubmissionTime] = useState(24) // hours
   const [votingTime, setVotingTime] = useState(24) // hours
   const [autoStart, setAutoStart] = useState(false)
-  
+
   // Topic Settings
   const [topicSelection, setTopicSelection] = useState('czar') // czar, random, vote
   const [allowCustomTopics, setAllowCustomTopics] = useState(true)
   const [presetTopics, setPresetTopics] = useState('')
-  
+
   // Features
   const [enableChat, setEnableChat] = useState(false)
   const [enableSongPreview, setEnableSongPreview] = useState(true)
@@ -50,15 +50,15 @@ function CreateLeague() {
 
   const handleSubmit = (e) => {
     e.preventDefault()
-    
+
     if (!isConnected) {
       alert('Please wait for server connection')
       return
     }
 
-    const leagueData = {
-      name: leagueName,
-      description: leagueDescription,
+    const groupData = {
+      name: groupName,
+      description: groupDescription,
       isPrivate,
       settings: {
         totalRounds,
@@ -83,22 +83,19 @@ function CreateLeague() {
         showVoterIdentity
       }
     }
-    
-    // Set username on socket for league creation
-    socket.data.username = user.name
-    
-    // Send league creation request to server
-    socket.emit('create_league', { leagueData })
-    
-    // Listen for league creation confirmation
-    socket.once('league_created', ({ league }) => {
-      console.log('League created successfully:', league)
-      navigate(`/league/${league.id}`, { state: { leagueData: league } })
+
+    // Send group creation request to server
+    socket.emit('create_group', { groupData, username: user.name })
+
+    // Listen for group creation confirmation
+    socket.once('group_created', ({ group }) => {
+      console.log('Group created successfully:', group)
+      navigate(`/group/${group.id}`, { state: { groupData: group } })
     })
-    
+
     socket.once('error', ({ message }) => {
-      console.error('Error creating league:', message)
-      alert(`Failed to create league: ${message}`)
+      console.error('Error creating group:', message)
+      alert(`Failed to create group: ${message}`)
     })
   }
 
@@ -107,49 +104,49 @@ function CreateLeague() {
   }
 
   return (
-    <div className="create-league-page">
+    <div className="create-group-page">
       <a href="#main-content" className="skip-link">Skip to main content</a>
-      
+
       <header className="page-header">
         <div className="header-content">
-          <button 
+          <button
             className="back-button"
             onClick={handleCancel}
             aria-label="Go back to dashboard"
           >
             ← Back to Dashboard
           </button>
-          <h1>Create New League</h1>
+          <h1>Create New Group</h1>
         </div>
       </header>
 
-      <main id="main-content" className="create-league-main">
-        <form className="create-league-form" onSubmit={handleSubmit}>
+      <main id="main-content" className="create-group-main">
+        <form className="create-group-form" onSubmit={handleSubmit}>
           {/* Basic Information */}
           <section className="form-section">
             <h2>Basic Information</h2>
-            
+
             <div className="form-row">
               <div className="form-group">
-                <label htmlFor="league-name">League Name *</label>
+                <label htmlFor="group-name">Group Name *</label>
                 <input
-                  id="league-name"
+                  id="group-name"
                   type="text"
-                  value={leagueName}
-                  onChange={(e) => setLeagueName(e.target.value)}
-                  placeholder="Enter league name"
+                  value={groupName}
+                  onChange={(e) => setGroupName(e.target.value)}
+                  placeholder="Enter group name"
                   required
                   maxLength={50}
                 />
               </div>
-              
+
               <div className="form-group">
-                <label htmlFor="league-description">Description</label>
+                <label htmlFor="group-description">Description</label>
                 <textarea
-                  id="league-description"
-                  value={leagueDescription}
-                  onChange={(e) => setLeagueDescription(e.target.value)}
-                  placeholder="Describe your league theme"
+                  id="group-description"
+                  value={groupDescription}
+                  onChange={(e) => setGroupDescription(e.target.value)}
+                  placeholder="Describe your group theme"
                   rows={3}
                   maxLength={200}
                 />
@@ -163,7 +160,7 @@ function CreateLeague() {
                   checked={isPrivate}
                   onChange={(e) => setIsPrivate(e.target.checked)}
                 />
-                <span>Private League (invite only)</span>
+                <span>Private Group (invite only)</span>
               </label>
             </div>
           </section>
@@ -171,7 +168,7 @@ function CreateLeague() {
           {/* Game Settings */}
           <section className="form-section">
             <h2>Game Settings</h2>
-            
+
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="total-rounds">Number of Rounds</label>
@@ -187,7 +184,7 @@ function CreateLeague() {
                   <option value={12}>12 Rounds</option>
                 </select>
               </div>
-              
+
               <div className="form-group">
                 <label htmlFor="max-players">Maximum Players</label>
                 <select
@@ -203,7 +200,7 @@ function CreateLeague() {
                   <option value={20}>20 Players</option>
                 </select>
               </div>
-              
+
               <div className="form-group">
                 <label htmlFor="min-players">Minimum Players to Start</label>
                 <select
@@ -223,7 +220,7 @@ function CreateLeague() {
           {/* Card Czar Settings */}
           <section className="form-section">
             <h2>Card Czar Settings</h2>
-            
+
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="czar-points">Points for Czar's Pick</label>
@@ -237,7 +234,7 @@ function CreateLeague() {
                 />
                 <small className="form-hint">Points awarded when Card Czar selects a winner</small>
               </div>
-              
+
               <div className="form-group checkbox-group">
                 <label className="checkbox-label">
                   <input
@@ -249,7 +246,7 @@ function CreateLeague() {
                 </label>
                 <small className="form-hint">Players can skip being Card Czar</small>
               </div>
-              
+
               <div className="form-group checkbox-group">
                 <label className="checkbox-label">
                   <input
@@ -267,7 +264,7 @@ function CreateLeague() {
           {/* Jury Settings */}
           <section className="form-section">
             <h2>Jury Settings</h2>
-            
+
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="max-jury-points">Max Jury Points per Vote</label>
@@ -281,7 +278,7 @@ function CreateLeague() {
                 />
                 <small className="form-hint">Maximum points jury can award per vote</small>
               </div>
-              
+
               <div className="form-group">
                 <label htmlFor="downvote-cost">Downvote Cost</label>
                 <input
@@ -295,7 +292,7 @@ function CreateLeague() {
                 />
                 <small className="form-hint">Points lost when downvoting</small>
               </div>
-              
+
               <div className="form-group checkbox-group">
                 <label className="checkbox-label">
                   <input
@@ -313,7 +310,7 @@ function CreateLeague() {
           {/* Override Settings */}
           <section className="form-section">
             <h2>Override Settings</h2>
-            
+
             <div className="form-row">
               <div className="form-group checkbox-group">
                 <label className="checkbox-label">
@@ -326,7 +323,7 @@ function CreateLeague() {
                 </label>
                 <small className="form-hint">Public vote can override Czar's choice</small>
               </div>
-              
+
               <div className="form-group">
                 <label htmlFor="override-threshold">Override Threshold (%)</label>
                 <input
@@ -347,7 +344,7 @@ function CreateLeague() {
           {/* Timing Settings */}
           <section className="form-section">
             <h2>Timing Settings</h2>
-            
+
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="submission-time">Submission Time (hours)</label>
@@ -361,7 +358,7 @@ function CreateLeague() {
                 />
                 <small className="form-hint">Time players have to submit songs</small>
               </div>
-              
+
               <div className="form-group">
                 <label htmlFor="voting-time">Voting Time (hours)</label>
                 <input
@@ -374,7 +371,7 @@ function CreateLeague() {
                 />
                 <small className="form-hint">Time players have to vote</small>
               </div>
-              
+
               <div className="form-group checkbox-group">
                 <label className="checkbox-label">
                   <input
@@ -392,7 +389,7 @@ function CreateLeague() {
           {/* Topic Settings */}
           <section className="form-section">
             <h2>Topic Settings</h2>
-            
+
             <div className="form-row">
               <div className="form-group">
                 <label htmlFor="topic-selection">Topic Selection Method</label>
@@ -408,7 +405,7 @@ function CreateLeague() {
                 </select>
                 <small className="form-hint">How topics are selected each round</small>
               </div>
-              
+
               <div className="form-group checkbox-group">
                 <label className="checkbox-label">
                   <input
@@ -438,7 +435,7 @@ function CreateLeague() {
           {/* Features */}
           <section className="form-section">
             <h2>Additional Features</h2>
-            
+
             <div className="features-grid">
               <div className="feature-option">
                 <label className="checkbox-label">
@@ -451,7 +448,7 @@ function CreateLeague() {
                 </label>
                 <small className="form-hint">Allow players to chat during rounds</small>
               </div>
-              
+
               <div className="feature-option">
                 <label className="checkbox-label">
                   <input
@@ -463,7 +460,7 @@ function CreateLeague() {
                 </label>
                 <small className="form-hint">Allow previewing songs before voting</small>
               </div>
-              
+
               <div className="feature-option">
                 <label className="checkbox-label">
                   <input
@@ -480,19 +477,19 @@ function CreateLeague() {
 
           {/* Form Actions */}
           <div className="form-actions">
-            <button 
+            <button
               type="button"
               className="cancel-button"
               onClick={handleCancel}
             >
               Cancel
             </button>
-            <button 
+            <button
               type="submit"
               className="submit-button"
-              disabled={!leagueName.trim()}
+              disabled={!groupName.trim()}
             >
-              Create League
+              Create Group
             </button>
           </div>
         </form>
@@ -501,4 +498,4 @@ function CreateLeague() {
   )
 }
 
-export default CreateLeague
+export default CreateGroup

@@ -3,6 +3,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const dotenv = require('dotenv');
+const { PersistentStore } = require('./db');
 
 dotenv.config();
 
@@ -18,11 +19,10 @@ const io = new Server(server, {
 app.use(cors());
 app.use(express.json());
 
-// Game state storage (in production, use database)
-const games = new Map();
-const players = new Map();
-const topics = new Map(); // Global topic bank: Map<topicId, { id, text, creatorId, isPublic, createdAt }>
-const leagues = new Map(); // Leagues storage: Map<leagueId, { id, name, description, settings, host, players, status, currentRound, history }>
+// Game state storage, backed by SQLite (see db.js) so it survives a server restart
+const games = new PersistentStore('games');
+const topics = new PersistentStore('topics'); // Global topic bank: id -> { id, text, creatorId, isPublic, createdAt }
+const groups = new PersistentStore('groups'); // id -> { id, name, description, settings, host, players, status, currentRound, history }
 
 // Game constants
 const GAME_STATES = {
@@ -106,6 +106,8 @@ io.on('connection', (socket) => {
       console.log('Added player to game:', { username, socketId: socket.id, totalPlayers: game.players.length });
     }
 
+    games.set(gameId, game);
+
     console.log('Emitting player_joined with players:', game.players);
     io.to(gameId).emit('player_joined', {
       players: game.players,
@@ -134,6 +136,7 @@ io.on('connection', (socket) => {
       const game = games.get(gameId);
       if (game) {
         game.topicBank.push(topic);
+        games.set(gameId, game);
         console.log('Added to game topic bank:', topic.id);
       }
     }
@@ -176,6 +179,7 @@ io.on('connection', (socket) => {
       const privateIndex = game.topicBank.findIndex(t => t.id === topicId && t.creatorId === socket.id);
       if (privateIndex !== -1) {
         game.topicBank.splice(privateIndex, 1);
+        games.set(gameId, game);
         socket.emit('topic_deleted', { topicId });
         return;
       }
@@ -189,17 +193,19 @@ io.on('connection', (socket) => {
     }
   });
 
-  // Create league
-  socket.on('create_league', ({ leagueData }) => {
-    console.log('Create league request:', { leagueData, socketId: socket.id });
-    
-    const leagueId = leagueData.id || `LEAGUE${Date.now()}`;
-    
-    const league = {
-      id: leagueId,
-      name: leagueData.name,
-      description: leagueData.description,
-      isPrivate: leagueData.isPrivate || false,
+  // Create group
+  socket.on('create_group', ({ groupData, username }) => {
+    console.log('Create group request:', { groupData, socketId: socket.id });
+
+    socket.data.username = username || socket.data.username || 'Unknown';
+
+    const groupId = groupData.id || `GROUP${Date.now()}`;
+
+    const group = {
+      id: groupId,
+      name: groupData.name,
+      description: groupData.description,
+      isPrivate: groupData.isPrivate || false,
       host: socket.id,
       players: [{
         id: socket.id,
@@ -208,48 +214,48 @@ io.on('connection', (socket) => {
         isHost: true,
         connected: true
       }],
-      settings: leagueData.settings || {},
+      settings: groupData.settings || {},
       status: 'setup',
       currentRound: 0,
       history: [],
       createdAt: new Date().toISOString()
     };
-    
-    leagues.set(leagueId, league);
-    console.log('Created league:', leagueId);
-    
-    socket.emit('league_created', { league });
+
+    groups.set(groupId, group);
+    console.log('Created group:', groupId);
+
+    socket.emit('group_created', { group });
   });
 
-  // Get user's leagues
-  socket.on('get_leagues', () => {
-    console.log('Get leagues request:', { socketId: socket.id });
-    
-    const userLeagues = Array.from(leagues.values()).filter(league => 
-      league.players.some(player => player.id === socket.id)
+  // Get user's groups
+  socket.on('get_groups', () => {
+    console.log('Get groups request:', { socketId: socket.id });
+
+    const userGroups = Array.from(groups.values()).filter(group =>
+      group.players.some(player => player.id === socket.id)
     );
-    
-    socket.emit('leagues_list', { leagues: userLeagues });
+
+    socket.emit('groups_list', { groups: userGroups });
   });
 
-  // Join league
-  socket.on('join_league', ({ leagueId, username }) => {
-    console.log('Join league request:', { leagueId, username, socketId: socket.id });
-    
-    const league = leagues.get(leagueId);
-    if (!league) {
-      socket.emit('error', { message: 'League not found' });
+  // Join group
+  socket.on('join_group', ({ groupId, username }) => {
+    console.log('Join group request:', { groupId, username, socketId: socket.id });
+
+    const group = groups.get(groupId);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
       return;
     }
-    
-    // Check if player already in league
-    const existingPlayer = league.players.find(p => p.id === socket.id);
+
+    // Check if player already in group
+    const existingPlayer = group.players.find(p => p.id === socket.id);
     if (existingPlayer) {
       existingPlayer.connected = true;
       existingPlayer.username = username;
     } else {
-      // Add new player to league
-      league.players.push({
+      // Add new player to group
+      group.players.push({
         id: socket.id,
         username: username,
         score: 0,
@@ -257,48 +263,119 @@ io.on('connection', (socket) => {
         connected: true
       });
     }
-    
-    socket.emit('league_joined', { league });
+
+    groups.set(groupId, group);
+
+    socket.emit('group_joined', { group });
   });
 
-  // Get league details
-  socket.on('get_league', ({ leagueId }) => {
-    console.log('Get league request:', { leagueId, socketId: socket.id });
-    
-    const league = leagues.get(leagueId);
-    if (!league) {
-      socket.emit('error', { message: 'League not found' });
+  // Get group details
+  socket.on('get_group', ({ groupId, username }) => {
+    console.log('Get group request:', { groupId, socketId: socket.id });
+
+    socket.data.username = username || socket.data.username || 'Unknown';
+
+    const group = groups.get(groupId);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
       return;
     }
-    
-    socket.emit('league_details', { league });
+
+    socket.emit('group_details', { group });
   });
 
-  // Update league settings
-  socket.on('update_league', ({ leagueId, settings }) => {
-    console.log('Update league request:', { leagueId, settings, socketId: socket.id });
-    
-    const league = leagues.get(leagueId);
-    if (!league) {
-      socket.emit('error', { message: 'League not found' });
+  // Update group settings
+  socket.on('update_group', ({ groupId, settings }) => {
+    console.log('Update group request:', { groupId, settings, socketId: socket.id });
+
+    const group = groups.get(groupId);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
       return;
     }
-    
-    // Only host can update league settings
-    if (league.host !== socket.id) {
-      socket.emit('error', { message: 'Only host can update league settings' });
+
+    // Only host can update group settings
+    if (group.host !== socket.id) {
+      socket.emit('error', { message: 'Only host can update group settings' });
       return;
     }
-    
-    // Update league settings
-    league.settings = { ...league.settings, ...settings };
-    
-    // Broadcast league update to all players in the league
-    league.players.forEach(player => {
-      io.to(player.id).emit('league_updated', { league });
+
+    // Update group settings
+    group.settings = { ...group.settings, ...settings };
+    groups.set(groupId, group);
+
+    // Broadcast group update to all players in the group
+    group.players.forEach(player => {
+      io.to(player.id).emit('group_updated', { group });
     });
-    
-    console.log('League updated:', leagueId);
+
+    console.log('Group updated:', groupId);
+  });
+
+  // Start group: transitions out of setup and creates the first round
+  socket.on('start_group', ({ groupId }) => {
+    console.log('Start group request:', { groupId, socketId: socket.id });
+
+    const group = groups.get(groupId);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+
+    if (group.host !== socket.id) {
+      socket.emit('error', { message: 'Only host can start the group' });
+      return;
+    }
+
+    if (group.status !== 'setup') {
+      socket.emit('error', { message: 'Group has already started' });
+      return;
+    }
+
+    const connectedPlayers = group.players.filter(p => p.connected !== false);
+    if (connectedPlayers.length < 1) {
+      socket.emit('error', { message: 'Need at least one connected player to start' });
+      return;
+    }
+
+    // Anonymously assign a Round Leader (Card Czar) for the first round
+    const roundLeader = connectedPlayers[Math.floor(Math.random() * connectedPlayers.length)];
+
+    const presetTopics = group.settings.presetTopics || [];
+    const topicText = presetTopics.length > 0
+      ? presetTopics[Math.floor(Math.random() * presetTopics.length)]
+      : 'Round Challenge';
+    const submissionHours = group.settings.submissionTime || 24;
+
+    group.status = 'active';
+    group.currentRound = 1;
+    group.currentTheme = {
+      id: `theme${Date.now()}`,
+      title: topicText,
+      description: "This round's music challenge",
+      status: 'active',
+      submissions: 0,
+      deadline: new Date(Date.now() + submissionHours * 60 * 60 * 1000).toISOString(),
+      czarId: roundLeader.id // server-side only, stripped below before broadcasting
+    };
+
+    groups.set(groupId, group);
+    console.log('Group started, round 1 created:', groupId, 'round leader:', roundLeader.username);
+
+    // Broadcast the round start to every player, withholding the Round Leader's
+    // identity from everyone except the Round Leader themselves (unless the group
+    // has anonymity turned off), mirroring the game engine's you_are_czar pattern.
+    const { czarId, ...publicTheme } = group.currentTheme;
+    if (group.settings.anonymousCzar === false) {
+      publicTheme.czarUsername = roundLeader.username;
+    }
+
+    group.players.forEach(player => {
+      io.to(player.id).emit('group_updated', {
+        group: { ...group, currentTheme: publicTheme },
+        isRoundLeader: player.id === roundLeader.id
+      });
+    });
   });
 
   // Start game
@@ -308,7 +385,8 @@ io.on('connection', (socket) => {
       game.gameState = GAME_STATES.TOPIC_SELECTION;
       game.currentRound = 1;
       selectCardCzar(game);
-      
+      games.set(gameId, game);
+
       // Broadcast to all players without revealing czar identity
       io.to(gameId).emit('game_started', {
         gameState: game.gameState,
@@ -350,7 +428,8 @@ io.on('connection', (socket) => {
       };
       game.gameState = GAME_STATES.SUBMISSION;
       game.submissions = [];
-      
+      games.set(gameId, game);
+
       // Broadcast without revealing creator
       io.to(gameId).emit('topic_selected', {
         topic: {
@@ -389,6 +468,7 @@ io.on('connection', (socket) => {
         if (game.submissions.length === connectedNonCzarPlayers.length) {
           game.gameState = GAME_STATES.VOTING;
           game.votes = [];
+          games.set(gameId, game);
           io.to(gameId).emit('voting_started', {
             submissions: game.submissions.map(s => ({
               id: s.id,
@@ -398,6 +478,7 @@ io.on('connection', (socket) => {
             gameState: game.gameState
           });
         } else {
+          games.set(gameId, game);
           io.to(gameId).emit('song_submitted', {
             submissionCount: game.submissions.length,
             totalPlayers: connectedNonCzarPlayers.length
@@ -433,6 +514,7 @@ io.on('connection', (socket) => {
           points: isDownvote ? -game.settings.downvoteCost : points,
           isDownvote
         });
+        games.set(gameId, game);
 
         // Check if all connected players have voted
         const connectedPlayers = game.players.filter(p => p.connected);
@@ -464,7 +546,8 @@ io.on('connection', (socket) => {
       const player = game.players.find(p => p.id === socket.id);
       player.skippedCzarCount = game.players.length; // Can't be czar until everyone else goes
       selectCardCzar(game);
-      
+      games.set(gameId, game);
+
       // Broadcast without revealing new czar identity
       io.to(gameId).emit('czar_skipped', {
         newCzarSelected: true
@@ -489,7 +572,8 @@ io.on('connection', (socket) => {
       game.votes = [];
       game.czarSelection = null;
       selectCardCzar(game);
-      
+      games.set(gameId, game);
+
       // Broadcast without revealing czar identity
       io.to(gameId).emit('next_round', {
         currentRound: game.currentRound,
@@ -532,6 +616,8 @@ io.on('connection', (socket) => {
           });
         }
         
+        games.set(gameId, game);
+
         // Notify other players of the disconnect
         io.to(gameId).emit('player_disconnected', {
           username: player.username,
@@ -659,6 +745,8 @@ function calculateResults(game) {
 
   // Find topic creator for reveal
   const topicCreator = game.topic ? game.players.find(p => p.id === game.topic.creatorId) : null;
+
+  games.set(game.id, game);
 
   io.to(game.id).emit('round_results', {
     gameState: game.gameState,

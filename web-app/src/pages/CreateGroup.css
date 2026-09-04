@@ -1,4 +1,4 @@
-.create-league-page {
+.create-group-page {
   min-height: 100vh;
   background: var(--background-light);
   display: flex;
@@ -42,13 +42,13 @@
   font-weight: 700;
 }
 
-.create-league-main {
+.create-group-main {
   flex: 1;
   padding: 2rem;
   width: 100%;
 }
 
-.create-league-form {
+.create-group-form {
   width: 100%;
   max-width: 100%;
 }
@@ -242,7 +242,7 @@
     font-size: 1.5rem;
   }
 
-  .create-league-main {
+  .create-group-main {
     padding: 1rem;
   }
 
@@ -269,7 +269,7 @@
 }
 
 @media (min-width: 1280px) {
-  .create-league-main {
+  .create-group-main {
     padding: 3rem;
   }
 

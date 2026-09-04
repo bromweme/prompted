@@ -150,7 +150,7 @@
   font-size: 1.1rem;
 }
 
-.create-league-button {
+.create-group-button {
   background: white;
   color: var(--primary-blue);
   border: none;
@@ -166,7 +166,7 @@
   white-space: nowrap;
 }
 
-.create-league-button:hover {
+.create-group-button:hover {
   transform: translateY(-2px);
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.2);
 }
@@ -176,7 +176,7 @@
   font-weight: 300;
 }
 
-.leagues-section {
+.groups-section {
   margin-bottom: 2rem;
 }
 
@@ -194,7 +194,7 @@
   font-weight: 600;
 }
 
-.league-tabs {
+.group-tabs {
   display: flex;
   gap: 0.5rem;
 }
@@ -221,13 +221,13 @@
   border-color: var(--primary-blue);
 }
 
-.leagues-grid {
+.groups-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
   gap: 1.5rem;
 }
 
-.league-card {
+.group-card {
   background: white;
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -237,20 +237,20 @@
   flex-direction: column;
 }
 
-.league-card:hover {
+.group-card:hover {
   transform: translateY(-4px);
   box-shadow: var(--card-shadow-lg);
   border-color: var(--primary-blue);
 }
 
-.league-header {
+.group-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
   margin-bottom: 1rem;
 }
 
-.league-header h3 {
+.group-header h3 {
   font-size: 1.25rem;
   color: var(--text-primary);
   margin: 0;
@@ -282,7 +282,7 @@
   color: white;
 }
 
-.league-description {
+.group-description {
   color: var(--text-secondary);
   font-size: 0.9rem;
   margin-bottom: 1.5rem;
@@ -290,7 +290,7 @@
   flex: 1;
 }
 
-.league-stats {
+.group-stats {
   display: flex;
   gap: 2rem;
   margin-bottom: 1.5rem;
@@ -317,7 +317,7 @@
   color: var(--primary-blue);
 }
 
-.league-actions {
+.group-actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -449,7 +449,7 @@
     text-align: center;
   }
 
-  .leagues-grid {
+  .groups-grid {
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   }
 }
@@ -481,7 +481,7 @@
     gap: 1rem;
   }
 
-  .leagues-grid {
+  .groups-grid {
     grid-template-columns: 1fr;
   }
 
@@ -507,7 +507,7 @@
     padding: 4rem;
   }
 
-  .leagues-grid {
+  .groups-grid {
     grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
   }
 
@@ -521,7 +521,7 @@
     width: 100%;
   }
 
-  .leagues-grid {
+  .groups-grid {
     grid-template-columns: repeat(auto-fill, minmax(450px, 1fr));
   }
 }
@@ -533,7 +533,7 @@
   flex-wrap: wrap;
 }
 
-.join-league-button {
+.join-group-button {
   background: white;
   color: var(--secondary-blue);
   border: none;
@@ -549,7 +549,7 @@
   white-space: nowrap;
 }
 
-.join-league-button:hover {
+.join-group-button:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
 }
