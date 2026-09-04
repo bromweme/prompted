@@ -1,0 +1,230 @@
+.login-page {
+  min-height: 100vh;
+  background: linear-gradient(135deg, var(--background-dark) 0%, var(--primary-blue-dark) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.login-container {
+  width: 100%;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.login-card {
+  background: white;
+  border-radius: 16px;
+  box-shadow: var(--card-shadow-lg);
+  overflow: hidden;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.login-header {
+  background: linear-gradient(135deg, var(--primary-blue) 0%, var(--primary-blue-dark) 100%);
+  padding: 3rem 2rem;
+  text-align: center;
+}
+
+.logo-section h1 {
+  font-size: 2.5rem;
+  color: white;
+  margin-bottom: 0.5rem;
+  font-weight: 700;
+}
+
+.tagline {
+  color: var(--accent-blue);
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+.login-body {
+  padding: 3rem 2rem;
+}
+
+.intro-section {
+  text-align: center;
+  margin-bottom: 3rem;
+}
+
+.intro-section h2 {
+  font-size: 2rem;
+  color: var(--text-primary);
+  margin-bottom: 1rem;
+  font-weight: 600;
+}
+
+.intro-section p {
+  color: var(--text-secondary);
+  font-size: 1.1rem;
+  max-width: 600px;
+  margin: 0 auto;
+  line-height: 1.7;
+}
+
+.features-section {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 2rem;
+  margin-bottom: 3rem;
+}
+
+.feature-item {
+  text-align: center;
+  padding: 1.5rem;
+  background: var(--background-light);
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.feature-item:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--card-shadow);
+}
+
+.feature-icon {
+  font-size: 2.5rem;
+  margin-bottom: 1rem;
+}
+
+.feature-item h3 {
+  font-size: 1.1rem;
+  color: var(--text-primary);
+  margin-bottom: 0.5rem;
+  font-weight: 600;
+}
+
+.feature-item p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.auth-section {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.spotify-login-btn {
+  background: #1DB954;
+  color: white;
+  border: none;
+  padding: 1rem 2rem;
+  border-radius: 50px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  transition: transform 0.2s, box-shadow 0.2s, background-color 0.2s;
+  min-width: 280px;
+  justify-content: center;
+}
+
+.spotify-login-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 16px rgba(29, 185, 84, 0.3);
+  background-color: #1ed760;
+}
+
+.spotify-login-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.spotify-icon {
+  width: 24px;
+  height: 24px;
+  fill: white;
+}
+
+.btn-text {
+  color: white;
+}
+
+.connection-status {
+  margin-top: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+}
+
+.demo-notice {
+  background: var(--background-light);
+  padding: 1rem;
+  border-radius: 8px;
+  border-left: 4px solid var(--warning);
+}
+
+.demo-notice p {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.login-footer {
+  background: var(--background-light);
+  padding: 1.5rem 2rem;
+  text-align: center;
+  border-top: 1px solid var(--border-color);
+}
+
+.login-footer p {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  margin: 0;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .login-page {
+    padding: 1rem;
+  }
+
+  .login-header {
+    padding: 2rem 1.5rem;
+  }
+
+  .login-body {
+    padding: 2rem 1.5rem;
+  }
+
+  .logo-section h1 {
+    font-size: 2rem;
+  }
+
+  .intro-section h2 {
+    font-size: 1.5rem;
+  }
+
+  .features-section {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+  }
+
+  .spotify-login-btn {
+    width: 100%;
+  }
+}
+
+@media (min-width: 1280px) {
+  .login-card {
+    max-width: 900px;
+  }
+
+  .login-header {
+    padding: 4rem 3rem;
+  }
+
+  .login-body {
+    padding: 4rem 3rem;
+  }
+
+  .features-section {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
