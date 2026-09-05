@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { createGroupThroughWizard } from './helpers.js'
 
 // This test drives the real, merged group game loop end to end over real
 // socket.io traffic (see server/server.js): create a group, join it as a
@@ -68,9 +69,7 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
   let groupId
 
   await test.step('host creates a group', async () => {
-    await player1.page.goto('/create-group')
-    await player1.page.getByLabel('Group Name').fill(`E2E Group ${runId}`)
-    await player1.page.getByRole('button', { name: 'Create Group' }).click()
+    await createGroupThroughWizard(player1.page, `E2E Group ${runId}`)
 
     await expect(player1.page).toHaveURL(/\/group\/.+/)
     groupId = player1.page.url().split('/group/')[1]

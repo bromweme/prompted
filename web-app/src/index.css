@@ -1,111 +1,478 @@
-:root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+/* ==========================================================================
+   Design system — shared tokens + reusable component classes.
+   Loaded once, globally, before any page-specific CSS. Page CSS files
+   should reference these tokens/classes rather than redefining them.
+   ========================================================================== */
 
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
-
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
-}
-
-body {
+* {
   margin: 0;
-}
-
-#root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
+  padding: 0;
   box-sizing: border-box;
 }
 
-h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+:root {
+  /* ---- Color: near-black/near-white/gray structure + one accent ---- */
+  --color-bg: #f5f5f7;
+  --color-surface: #ffffff;
+  --color-text-primary: #1d1d1f;
+  --color-text-secondary: #6e6e73;
+  --color-border: #d2d2d7;
+  --color-border-subtle: #e5e5ea;
+
+  --color-accent: #0066cc;
+  --color-accent-hover: #0055aa;
+  --color-accent-subtle: #e8f1fc;
+
+  --color-danger: #d70015;
+  --color-danger-hover: #b30012;
+  --color-danger-subtle: #fdecec;
+
+  /* ---- Spacing scale ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 16px;
+  --space-4: 24px;
+  --space-5: 32px;
+  --space-6: 48px;
+
+  /* ---- Typography: one family, five sizes ---- */
+  --font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --text-hero: 2.5rem;
+  --text-heading: 1.75rem;
+  --text-subheading: 1.125rem;
+  --text-body: 1rem;
+  --text-caption: 0.8125rem;
+
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semibold: 600;
+  --weight-bold: 700;
+
+  /* ---- Radius ---- */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-full: 999px;
+
+  /* ---- Shadow: subtle, single layer ---- */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 2px 12px rgba(0, 0, 0, 0.08);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+
+  /* ---- Motion ---- */
+  --transition-fast: 120ms ease;
+  --transition-base: 160ms ease;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
+html {
+  color-scheme: light;
 }
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
+
+body {
+  font-family: var(--font-family);
+  font-size: var(--text-body);
+  font-weight: var(--weight-regular);
+  line-height: 1.5;
+  color: var(--color-text-primary);
+  background: var(--color-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
-p {
+
+h1, h2, h3, h4 {
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+  line-height: 1.2;
+}
+
+a {
+  color: var(--color-accent);
+}
+
+.loading {
+  text-align: center;
+  padding: var(--space-6);
+  color: var(--color-text-secondary);
+  font-size: var(--text-body);
+}
+
+/* ==========================================================================
+   Buttons — one primary style, one secondary style, one danger style.
+   Legacy per-page class names are grouped in here so every existing button
+   across the app renders from this single recipe instead of a duplicated
+   one; new markup should use .btn/.btn-primary/.btn-secondary/.btn-danger
+   directly.
+   ========================================================================== */
+
+.btn,
+.action-button,
+.setup-button,
+.cancel-button,
+.submit-button,
+.save-button,
+.back-button,
+.logout-button,
+.leave-button,
+.danger-button,
+.edit-rules-button,
+.invite-button,
+.edit-button,
+.add-button,
+.create-group-button,
+.join-group-button,
+.theme-action-button,
+.view-round-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  line-height: 1.2;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color var(--transition-fast), border-color var(--transition-fast),
+    color var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+/* Primary: solid accent */
+.btn-primary,
+.action-button.primary,
+.setup-button.primary,
+.theme-action-button,
+.create-group-button,
+.submit-button,
+.save-button,
+.edit-rules-button,
+.invite-button,
+.edit-button,
+.add-button,
+.action-button.edit,
+.join-button {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #ffffff;
+}
+
+.btn-primary:hover:not(:disabled),
+.action-button.primary:hover:not(:disabled),
+.setup-button.primary:hover:not(:disabled),
+.theme-action-button:hover:not(:disabled),
+.create-group-button:hover:not(:disabled),
+.submit-button:hover:not(:disabled),
+.save-button:hover:not(:disabled),
+.edit-rules-button:hover:not(:disabled),
+.invite-button:hover:not(:disabled),
+.edit-button:hover:not(:disabled),
+.add-button:hover:not(:disabled),
+.action-button.edit:hover:not(:disabled),
+.join-button:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Secondary: outline / neutral */
+.btn-secondary,
+.action-button,
+.action-button.secondary,
+.setup-button.secondary,
+.cancel-button,
+.back-button,
+.logout-button,
+.leave-button,
+.danger-button.secondary,
+.join-group-button,
+.view-round-button {
+  background: var(--color-surface);
+  border-color: var(--color-border);
+  color: var(--color-text-secondary);
+}
+
+.btn-secondary:hover:not(:disabled),
+.action-button:hover:not(:disabled),
+.setup-button.secondary:hover:not(:disabled),
+.cancel-button:hover:not(:disabled),
+.back-button:hover:not(:disabled),
+.logout-button:hover:not(:disabled),
+.leave-button:hover:not(:disabled),
+.danger-button.secondary:hover:not(:disabled),
+.join-group-button:hover:not(:disabled),
+.view-round-button:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* Danger: reserved for irreversible/destructive actions only */
+.btn-danger,
+.leave-button.delete,
+.danger-button.primary,
+.action-button.delete {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: #ffffff;
+}
+
+.btn-danger:hover:not(:disabled),
+.leave-button.delete:hover:not(:disabled),
+.danger-button.primary:hover:not(:disabled),
+.action-button.delete:hover:not(:disabled) {
+  background: var(--color-danger-hover);
+  border-color: var(--color-danger-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Small variant, for compact inline actions (e.g. per-item edit/delete) */
+.btn-sm,
+.action-button.edit,
+.action-button.delete {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-caption);
+}
+
+.btn:disabled,
+.action-button:disabled,
+.setup-button:disabled,
+.submit-button:disabled,
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* ==========================================================================
+   Modals — shared across every page (Dashboard, Account, GroupView).
+   ========================================================================== */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: var(--space-4);
+}
+
+.modal-content {
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  max-width: 500px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+  box-shadow: var(--shadow-lg);
+}
+
+.modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border-subtle);
+}
+
+.modal-header h2 {
+  font-size: var(--text-subheading);
   margin: 0;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
+.close-button {
   display: inline-flex;
-  border-radius: 4px;
-  color: var(--text-h);
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  border-radius: var(--radius-full);
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
+.close-button:hover {
+  background: var(--color-border-subtle);
+  color: var(--color-text-primary);
+}
+
+.modal-body {
+  padding: var(--space-4);
+}
+
+.modal-actions {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: flex-end;
+  margin-top: var(--space-4);
+  padding: var(--space-4);
+  padding-top: 0;
+}
+
+.modal-body .modal-actions {
+  padding: 0;
+  margin-top: var(--space-4);
+}
+
+/* ==========================================================================
+   Forms — shared field/label/hint styling.
+   ========================================================================== */
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-3);
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+  align-items: start;
+}
+
+.form-group label {
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea,
+.form-row input,
+.form-row select,
+.form-row textarea {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: inherit;
+  font-size: var(--text-body);
+  color: var(--color-text-primary);
+  background: var(--color-surface);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.form-group input:focus,
+.form-group select:focus,
+.form-group textarea:focus,
+.form-row input:focus,
+.form-row select:focus,
+.form-row textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+.form-group input:disabled,
+.form-group select:disabled,
+.form-row input:disabled,
+.form-row select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.form-group textarea,
+.form-row textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.form-hint {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  line-height: 1.4;
+}
+
+.checkbox-label,
+.form-row.checkbox label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"],
+.form-row.checkbox input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+}
+
+/* ==========================================================================
+   Badges — status/role pills, kept to text-primary/accent/danger only.
+   ========================================================================== */
+
+.status-badge,
+.host-badge,
+.host-badge-small,
+.member-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+}
+
+.status-badge {
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: var(--color-bg);
+  color: var(--color-text-secondary);
+}
+
+.status-badge.active {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.host-badge,
+.host-badge-small {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.member-badge {
+  background: var(--color-border-subtle);
+  color: var(--color-text-secondary);
+}
+
+/* ==========================================================================
+   Focus visibility — WCAG 2.4.7 / 2.4.11. Kept strong against every surface.
+   ========================================================================== */
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+button:focus:not(:focus-visible),
+input:focus:not(:focus-visible),
+select:focus:not(:focus-visible),
+a:focus:not(:focus-visible) {
+  outline: none;
 }

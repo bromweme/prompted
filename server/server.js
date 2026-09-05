@@ -326,8 +326,13 @@ io.on('connection', (socket) => {
     groups.set(groupId, group);
 
     // Tell the joiner directly (they navigate off this) and update everyone
-    // else already viewing the group so the new player shows up live.
-    socket.emit('group_joined', { group });
+    // else already viewing the group so the new player shows up live. The
+    // joiner's own payload is publicized the same as any other broadcast —
+    // the Round Leader's identity is never exposed via this event either.
+    socket.emit('group_joined', {
+      group: { ...group, currentTheme: publicizeTheme(group.currentTheme, group) },
+      isRoundLeader: !!(group.currentTheme && userId === group.currentTheme.czarId)
+    });
     broadcastGroup(group);
   });
 

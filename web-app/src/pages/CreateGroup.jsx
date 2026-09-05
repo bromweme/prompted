@@ -1,13 +1,19 @@
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
 import './CreateGroup.css'
 
+const STEPS = ['Basics', 'Game Rules', 'Override & Timing', 'Topics & Extras']
+
 function CreateGroup() {
   const navigate = useNavigate()
   const { socket, isConnected } = useSocket()
   const { user } = useUser()
+
+  const [step, setStep] = useState(0)
+  const stepHeadingRef = useRef(null)
+  const isFirstRender = useRef(true)
 
   // Basic Group Info
   const [groupName, setGroupName] = useState('')
@@ -48,8 +54,38 @@ function CreateGroup() {
   const [enableSongPreview, setEnableSongPreview] = useState(true)
   const [showVoterIdentity, setShowVoterIdentity] = useState(false)
 
+  // Focus the new step's heading when advancing/going back, so screen
+  // reader users get an announcement that they're on a new screen. Skipped
+  // on the initial mount so it doesn't fight the skip-link/natural tab order.
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false
+      return
+    }
+    stepHeadingRef.current?.focus()
+  }, [step])
+
+  const isStepValid = (s) => {
+    if (s === 0) return groupName.trim().length > 0
+    return true
+  }
+
+  const goNext = () => {
+    if (!isStepValid(step)) return
+    setStep((s) => Math.min(s + 1, STEPS.length - 1))
+  }
+
+  const goBack = () => {
+    setStep((s) => Math.max(s - 1, 0))
+  }
+
   const handleSubmit = (e) => {
     e.preventDefault()
+
+    if (!isStepValid(0)) {
+      setStep(0)
+      return
+    }
 
     if (!isConnected) {
       alert('Please wait for server connection')
@@ -103,6 +139,8 @@ function CreateGroup() {
     navigate('/dashboard')
   }
 
+  const isLastStep = step === STEPS.length - 1
+
   return (
     <div className="create-group-page">
       <a href="#main-content" className="skip-link">Skip to main content</a>
@@ -121,376 +159,428 @@ function CreateGroup() {
       </header>
 
       <main id="main-content" className="create-group-main">
-        <form className="create-group-form" onSubmit={handleSubmit}>
-          {/* Basic Information */}
-          <section className="form-section">
-            <h2>Basic Information</h2>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="group-name">Group Name *</label>
-                <input
-                  id="group-name"
-                  type="text"
-                  value={groupName}
-                  onChange={(e) => setGroupName(e.target.value)}
-                  placeholder="Enter group name"
-                  required
-                  maxLength={50}
-                />
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="group-description">Description</label>
-                <textarea
-                  id="group-description"
-                  value={groupDescription}
-                  onChange={(e) => setGroupDescription(e.target.value)}
-                  placeholder="Describe your group theme"
-                  rows={3}
-                  maxLength={200}
-                />
-              </div>
-            </div>
-
-            <div className="form-group checkbox-group">
-              <label className="checkbox-label">
-                <input
-                  type="checkbox"
-                  checked={isPrivate}
-                  onChange={(e) => setIsPrivate(e.target.checked)}
-                />
-                <span>Private Group (invite only)</span>
-              </label>
-            </div>
-          </section>
-
-          {/* Game Settings */}
-          <section className="form-section">
-            <h2>Game Settings</h2>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="total-rounds">Number of Rounds</label>
-                <select
-                  id="total-rounds"
-                  value={totalRounds}
-                  onChange={(e) => setTotalRounds(parseInt(e.target.value))}
-                >
-                  <option value={4}>4 Rounds</option>
-                  <option value={6}>6 Rounds</option>
-                  <option value={8}>8 Rounds</option>
-                  <option value={10}>10 Rounds</option>
-                  <option value={12}>12 Rounds</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="max-players">Maximum Players</label>
-                <select
-                  id="max-players"
-                  value={maxPlayers}
-                  onChange={(e) => setMaxPlayers(parseInt(e.target.value))}
-                >
-                  <option value={4}>4 Players</option>
-                  <option value={6}>6 Players</option>
-                  <option value={8}>8 Players</option>
-                  <option value={12}>12 Players</option>
-                  <option value={16}>16 Players</option>
-                  <option value={20}>20 Players</option>
-                </select>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="min-players">Minimum Players to Start</label>
-                <select
-                  id="min-players"
-                  value={minPlayers}
-                  onChange={(e) => setMinPlayers(parseInt(e.target.value))}
-                >
-                  <option value={2}>2 Players</option>
-                  <option value={3}>3 Players</option>
-                  <option value={4}>4 Players</option>
-                  <option value={5}>5 Players</option>
-                </select>
-              </div>
-            </div>
-          </section>
-
-          {/* Card Czar Settings */}
-          <section className="form-section">
-            <h2>Card Czar Settings</h2>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="czar-points">Points for Czar's Pick</label>
-                <input
-                  id="czar-points"
-                  type="number"
-                  value={czarPoints}
-                  onChange={(e) => setCzarPoints(parseInt(e.target.value))}
-                  min="1"
-                  max="10"
-                />
-                <small className="form-hint">Points awarded when Card Czar selects a winner</small>
-              </div>
-
-              <div className="form-group checkbox-group">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={allowSkipCzar}
-                    onChange={(e) => setAllowSkipCzar(e.target.checked)}
-                  />
-                  <span>Allow Skip Card Czar</span>
-                </label>
-                <small className="form-hint">Players can skip being Card Czar</small>
-              </div>
-
-              <div className="form-group checkbox-group">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={anonymousCzar}
-                    onChange={(e) => setAnonymousCzar(e.target.checked)}
-                  />
-                  <span>Anonymous Card Czar</span>
-                </label>
-                <small className="form-hint">Czar identity hidden until round end</small>
-              </div>
-            </div>
-          </section>
-
-          {/* Jury Settings */}
-          <section className="form-section">
-            <h2>Jury Settings</h2>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="max-jury-points">Max Jury Points per Vote</label>
-                <input
-                  id="max-jury-points"
-                  type="number"
-                  value={maxJuryPoints}
-                  onChange={(e) => setMaxJuryPoints(parseInt(e.target.value))}
-                  min="1"
-                  max="5"
-                />
-                <small className="form-hint">Maximum points jury can award per vote</small>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="downvote-cost">Downvote Cost</label>
-                <input
-                  id="downvote-cost"
-                  type="number"
-                  value={downvoteCost}
-                  onChange={(e) => setDownvoteCost(parseInt(e.target.value))}
-                  min="0"
-                  max="5"
-                  disabled={!allowDownvotes}
-                />
-                <small className="form-hint">Points lost when downvoting</small>
-              </div>
-
-              <div className="form-group checkbox-group">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={allowDownvotes}
-                    onChange={(e) => setAllowDownvotes(e.target.checked)}
-                  />
-                  <span>Allow Downvotes</span>
-                </label>
-                <small className="form-hint">Players can downvote submissions</small>
-              </div>
-            </div>
-          </section>
-
-          {/* Override Settings */}
-          <section className="form-section">
-            <h2>Override Settings</h2>
-
-            <div className="form-row">
-              <div className="form-group checkbox-group">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={allowOverride}
-                    onChange={(e) => setAllowOverride(e.target.checked)}
-                  />
-                  <span>Allow Public Vote Override</span>
-                </label>
-                <small className="form-hint">Public vote can override Czar's choice</small>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="override-threshold">Override Threshold (%)</label>
-                <input
-                  id="override-threshold"
-                  type="range"
-                  value={overrideThreshold}
-                  onChange={(e) => setOverrideThreshold(parseInt(e.target.value))}
-                  min="51"
-                  max="100"
-                  disabled={!allowOverride}
-                />
-                <div className="range-value">{overrideThreshold}%</div>
-                <small className="form-hint">Vote percentage needed to override Czar</small>
-              </div>
-            </div>
-          </section>
-
-          {/* Timing Settings */}
-          <section className="form-section">
-            <h2>Timing Settings</h2>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="submission-time">Submission Time (hours)</label>
-                <input
-                  id="submission-time"
-                  type="number"
-                  value={submissionTime}
-                  onChange={(e) => setSubmissionTime(parseInt(e.target.value))}
-                  min="1"
-                  max="168"
-                />
-                <small className="form-hint">Time players have to submit songs</small>
-              </div>
-
-              <div className="form-group">
-                <label htmlFor="voting-time">Voting Time (hours)</label>
-                <input
-                  id="voting-time"
-                  type="number"
-                  value={votingTime}
-                  onChange={(e) => setVotingTime(parseInt(e.target.value))}
-                  min="1"
-                  max="168"
-                />
-                <small className="form-hint">Time players have to vote</small>
-              </div>
-
-              <div className="form-group checkbox-group">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={autoStart}
-                    onChange={(e) => setAutoStart(e.target.checked)}
-                  />
-                  <span>Auto-Start Next Round</span>
-                </label>
-                <small className="form-hint">Automatically start next round after results</small>
-              </div>
-            </div>
-          </section>
-
-          {/* Topic Settings */}
-          <section className="form-section">
-            <h2>Topic Settings</h2>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="topic-selection">Topic Selection Method</label>
-                <select
-                  id="topic-selection"
-                  value={topicSelection}
-                  onChange={(e) => setTopicSelection(e.target.value)}
-                >
-                  <option value="czar">Card Czar Selects</option>
-                  <option value="random">Random from Preset</option>
-                  <option value="vote">Players Vote on Topic</option>
-                  <option value="rotation">Topic Rotation</option>
-                </select>
-                <small className="form-hint">How topics are selected each round</small>
-              </div>
-
-              <div className="form-group checkbox-group">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={allowCustomTopics}
-                    onChange={(e) => setAllowCustomTopics(e.target.checked)}
-                  />
-                  <span>Allow Custom Topics</span>
-                </label>
-                <small className="form-hint">Players can create their own topics</small>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="preset-topics">Preset Topics (one per line)</label>
-              <textarea
-                id="preset-topics"
-                value={presetTopics}
-                onChange={(e) => setPresetTopics(e.target.value)}
-                placeholder="Songs that describe your mood today&#10;Best workout songs&#10;Songs that make you cry&#10;Guilty pleasures"
-                rows={6}
+        <div
+          className="wizard-progress"
+          role="group"
+          aria-label={`Step ${step + 1} of ${STEPS.length}: ${STEPS[step]}`}
+        >
+          <p className="wizard-progress-label">
+            Step {step + 1} of {STEPS.length}: {STEPS[step]}
+          </p>
+          <div className="wizard-progress-bar" aria-hidden="true">
+            {STEPS.map((label, i) => (
+              <span
+                key={label}
+                className={`wizard-progress-segment ${i < step ? 'complete' : ''} ${i === step ? 'active' : ''}`}
               />
-              <small className="form-hint">Add preset topics that players can choose from</small>
+            ))}
+          </div>
+        </div>
+
+        {/*
+          Enter never submits early: only the final step renders a
+          type="submit" button, and Back/Next are both type="button", so
+          there's no submit control in the DOM for the browser's implicit
+          form submission to target until the last step.
+        */}
+        <form
+          className="create-group-form"
+          onSubmit={handleSubmit}
+        >
+          {step === 0 && (
+            <div className="wizard-step">
+              <h2 ref={stepHeadingRef} tabIndex={-1} className="wizard-step-title">Basics</h2>
+              <p className="wizard-step-description">Give your group a name so friends can find it.</p>
+
+              <section className="form-section">
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="group-name">Group Name *</label>
+                    <input
+                      id="group-name"
+                      type="text"
+                      value={groupName}
+                      onChange={(e) => setGroupName(e.target.value)}
+                      placeholder="Enter group name"
+                      required
+                      maxLength={50}
+                      autoFocus
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="group-description">Description</label>
+                    <textarea
+                      id="group-description"
+                      value={groupDescription}
+                      onChange={(e) => setGroupDescription(e.target.value)}
+                      placeholder="Describe your group theme"
+                      rows={3}
+                      maxLength={200}
+                    />
+                  </div>
+                </div>
+
+                <div className="form-group checkbox-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={isPrivate}
+                      onChange={(e) => setIsPrivate(e.target.checked)}
+                    />
+                    <span>Private Group (invite only)</span>
+                  </label>
+                </div>
+              </section>
             </div>
-          </section>
+          )}
 
-          {/* Features */}
-          <section className="form-section">
-            <h2>Additional Features</h2>
+          {step === 1 && (
+            <div className="wizard-step">
+              <h2 ref={stepHeadingRef} tabIndex={-1} className="wizard-step-title">Game Rules</h2>
+              <p className="wizard-step-description">Set the pace of a round and how the Card Czar and jury work.</p>
 
-            <div className="features-grid">
-              <div className="feature-option">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={enableChat}
-                    onChange={(e) => setEnableChat(e.target.checked)}
-                  />
-                  <span>Enable Chat</span>
-                </label>
-                <small className="form-hint">Allow players to chat during rounds</small>
-              </div>
+              <section className="form-section">
+                <h3>Game Settings</h3>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="total-rounds">Number of Rounds</label>
+                    <select
+                      id="total-rounds"
+                      value={totalRounds}
+                      onChange={(e) => setTotalRounds(parseInt(e.target.value))}
+                    >
+                      <option value={4}>4 Rounds</option>
+                      <option value={6}>6 Rounds</option>
+                      <option value={8}>8 Rounds</option>
+                      <option value={10}>10 Rounds</option>
+                      <option value={12}>12 Rounds</option>
+                    </select>
+                  </div>
 
-              <div className="feature-option">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={enableSongPreview}
-                    onChange={(e) => setEnableSongPreview(e.target.checked)}
-                  />
-                  <span>Enable Song Preview</span>
-                </label>
-                <small className="form-hint">Allow previewing songs before voting</small>
-              </div>
+                  <div className="form-group">
+                    <label htmlFor="max-players">Maximum Players</label>
+                    <select
+                      id="max-players"
+                      value={maxPlayers}
+                      onChange={(e) => setMaxPlayers(parseInt(e.target.value))}
+                    >
+                      <option value={4}>4 Players</option>
+                      <option value={6}>6 Players</option>
+                      <option value={8}>8 Players</option>
+                      <option value={12}>12 Players</option>
+                      <option value={16}>16 Players</option>
+                      <option value={20}>20 Players</option>
+                    </select>
+                  </div>
 
-              <div className="feature-option">
-                <label className="checkbox-label">
-                  <input
-                    type="checkbox"
-                    checked={showVoterIdentity}
-                    onChange={(e) => setShowVoterIdentity(e.target.checked)}
-                  />
-                  <span>Show Voter Identity</span>
-                </label>
-                <small className="form-hint">Show who voted for which songs</small>
-              </div>
+                  <div className="form-group">
+                    <label htmlFor="min-players">Minimum Players to Start</label>
+                    <select
+                      id="min-players"
+                      value={minPlayers}
+                      onChange={(e) => setMinPlayers(parseInt(e.target.value))}
+                    >
+                      <option value={2}>2 Players</option>
+                      <option value={3}>3 Players</option>
+                      <option value={4}>4 Players</option>
+                      <option value={5}>5 Players</option>
+                    </select>
+                  </div>
+                </div>
+              </section>
+
+              <section className="form-section">
+                <h3>Card Czar Settings</h3>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="czar-points">Points for Czar's Pick</label>
+                    <input
+                      id="czar-points"
+                      type="number"
+                      value={czarPoints}
+                      onChange={(e) => setCzarPoints(parseInt(e.target.value))}
+                      min="1"
+                      max="10"
+                    />
+                    <small className="form-hint">Points awarded when Card Czar selects a winner</small>
+                  </div>
+
+                  <div className="form-group checkbox-group">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={allowSkipCzar}
+                        onChange={(e) => setAllowSkipCzar(e.target.checked)}
+                      />
+                      <span>Allow Skip Card Czar</span>
+                    </label>
+                    <small className="form-hint">Players can skip being Card Czar</small>
+                  </div>
+
+                  <div className="form-group checkbox-group">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={anonymousCzar}
+                        onChange={(e) => setAnonymousCzar(e.target.checked)}
+                      />
+                      <span>Anonymous Card Czar</span>
+                    </label>
+                    <small className="form-hint">Czar identity hidden until round end</small>
+                  </div>
+                </div>
+              </section>
+
+              <section className="form-section">
+                <h3>Jury Settings</h3>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="max-jury-points">Max Jury Points per Vote</label>
+                    <input
+                      id="max-jury-points"
+                      type="number"
+                      value={maxJuryPoints}
+                      onChange={(e) => setMaxJuryPoints(parseInt(e.target.value))}
+                      min="1"
+                      max="5"
+                    />
+                    <small className="form-hint">Maximum points jury can award per vote</small>
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="downvote-cost">Downvote Cost</label>
+                    <input
+                      id="downvote-cost"
+                      type="number"
+                      value={downvoteCost}
+                      onChange={(e) => setDownvoteCost(parseInt(e.target.value))}
+                      min="0"
+                      max="5"
+                      disabled={!allowDownvotes}
+                    />
+                    <small className="form-hint">Points lost when downvoting</small>
+                  </div>
+
+                  <div className="form-group checkbox-group">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={allowDownvotes}
+                        onChange={(e) => setAllowDownvotes(e.target.checked)}
+                      />
+                      <span>Allow Downvotes</span>
+                    </label>
+                    <small className="form-hint">Players can downvote submissions</small>
+                  </div>
+                </div>
+              </section>
             </div>
-          </section>
+          )}
+
+          {step === 2 && (
+            <div className="wizard-step">
+              <h2 ref={stepHeadingRef} tabIndex={-1} className="wizard-step-title">Override & Timing</h2>
+              <p className="wizard-step-description">Decide if the crowd can overrule the Czar, and how long each phase lasts.</p>
+
+              <section className="form-section">
+                <h3>Override Settings</h3>
+                <div className="form-row">
+                  <div className="form-group checkbox-group">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={allowOverride}
+                        onChange={(e) => setAllowOverride(e.target.checked)}
+                      />
+                      <span>Allow Public Vote Override</span>
+                    </label>
+                    <small className="form-hint">Public vote can override Czar's choice</small>
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="override-threshold">Override Threshold (%)</label>
+                    <input
+                      id="override-threshold"
+                      type="range"
+                      value={overrideThreshold}
+                      onChange={(e) => setOverrideThreshold(parseInt(e.target.value))}
+                      min="51"
+                      max="100"
+                      disabled={!allowOverride}
+                    />
+                    <div className="range-value">{overrideThreshold}%</div>
+                    <small className="form-hint">Vote percentage needed to override Czar</small>
+                  </div>
+                </div>
+              </section>
+
+              <section className="form-section">
+                <h3>Timing Settings</h3>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="submission-time">Submission Time (hours)</label>
+                    <input
+                      id="submission-time"
+                      type="number"
+                      value={submissionTime}
+                      onChange={(e) => setSubmissionTime(parseInt(e.target.value))}
+                      min="1"
+                      max="168"
+                    />
+                    <small className="form-hint">Time players have to submit songs</small>
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="voting-time">Voting Time (hours)</label>
+                    <input
+                      id="voting-time"
+                      type="number"
+                      value={votingTime}
+                      onChange={(e) => setVotingTime(parseInt(e.target.value))}
+                      min="1"
+                      max="168"
+                    />
+                    <small className="form-hint">Time players have to vote</small>
+                  </div>
+
+                  <div className="form-group checkbox-group">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={autoStart}
+                        onChange={(e) => setAutoStart(e.target.checked)}
+                      />
+                      <span>Auto-Start Next Round</span>
+                    </label>
+                    <small className="form-hint">Automatically start next round after results</small>
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
+
+          {step === 3 && (
+            <div className="wizard-step">
+              <h2 ref={stepHeadingRef} tabIndex={-1} className="wizard-step-title">Topics & Extras</h2>
+              <p className="wizard-step-description">Choose how themes are picked and turn on any extra features.</p>
+
+              <section className="form-section">
+                <h3>Topic Settings</h3>
+                <div className="form-row">
+                  <div className="form-group">
+                    <label htmlFor="topic-selection">Topic Selection Method</label>
+                    <select
+                      id="topic-selection"
+                      value={topicSelection}
+                      onChange={(e) => setTopicSelection(e.target.value)}
+                    >
+                      <option value="czar">Card Czar Selects</option>
+                      <option value="random">Random from Preset</option>
+                      <option value="vote">Players Vote on Topic</option>
+                      <option value="rotation">Topic Rotation</option>
+                    </select>
+                    <small className="form-hint">How topics are selected each round</small>
+                  </div>
+
+                  <div className="form-group checkbox-group">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={allowCustomTopics}
+                        onChange={(e) => setAllowCustomTopics(e.target.checked)}
+                      />
+                      <span>Allow Custom Topics</span>
+                    </label>
+                    <small className="form-hint">Players can create their own topics</small>
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label htmlFor="preset-topics">Preset Topics (one per line)</label>
+                  <textarea
+                    id="preset-topics"
+                    value={presetTopics}
+                    onChange={(e) => setPresetTopics(e.target.value)}
+                    placeholder="Songs that describe your mood today&#10;Best workout songs&#10;Songs that make you cry&#10;Guilty pleasures"
+                    rows={6}
+                  />
+                  <small className="form-hint">Add preset topics that players can choose from</small>
+                </div>
+              </section>
+
+              <section className="form-section">
+                <h3>Additional Features</h3>
+                <div className="features-grid">
+                  <div className="feature-option">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={enableChat}
+                        onChange={(e) => setEnableChat(e.target.checked)}
+                      />
+                      <span>Enable Chat</span>
+                    </label>
+                    <small className="form-hint">Allow players to chat during rounds</small>
+                  </div>
+
+                  <div className="feature-option">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={enableSongPreview}
+                        onChange={(e) => setEnableSongPreview(e.target.checked)}
+                      />
+                      <span>Enable Song Preview</span>
+                    </label>
+                    <small className="form-hint">Allow previewing songs before voting</small>
+                  </div>
+
+                  <div className="feature-option">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={showVoterIdentity}
+                        onChange={(e) => setShowVoterIdentity(e.target.checked)}
+                      />
+                      <span>Show Voter Identity</span>
+                    </label>
+                    <small className="form-hint">Show who voted for which songs</small>
+                  </div>
+                </div>
+              </section>
+            </div>
+          )}
 
           {/* Form Actions */}
           <div className="form-actions">
             <button
               type="button"
               className="cancel-button"
-              onClick={handleCancel}
+              onClick={step === 0 ? handleCancel : goBack}
             >
-              Cancel
+              {step === 0 ? 'Cancel' : 'Back'}
             </button>
-            <button
-              type="submit"
-              className="submit-button"
-              disabled={!groupName.trim()}
-            >
-              Create Group
-            </button>
+            {isLastStep ? (
+              <button
+                key="create"
+                type="submit"
+                className="submit-button"
+                disabled={!groupName.trim()}
+              >
+                Create Group
+              </button>
+            ) : (
+              <button
+                key="next"
+                type="button"
+                className="submit-button"
+                onClick={goNext}
+                disabled={!isStepValid(step)}
+              >
+                Next
+              </button>
+            )}
           </div>
         </form>
       </main>

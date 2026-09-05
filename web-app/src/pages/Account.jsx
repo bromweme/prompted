@@ -1,14 +1,16 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useUser } from '../context/UserContext'
 import { useTopics } from '../hooks/useTopics'
 import { useSocket } from '../context/SocketContext'
+import { useModalA11y } from '../hooks/useModalA11y'
 import './Account.css'
 
 function Account() {
   const navigate = useNavigate()
   const { user, updateUser } = useUser()
   const { isConnected } = useSocket()
+  const themeModalRef = useRef(null)
   
   const [activeTab, setActiveTab] = useState('profile')
   const [isEditing, setIsEditing] = useState(false)
@@ -36,6 +38,8 @@ function Account() {
     handleCloseModal,
     handleSubmitTheme
   } = useTopics('global')
+
+  useModalA11y(showAddModal, themeModalRef, handleCloseModal)
 
   const commonAvatars = ['🎵', '🎸', '🎹', '🎤', '🎧', '🎻', '🥁', '🎷', '🎺', '🎼', '🎹', '🎬', '🎮', '🎲']
 
@@ -334,48 +338,60 @@ function Account() {
               <div className="quick-ideas-section">
                 <h3>Quick Theme Inspiration</h3>
                 <div className="quick-ideas-grid">
-                  <div 
-                    className={`quick-idea-card ${!isConnected ? 'disabled' : ''}`} 
-                    onClick={() => { if (isConnected) { setNewTheme('Songs from your childhood'); setShowAddModal(true); }}}
+                  <button
+                    type="button"
+                    className="quick-idea-card"
+                    disabled={!isConnected}
+                    onClick={() => { setNewTheme('Songs from your childhood'); setShowAddModal(true); }}
                   >
                     <span className="idea-icon" aria-hidden="true">👶</span>
                     <h4>Childhood Favorites</h4>
-                  </div>
-                  <div 
-                    className={`quick-idea-card ${!isConnected ? 'disabled' : ''}`} 
-                    onClick={() => { if (isConnected) { setNewTheme('Songs for a rainy day'); setShowAddModal(true); }}}
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-idea-card"
+                    disabled={!isConnected}
+                    onClick={() => { setNewTheme('Songs for a rainy day'); setShowAddModal(true); }}
                   >
                     <span className="idea-icon" aria-hidden="true">🌧️</span>
                     <h4>Rainy Day Vibes</h4>
-                  </div>
-                  <div 
-                    className={`quick-idea-card ${!isConnected ? 'disabled' : ''}`} 
-                    onClick={() => { if (isConnected) { setNewTheme('Feel-good summer songs'); setShowAddModal(true); }}}
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-idea-card"
+                    disabled={!isConnected}
+                    onClick={() => { setNewTheme('Feel-good summer songs'); setShowAddModal(true); }}
                   >
                     <span className="idea-icon" aria-hidden="true">☀️</span>
                     <h4>Summer Hits</h4>
-                  </div>
-                  <div 
-                    className={`quick-idea-card ${!isConnected ? 'disabled' : ''}`} 
-                    onClick={() => { if (isConnected) { setNewTheme('Late night study music'); setShowAddModal(true); }}}
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-idea-card"
+                    disabled={!isConnected}
+                    onClick={() => { setNewTheme('Late night study music'); setShowAddModal(true); }}
                   >
                     <span className="idea-icon" aria-hidden="true">📚</span>
                     <h4>Study Focus</h4>
-                  </div>
-                  <div 
-                    className={`quick-idea-card ${!isConnected ? 'disabled' : ''}`} 
-                    onClick={() => { if (isConnected) { setNewTheme('Songs that get you pumped up'); setShowAddModal(true); }}}
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-idea-card"
+                    disabled={!isConnected}
+                    onClick={() => { setNewTheme('Songs that get you pumped up'); setShowAddModal(true); }}
                   >
                     <span className="idea-icon" aria-hidden="true">💪</span>
                     <h4>Energy Boosters</h4>
-                  </div>
-                  <div 
-                    className={`quick-idea-card ${!isConnected ? 'disabled' : ''}`} 
-                    onClick={() => { if (isConnected) { setNewTheme('Relaxing evening songs'); setShowAddModal(true); }}}
+                  </button>
+                  <button
+                    type="button"
+                    className="quick-idea-card"
+                    disabled={!isConnected}
+                    onClick={() => { setNewTheme('Relaxing evening songs'); setShowAddModal(true); }}
                   >
                     <span className="idea-icon" aria-hidden="true">🌙</span>
                     <h4>Evening Wind Down</h4>
-                  </div>
+                  </button>
                 </div>
               </div>
             </section>
@@ -393,7 +409,7 @@ function Account() {
                     <p>Receive updates about your groups and submissions</p>
                   </div>
                   <label className="toggle-switch">
-                    <input type="checkbox" defaultChecked />
+                    <input type="checkbox" defaultChecked aria-label="Email Notifications" />
                     <span className="slider"></span>
                   </label>
                 </div>
@@ -404,7 +420,7 @@ function Account() {
                     <p>Allow others to see your profile and stats</p>
                   </div>
                   <label className="toggle-switch">
-                    <input type="checkbox" defaultChecked />
+                    <input type="checkbox" defaultChecked aria-label="Public Profile" />
                     <span className="slider"></span>
                   </label>
                 </div>
@@ -415,7 +431,7 @@ function Account() {
                     <p>Play sounds when submitting songs and winning rounds</p>
                   </div>
                   <label className="toggle-switch">
-                    <input type="checkbox" />
+                    <input type="checkbox" aria-label="Sound Effects" />
                     <span className="slider"></span>
                   </label>
                 </div>
@@ -445,8 +461,15 @@ function Account() {
       </main>
 
       {showAddModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-          <div className="modal-content">
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-title"
+          ref={themeModalRef}
+          onClick={handleCloseModal}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="modal-title">{editingTheme ? 'Edit Theme' : 'Add New Theme'}</h2>
               <button 

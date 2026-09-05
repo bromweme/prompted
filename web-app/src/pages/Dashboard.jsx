@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
+import { useModalA11y } from '../hooks/useModalA11y'
 import './Dashboard.css'
 
 function Dashboard() {
@@ -12,6 +13,9 @@ function Dashboard() {
   const { user } = useUser()
   const navigate = useNavigate()
   const location = useLocation()
+  const joinModalRef = useRef(null)
+
+  useModalA11y(showJoinModal, joinModalRef, () => setShowJoinModal(false))
 
   useEffect(() => {
     if (!socket || !isConnected || !user) return
@@ -327,8 +331,15 @@ function Dashboard() {
       </main>
 
       {showJoinModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="join-modal-title">
-          <div className="modal-content">
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="join-modal-title"
+          ref={joinModalRef}
+          onClick={() => setShowJoinModal(false)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="join-modal-title">Join Group</h2>
               <button 

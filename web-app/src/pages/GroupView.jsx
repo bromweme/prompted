@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
+import { useModalA11y } from '../hooks/useModalA11y'
 import './GroupView.css'
 
 // Server player records carry both a transient socket id (`id`) and a stable
@@ -14,6 +15,44 @@ function mapPlayers(players, host) {
     score: player.score,
     isHost: player.userId === host
   }))
+}
+
+// Shared transform from a raw server group (as returned by get_group and
+// join_group) into the shape this component renders.
+function normalizeGroupData(group) {
+  return {
+    id: group.id,
+    name: group.name,
+    description: group.description,
+    host: group.host,
+    settings: {
+      totalRounds: group.settings.totalRounds || 6,
+      maxPlayers: group.settings.maxPlayers || 12,
+      minPlayers: group.settings.minPlayers || 2,
+      czarPoints: group.settings.czarPoints || 5,
+      allowSkipCzar: group.settings.allowSkipCzar !== false,
+      anonymousCzar: group.settings.anonymousCzar !== false,
+      maxJuryPoints: group.settings.maxJuryPoints || 3,
+      allowDownvotes: group.settings.allowDownvotes !== false,
+      downvoteCost: group.settings.downvoteCost || 1,
+      allowOverride: group.settings.allowOverride !== false,
+      overrideThreshold: group.settings.overrideThreshold || 70, // whole percentage; no conversion
+      submissionTime: group.settings.submissionTime || 24,
+      votingTime: group.settings.votingTime || 24,
+      autoStart: group.settings.autoStart || false,
+      topicSelection: group.settings.topicSelection || 'czar',
+      allowCustomTopics: group.settings.allowCustomTopics !== false,
+      presetTopics: group.settings.presetTopics || [],
+      enableChat: group.settings.enableChat || false,
+      enableSongPreview: group.settings.enableSongPreview !== false,
+      showVoterIdentity: group.settings.showVoterIdentity || false
+    },
+    status: group.status,
+    currentRound: group.currentRound,
+    players: mapPlayers(group.players, group.host),
+    currentTheme: group.currentTheme || null,
+    history: group.history || []
+  }
 }
 
 function GroupView() {
@@ -40,6 +79,26 @@ function GroupView() {
   const [selectedSubmissionId, setSelectedSubmissionId] = useState(null)
   const [votePoints, setVotePoints] = useState(1)
   const [userVote, setUserVote] = useState(null)
+  const [showInviteModal, setShowInviteModal] = useState(false)
+  const [linkCopied, setLinkCopied] = useState(false)
+
+  const submitModalRef = useRef(null)
+  const roundLeaderModalRef = useRef(null)
+  const playerSelectionModalRef = useRef(null)
+  const inviteModalRef = useRef(null)
+
+  const closeSubmitModal = () => {
+    setShowSubmitModal(false)
+    setIsEditing(false)
+    setSpotifyUri('')
+    setSongTitle('')
+    setArtist('')
+  }
+
+  useModalA11y(showSubmitModal, submitModalRef, closeSubmitModal)
+  useModalA11y(showRoundLeaderModal, roundLeaderModalRef, () => setShowRoundLeaderModal(false))
+  useModalA11y(showPlayerSelection, playerSelectionModalRef, () => setShowPlayerSelection(false))
+  useModalA11y(showInviteModal, inviteModalRef, () => setShowInviteModal(false))
 
   useEffect(() => {
     // Countdown timer for round deadline
@@ -110,47 +169,27 @@ function GroupView() {
       }
       
       setGroup(fullGroupData)
+    } else if (new URLSearchParams(location.search).get('join') === 'true') {
+      // Arrived via a shared invite link — join automatically. This is safe
+      // to call even for an existing member (the server treats it as a
+      // reconnect rather than adding a duplicate).
+      socket.emit('join_group', { groupId, username: user.name, userId: user.id })
+
+      socket.once('group_joined', ({ group, isRoundLeader: youAreRoundLeader }) => {
+        setGroup(normalizeGroupData(group))
+        setIsRoundLeader(!!youAreRoundLeader)
+      })
+
+      socket.once('error', ({ message }) => {
+        console.error('Error joining group:', message)
+        alert(`Failed to join group: ${message}`)
+      })
     } else {
       // Fetch group data from server
       socket.emit('get_group', { groupId, username: user.name, userId: user.id })
 
       socket.once('group_details', ({ group, isRoundLeader: youAreRoundLeader }) => {
-        // Transform server group data to match UI format
-        const fullGroupData = {
-          id: group.id,
-          name: group.name,
-          description: group.description,
-          host: group.host,
-          settings: {
-            totalRounds: group.settings.totalRounds || 6,
-            maxPlayers: group.settings.maxPlayers || 12,
-            minPlayers: group.settings.minPlayers || 2,
-            czarPoints: group.settings.czarPoints || 5,
-            allowSkipCzar: group.settings.allowSkipCzar !== false,
-            anonymousCzar: group.settings.anonymousCzar !== false,
-            maxJuryPoints: group.settings.maxJuryPoints || 3,
-            allowDownvotes: group.settings.allowDownvotes !== false,
-            downvoteCost: group.settings.downvoteCost || 1,
-            allowOverride: group.settings.allowOverride !== false,
-            overrideThreshold: group.settings.overrideThreshold || 70, // whole percentage; no conversion
-            submissionTime: group.settings.submissionTime || 24,
-            votingTime: group.settings.votingTime || 24,
-            autoStart: group.settings.autoStart || false,
-            topicSelection: group.settings.topicSelection || 'czar',
-            allowCustomTopics: group.settings.allowCustomTopics !== false,
-            presetTopics: group.settings.presetTopics || [],
-            enableChat: group.settings.enableChat || false,
-            enableSongPreview: group.settings.enableSongPreview !== false,
-            showVoterIdentity: group.settings.showVoterIdentity || false
-          },
-          status: group.status,
-          currentRound: group.currentRound,
-          players: mapPlayers(group.players, group.host),
-          currentTheme: group.currentTheme || null,
-          history: group.history || []
-        }
-        
-        setGroup(fullGroupData)
+        setGroup(normalizeGroupData(group))
         setIsRoundLeader(!!youAreRoundLeader)
       })
 
@@ -189,7 +228,7 @@ function GroupView() {
       socket.off('group_details')
       socket.off('error')
     }
-  }, [groupId, location.state, socket, isConnected, user])
+  }, [groupId, location.state, location.search, socket, isConnected, user])
 
   const handleStartRound = () => {
     // Show modal to choose round leader selection method
@@ -285,11 +324,21 @@ function GroupView() {
     }
   }
 
-  const handleInvitePlayer = () => {
-    const inviteLink = `${window.location.origin}/group/${groupId}`
+  const inviteLink = `${window.location.origin}/group/${groupId}?join=true`
 
-    // For testing purposes, show the code instead of copying to clipboard
-    alert(`Share this group code with your friends:\n\n${groupId}\n\nOr share this link:\n${inviteLink}`)
+  const handleInvitePlayer = () => {
+    setShowInviteModal(true)
+  }
+
+  const handleCopyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteLink)
+      setLinkCopied(true)
+      setTimeout(() => setLinkCopied(false), 2000)
+    } catch (err) {
+      console.error('Failed to copy invite link:', err)
+      alert('Could not copy the link automatically. Please copy it manually.')
+    }
   }
 
   const handleSubmitSong = () => {
@@ -685,16 +734,19 @@ function GroupView() {
 
                       <div className="submissions-list">
                         {(group.currentTheme.submissions || []).map(submission => (
-                          <div
+                          <button
                             key={submission.id}
+                            type="button"
                             className={`submission-item ${!userVote ? 'selectable' : ''} ${selectedSubmissionId === submission.id ? 'selected' : ''}`}
-                            onClick={() => !userVote && setSelectedSubmissionId(submission.id)}
+                            onClick={() => setSelectedSubmissionId(submission.id)}
+                            disabled={!!userVote}
+                            aria-pressed={selectedSubmissionId === submission.id}
                           >
                             <div className="submission-song">
                               <span className="song-title">{submission.songTitle}</span>
                               <span className="song-artist">by {submission.artist}</span>
                             </div>
-                          </div>
+                          </button>
                         ))}
                       </div>
 
@@ -719,7 +771,7 @@ function GroupView() {
                             </button>
                           )}
                           {isRoundLeader && (
-                            <button className="edit-button" onClick={handleCzarSelectWinner}>
+                            <button className="btn btn-secondary" onClick={handleCzarSelectWinner}>
                               Select as Winner (Round Leader)
                             </button>
                           )}
@@ -904,9 +956,10 @@ function GroupView() {
                     <div className="rules-section">
                       <h3>Game Settings</h3>
                       <div className="form-row">
-                        <label>Total Rounds:</label>
-                        <input 
-                          type="number" 
+                        <label htmlFor="rules-total-rounds">Total Rounds:</label>
+                        <input
+                          id="rules-total-rounds"
+                          type="number"
                           value={editedSettings.totalRounds}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, totalRounds: parseInt(e.target.value) }))}
                           min="1"
@@ -914,9 +967,10 @@ function GroupView() {
                         />
                       </div>
                       <div className="form-row">
-                        <label>Max Players:</label>
-                        <input 
-                          type="number" 
+                        <label htmlFor="rules-max-players">Max Players:</label>
+                        <input
+                          id="rules-max-players"
+                          type="number"
                           value={editedSettings.maxPlayers}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, maxPlayers: parseInt(e.target.value) }))}
                           min="2"
@@ -924,9 +978,10 @@ function GroupView() {
                         />
                       </div>
                       <div className="form-row">
-                        <label>Min Players to Start:</label>
-                        <input 
-                          type="number" 
+                        <label htmlFor="rules-min-players">Min Players to Start:</label>
+                        <input
+                          id="rules-min-players"
+                          type="number"
                           value={editedSettings.minPlayers}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, minPlayers: parseInt(e.target.value) }))}
                           min="1"
@@ -938,9 +993,10 @@ function GroupView() {
                     <div className="rules-section">
                       <h3>Round Leader Rules</h3>
                       <div className="form-row">
-                        <label>Points for Leader Pick:</label>
-                        <input 
-                          type="number" 
+                        <label htmlFor="rules-czar-points">Points for Leader Pick:</label>
+                        <input
+                          id="rules-czar-points"
+                          type="number"
                           value={editedSettings.czarPoints}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, czarPoints: parseInt(e.target.value) }))}
                           min="1"
@@ -972,9 +1028,10 @@ function GroupView() {
                     <div className="rules-section">
                       <h3>Jury Rules</h3>
                       <div className="form-row">
-                        <label>Max Jury Points:</label>
-                        <input 
-                          type="number" 
+                        <label htmlFor="rules-max-jury-points">Max Jury Points:</label>
+                        <input
+                          id="rules-max-jury-points"
+                          type="number"
                           value={editedSettings.maxJuryPoints}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, maxJuryPoints: parseInt(e.target.value) }))}
                           min="1"
@@ -992,9 +1049,10 @@ function GroupView() {
                         </label>
                       </div>
                       <div className="form-row">
-                        <label>Downvote Cost:</label>
-                        <input 
-                          type="number" 
+                        <label htmlFor="rules-downvote-cost">Downvote Cost:</label>
+                        <input
+                          id="rules-downvote-cost"
+                          type="number"
                           value={editedSettings.downvoteCost}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, downvoteCost: parseInt(e.target.value) }))}
                           min="0"
@@ -1016,9 +1074,10 @@ function GroupView() {
                         </label>
                       </div>
                       <div className="form-row">
-                        <label>Override Threshold (%):</label>
-                        <input 
-                          type="number" 
+                        <label htmlFor="rules-override-threshold">Override Threshold (%):</label>
+                        <input
+                          id="rules-override-threshold"
+                          type="number"
                           value={editedSettings.overrideThreshold}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, overrideThreshold: parseInt(e.target.value) }))}
                           min="51"
@@ -1031,9 +1090,10 @@ function GroupView() {
                       <h3>Timing</h3>
                       <small className="form-hint">Changes to timing apply to the next round — the round in progress keeps its original deadline.</small>
                       <div className="form-row">
-                        <label>Submission Time (hours):</label>
-                        <input 
-                          type="number" 
+                        <label htmlFor="rules-submission-time">Submission Time (hours):</label>
+                        <input
+                          id="rules-submission-time"
+                          type="number"
                           value={editedSettings.submissionTime}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, submissionTime: parseInt(e.target.value) }))}
                           min="1"
@@ -1041,9 +1101,10 @@ function GroupView() {
                         />
                       </div>
                       <div className="form-row">
-                        <label>Voting Time (hours):</label>
-                        <input 
-                          type="number" 
+                        <label htmlFor="rules-voting-time">Voting Time (hours):</label>
+                        <input
+                          id="rules-voting-time"
+                          type="number"
                           value={editedSettings.votingTime}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, votingTime: parseInt(e.target.value) }))}
                           min="1"
@@ -1099,8 +1160,9 @@ function GroupView() {
                     <div className="rules-section">
                       <h3>Topic Settings</h3>
                       <div className="form-row">
-                        <label>Topic Selection:</label>
-                        <select 
+                        <label htmlFor="rules-topic-selection">Topic Selection:</label>
+                        <select
+                          id="rules-topic-selection"
                           value={editedSettings.topicSelection}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, topicSelection: e.target.value }))}
                         >
@@ -1120,8 +1182,9 @@ function GroupView() {
                         </label>
                       </div>
                       <div className="form-row textarea-row">
-                        <label>Preset Topics (one per line):</label>
-                        <textarea 
+                        <label htmlFor="rules-preset-topics">Preset Topics (one per line):</label>
+                        <textarea
+                          id="rules-preset-topics"
                           value={editedSettings.presetTopics && editedSettings.presetTopics.length > 0 ? editedSettings.presetTopics.join('\n') : ''}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, presetTopics: e.target.value.split('\n').filter(t => t.trim()) }))}
                           rows="4"
@@ -1282,25 +1345,26 @@ function GroupView() {
       </main>
 
       {showSubmitModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="submit-modal-title">
-          <div className="modal-content">
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="submit-modal-title"
+          ref={submitModalRef}
+          onClick={closeSubmitModal}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="submit-modal-title">{isEditing ? 'Edit Song' : 'Submit Song'}</h2>
-              <button 
+              <button
                 className="close-button"
-                onClick={() => {
-                  setShowSubmitModal(false)
-                  setIsEditing(false)
-                  setSpotifyUri('')
-                  setSongTitle('')
-                  setArtist('')
-                }}
+                onClick={closeSubmitModal}
                 aria-label="Close modal"
               >
                 ×
               </button>
             </div>
-            
+
             <form className="modal-body" onSubmit={(e) => { e.preventDefault(); handleSubmitSong(); }}>
               <div className="form-group">
                 <label htmlFor="spotify-uri">Spotify URI *</label>
@@ -1342,16 +1406,10 @@ function GroupView() {
               </div>
 
               <div className="modal-actions">
-                <button 
+                <button
                   type="button"
                   className="cancel-button"
-                  onClick={() => {
-                    setShowSubmitModal(false)
-                    setIsEditing(false)
-                    setSpotifyUri('')
-                    setSongTitle('')
-                    setArtist('')
-                  }}
+                  onClick={closeSubmitModal}
                 >
                   Cancel
                 </button>
@@ -1369,8 +1427,15 @@ function GroupView() {
       )}
 
       {showRoundLeaderModal && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="round-leader-modal-title">
-          <div className="modal-content">
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="round-leader-modal-title"
+          ref={roundLeaderModalRef}
+          onClick={() => setShowRoundLeaderModal(false)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="round-leader-modal-title">Select Round Leader</h2>
               <button 
@@ -1423,8 +1488,15 @@ function GroupView() {
       )}
 
       {showPlayerSelection && (
-        <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="player-selection-modal-title">
-          <div className="modal-content">
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="player-selection-modal-title"
+          ref={playerSelectionModalRef}
+          onClick={() => setShowPlayerSelection(false)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="player-selection-modal-title">Pick Round Leader</h2>
               <button 
@@ -1460,6 +1532,71 @@ function GroupView() {
                 onClick={() => setShowPlayerSelection(false)}
               >
                 Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showInviteModal && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="invite-modal-title"
+          ref={inviteModalRef}
+          onClick={() => setShowInviteModal(false)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="invite-modal-title">Invite Players</h2>
+              <button
+                className="close-button"
+                onClick={() => setShowInviteModal(false)}
+                aria-label="Close modal"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="modal-body">
+              <div className="form-group">
+                <label htmlFor="invite-code">Group Code</label>
+                <input
+                  id="invite-code"
+                  type="text"
+                  value={groupId}
+                  readOnly
+                  onFocus={(e) => e.target.select()}
+                />
+                <small className="form-hint">Friends can enter this on the Dashboard's "Join Group" button.</small>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="invite-link">Shareable Link</label>
+                <input
+                  id="invite-link"
+                  type="text"
+                  value={inviteLink}
+                  readOnly
+                  onFocus={(e) => e.target.select()}
+                />
+                <small className="form-hint">Opening this link joins the group automatically.</small>
+              </div>
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="cancel-button"
+                onClick={() => setShowInviteModal(false)}
+              >
+                Close
+              </button>
+              <button
+                className="submit-button"
+                onClick={handleCopyInviteLink}
+              >
+                {linkCopied ? 'Copied!' : 'Copy Link'}
               </button>
             </div>
           </div>
