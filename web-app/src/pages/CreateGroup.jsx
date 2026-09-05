@@ -71,7 +71,7 @@ function CreateGroup() {
         allowDownvotes,
         downvoteCost,
         allowOverride,
-        overrideThreshold: overrideThreshold / 100, // Convert percentage to decimal
+        overrideThreshold, // whole percentage (51-100); stored and transmitted as-is everywhere
         submissionTime,
         votingTime,
         autoStart,
@@ -85,7 +85,7 @@ function CreateGroup() {
     }
 
     // Send group creation request to server
-    socket.emit('create_group', { groupData, username: user.name })
+    socket.emit('create_group', { groupData, username: user.name, userId: user.id })
 
     // Listen for group creation confirmation
     socket.once('group_created', ({ group }) => {

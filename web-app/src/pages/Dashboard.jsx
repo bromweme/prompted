@@ -14,10 +14,10 @@ function Dashboard() {
   const location = useLocation()
 
   useEffect(() => {
-    if (!socket || !isConnected) return
+    if (!socket || !isConnected || !user) return
 
     // Fetch user's groups from server
-    socket.emit('get_groups')
+    socket.emit('get_groups', { userId: user.id })
 
     socket.on('groups_list', ({ groups: serverGroups }) => {
       // Transform server groups to match UI format
@@ -37,7 +37,7 @@ function Dashboard() {
     return () => {
       socket.off('groups_list')
     }
-  }, [socket, isConnected])
+  }, [socket, isConnected, user])
 
   useEffect(() => {
     // Check if there's a new group from navigation state
@@ -55,7 +55,7 @@ function Dashboard() {
           currentRound: location.state.newGroup.currentRound,
           totalRounds: location.state.newGroup.settings.totalRounds,
           status: location.state.newGroup.status,
-          host: location.state.newGroup.players[0]?.id
+          host: location.state.newGroup.host
         }]
       })
     }
@@ -68,7 +68,7 @@ function Dashboard() {
     }
 
     // Fetch group details from server
-    socket.emit('get_group', { groupId, username: user.name })
+    socket.emit('get_group', { groupId, username: user.name, userId: user.id })
 
     socket.once('group_details', ({ group }) => {
       // Transform server group data to match UI format
@@ -76,6 +76,7 @@ function Dashboard() {
         id: group.id,
         name: group.name,
         description: group.description,
+        host: group.host,
         settings: {
           totalRounds: group.settings.totalRounds || 6,
           maxPlayers: group.settings.maxPlayers || 12,
@@ -87,7 +88,7 @@ function Dashboard() {
           allowDownvotes: group.settings.allowDownvotes !== false,
           downvoteCost: group.settings.downvoteCost || 1,
           allowOverride: group.settings.allowOverride !== false,
-          overrideThreshold: (group.settings.overrideThreshold || 0.7) * 100, // Convert to percentage
+          overrideThreshold: group.settings.overrideThreshold || 70, // whole percentage; no conversion
           submissionTime: group.settings.submissionTime || 24,
           votingTime: group.settings.votingTime || 24,
           autoStart: group.settings.autoStart || false,
@@ -100,13 +101,11 @@ function Dashboard() {
         },
         status: group.status,
         currentRound: group.currentRound,
-        players: group.players.map(player => ({
-          id: player.id,
-          username: player.username,
-          score: player.score,
-          isHost: player.id === group.host
-        })),
-        currentTheme: null, // Will be populated when group becomes active
+        // Pass raw player records through — GroupView's own mapPlayers()
+        // does the userId -> client id transform. Pre-mapping here would
+        // strip the `userId` field it depends on.
+        players: group.players,
+        currentTheme: group.currentTheme || null,
         history: group.history || []
       }
       
@@ -120,12 +119,26 @@ function Dashboard() {
   }
 
   const handleJoinGroupByCode = () => {
-    // In production, this would validate the code and join the group
-    if (joinCode.trim()) {
-      alert(`Joining group with code: ${joinCode}`)
+    if (!joinCode.trim()) return
+
+    if (!socket || !isConnected) {
+      alert('Please wait for server connection')
+      return
+    }
+
+    const groupId = joinCode.trim().toUpperCase()
+    socket.emit('join_group', { groupId, username: user.name, userId: user.id })
+
+    socket.once('group_joined', ({ group }) => {
       setShowJoinModal(false)
       setJoinCode('')
-    }
+      navigate(`/group/${group.id}`, { state: { groupData: group } })
+    })
+
+    socket.once('error', ({ message }) => {
+      console.error('Error joining group:', message)
+      alert(`Failed to join group: ${message}`)
+    })
   }
 
   const handleLogout = () => {
@@ -335,9 +348,8 @@ function Dashboard() {
                   type="text"
                   value={joinCode}
                   onChange={(e) => setJoinCode(e.target.value)}
-                  placeholder="Enter 6-digit group code"
+                  placeholder="Enter group code"
                   required
-                  maxLength={6}
                 />
                 <small className="form-hint">Get the group code from the host</small>
               </div>

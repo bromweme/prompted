@@ -4,6 +4,18 @@ import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
 import './GroupView.css'
 
+// Server player records carry both a transient socket id (`id`) and a stable
+// `userId`. The client only ever needs the stable identity to check who's
+// who (e.g. host), so `id` here is remapped to `userId`.
+function mapPlayers(players, host) {
+  return players.map(player => ({
+    id: player.userId,
+    username: player.username,
+    score: player.score,
+    isHost: player.userId === host
+  }))
+}
+
 function GroupView() {
   const { groupId } = useParams()
   const navigate = useNavigate()
@@ -19,13 +31,15 @@ function GroupView() {
   const [artist, setArtist] = useState('')
   const [userSubmission, setUserSubmission] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
-  const [selectedRoundLeader, setSelectedRoundLeader] = useState(null)
   const [isEditingRules, setIsEditingRules] = useState(false)
   const [editedSettings, setEditedSettings] = useState(null)
   const [showRoundLeaderModal, setShowRoundLeaderModal] = useState(false)
   const [showPlayerSelection, setShowPlayerSelection] = useState(false)
   const [timeRemaining, setTimeRemaining] = useState(null)
   const [isRoundLeader, setIsRoundLeader] = useState(false)
+  const [selectedSubmissionId, setSelectedSubmissionId] = useState(null)
+  const [votePoints, setVotePoints] = useState(1)
+  const [userVote, setUserVote] = useState(null)
 
   useEffect(() => {
     // Countdown timer for round deadline
@@ -47,8 +61,15 @@ function GroupView() {
     }
   }, [group?.currentTheme?.deadline])
 
+  // Clear per-round local state whenever a new round begins
   useEffect(() => {
-    if (!socket || !isConnected) return
+    setUserSubmission(null)
+    setUserVote(null)
+    setSelectedSubmissionId(null)
+  }, [group?.currentTheme?.id])
+
+  useEffect(() => {
+    if (!socket || !isConnected || !user) return
 
     // Get group data from navigation state or fetch from server
     if (location.state?.groupData) {
@@ -81,9 +102,9 @@ function GroupView() {
         },
         status: groupData.status || 'waiting',
         currentRound: groupData.currentRound || 0,
-        players: groupData.players || [
-          { id: 'user123', username: 'MusicLover', score: 0, isHost: true }
-        ],
+        players: groupData.players
+          ? mapPlayers(groupData.players, groupData.host)
+          : [{ id: user.id, username: user.name, score: 0, isHost: true }],
         currentTheme: groupData.currentTheme || null,
         history: groupData.history || []
       }
@@ -91,14 +112,15 @@ function GroupView() {
       setGroup(fullGroupData)
     } else {
       // Fetch group data from server
-      socket.emit('get_group', { groupId, username: user.name })
+      socket.emit('get_group', { groupId, username: user.name, userId: user.id })
 
-      socket.once('group_details', ({ group }) => {
+      socket.once('group_details', ({ group, isRoundLeader: youAreRoundLeader }) => {
         // Transform server group data to match UI format
         const fullGroupData = {
           id: group.id,
           name: group.name,
           description: group.description,
+          host: group.host,
           settings: {
             totalRounds: group.settings.totalRounds || 6,
             maxPlayers: group.settings.maxPlayers || 12,
@@ -110,7 +132,7 @@ function GroupView() {
             allowDownvotes: group.settings.allowDownvotes !== false,
             downvoteCost: group.settings.downvoteCost || 1,
             allowOverride: group.settings.allowOverride !== false,
-            overrideThreshold: (group.settings.overrideThreshold || 0.7) * 100,
+            overrideThreshold: group.settings.overrideThreshold || 70, // whole percentage; no conversion
             submissionTime: group.settings.submissionTime || 24,
             votingTime: group.settings.votingTime || 24,
             autoStart: group.settings.autoStart || false,
@@ -123,17 +145,13 @@ function GroupView() {
           },
           status: group.status,
           currentRound: group.currentRound,
-          players: group.players.map(player => ({
-            id: player.id,
-            username: player.username,
-            score: player.score,
-            isHost: player.id === group.host
-          })),
-          currentTheme: null,
+          players: mapPlayers(group.players, group.host),
+          currentTheme: group.currentTheme || null,
           history: group.history || []
         }
         
         setGroup(fullGroupData)
+        setIsRoundLeader(!!youAreRoundLeader)
       })
 
       socket.once('error', ({ message }) => {
@@ -147,6 +165,7 @@ function GroupView() {
       setGroup(prev => ({
         ...prev,
         ...group,
+        players: mapPlayers(group.players, group.host),
         settings: {
           ...prev.settings,
           ...group.settings
@@ -160,12 +179,7 @@ function GroupView() {
     socket.on('player_joined_group', ({ players }) => {
       setGroup(prev => ({
         ...prev,
-        players: players.map(player => ({
-          id: player.id,
-          username: player.username,
-          score: player.score,
-          isHost: player.id === prev.host
-        }))
+        players: mapPlayers(players, prev.host)
       }))
     })
 
@@ -175,37 +189,30 @@ function GroupView() {
       socket.off('group_details')
       socket.off('error')
     }
-  }, [groupId, location.state, socket, isConnected, user.name])
+  }, [groupId, location.state, socket, isConnected, user])
 
   const handleStartRound = () => {
     // Show modal to choose round leader selection method
     setShowRoundLeaderModal(true)
   }
 
-  const handleRandomAssign = () => {
-    // Randomly select a Round Leader from players
-    const randomIndex = Math.floor(Math.random() * group.players.length)
-    const selectedPlayer = group.players[randomIndex]
-    setSelectedRoundLeader(selectedPlayer)
-    setShowRoundLeaderModal(false)
-    
-    // Create a theme for the round
-    const newTheme = {
-      id: `theme${new Date().getTime()}`,
-      title: 'Round Challenge',
-      description: 'This round\'s music challenge',
-      status: 'active',
-      submissions: 0,
-      deadline: new Date(new Date().getTime() + (group.settings.submissionTime * 60 * 60 * 1000)).toISOString()
+  const emitStartRound = (czarUserId) => {
+    if (!socket || !isConnected) {
+      alert('Please wait for server connection')
+      return
     }
-    
-    setGroup(prev => ({ 
-      ...prev, 
-      currentTheme: newTheme,
-      currentRound: prev.currentRound + 1
-    }))
-    
-    alert(`Round Leader randomly selected: ${selectedPlayer.username}\nRound started!`)
+
+    socket.emit('start_round', { groupId, userId: user.id, czarUserId })
+
+    socket.once('error', ({ message }) => {
+      console.error('Error starting round:', message)
+      alert(`Failed to start round: ${message}`)
+    })
+  }
+
+  const handleRandomAssign = () => {
+    setShowRoundLeaderModal(false)
+    emitStartRound()
   }
 
   const handlePickLeader = () => {
@@ -215,26 +222,8 @@ function GroupView() {
   }
 
   const handleSelectPlayer = (player) => {
-    setSelectedRoundLeader(player)
     setShowPlayerSelection(false)
-    
-    // Create a theme for the round
-    const newTheme = {
-      id: `theme${new Date().getTime()}`,
-      title: 'Round Challenge',
-      description: 'This round\'s music challenge',
-      status: 'active',
-      submissions: 0,
-      deadline: new Date(new Date().getTime() + (group.settings.submissionTime * 60 * 60 * 1000)).toISOString()
-    }
-    
-    setGroup(prev => ({ 
-      ...prev, 
-      currentTheme: newTheme,
-      currentRound: prev.currentRound + 1
-    }))
-    
-    alert(`Round Leader selected: ${player.username}\nRound started!`)
+    emitStartRound(player.id) // player.id is the stable userId (see mapPlayers)
   }
 
   const handleStartGroup = () => {
@@ -243,7 +232,7 @@ function GroupView() {
       return
     }
 
-    socket.emit('start_group', { groupId })
+    socket.emit('start_group', { groupId, userId: user.id })
 
     socket.once('group_updated', () => {
       alert('Group started! First round beginning.')
@@ -266,15 +255,11 @@ function GroupView() {
       return
     }
 
-    // Convert percentage back to decimal for server
-    const serverSettings = {
-      ...editedSettings,
-      overrideThreshold: editedSettings.overrideThreshold / 100
-    }
-
-    socket.emit('update_group', { 
-      groupId, 
-      settings: serverSettings 
+    // overrideThreshold is a whole percentage everywhere — no conversion needed
+    socket.emit('update_group', {
+      groupId,
+      settings: editedSettings,
+      userId: user.id
     })
 
     socket.once('group_updated', ({ group }) => {
@@ -301,12 +286,10 @@ function GroupView() {
   }
 
   const handleInvitePlayer = () => {
-    // Generate a simple 6-digit group code for testing
-    const groupCode = Math.random().toString(36).substring(2, 8).toUpperCase()
-    const inviteLink = `${window.location.origin}/group/${groupId}?code=${groupCode}`
-    
+    const inviteLink = `${window.location.origin}/group/${groupId}`
+
     // For testing purposes, show the code instead of copying to clipboard
-    alert(`Share this group code with your friends:\n\n${groupCode}\n\nOr share this link:\n${inviteLink}`)
+    alert(`Share this group code with your friends:\n\n${groupId}\n\nOr share this link:\n${inviteLink}`)
   }
 
   const handleSubmitSong = () => {
@@ -314,20 +297,25 @@ function GroupView() {
       alert('Please fill in all fields')
       return
     }
-    
-    const submission = {
-      id: `sub_${new Date().getTime()}`,
+
+    if (!socket || !isConnected) {
+      alert('Please wait for server connection')
+      return
+    }
+
+    socket.emit('submit_song', { groupId, spotifyUri, songTitle, artist, userId: user.id })
+
+    socket.once('error', ({ message }) => {
+      console.error('Error submitting song:', message)
+      alert(`Failed to submit song: ${message}`)
+    })
+
+    setUserSubmission({
       spotifyUri,
       songTitle,
       artist,
-      submittedAt: new Date().toISOString(),
-      userId: user.id,
-      username: user.name
-    }
-    
-    // In production, this would submit to backend
-    console.log('Submitting song:', submission)
-    setUserSubmission(submission)
+      submittedAt: new Date().toISOString()
+    })
     setShowSubmitModal(false)
     setSpotifyUri('')
     setSongTitle('')
@@ -335,14 +323,46 @@ function GroupView() {
     setIsEditing(false)
   }
 
-  const handleEditSubmission = () => {
-    if (userSubmission) {
-      setSpotifyUri(userSubmission.spotifyUri)
-      setSongTitle(userSubmission.songTitle)
-      setArtist(userSubmission.artist)
-      setIsEditing(true)
-      setShowSubmitModal(true)
+  const handleCastVote = (isDownvote = false) => {
+    if (!selectedSubmissionId) return
+    if (!socket || !isConnected) {
+      alert('Please wait for server connection')
+      return
     }
+
+    socket.emit('cast_vote', {
+      groupId,
+      submissionId: selectedSubmissionId,
+      points: votePoints,
+      isDownvote,
+      userId: user.id
+    })
+
+    socket.once('error', ({ message }) => {
+      console.error('Error casting vote:', message)
+      alert(`Failed to cast vote: ${message}`)
+    })
+
+    setUserVote({ submissionId: selectedSubmissionId, isDownvote })
+  }
+
+  const handleCzarSelectWinner = () => {
+    if (!selectedSubmissionId) return
+    if (!socket || !isConnected) {
+      alert('Please wait for server connection')
+      return
+    }
+
+    socket.emit('czar_select_winner', {
+      groupId,
+      submissionId: selectedSubmissionId,
+      userId: user.id
+    })
+
+    socket.once('error', ({ message }) => {
+      console.error('Error selecting winner:', message)
+      alert(`Failed to select winner: ${message}`)
+    })
   }
 
   if (!group) {
@@ -398,8 +418,8 @@ function GroupView() {
             >
               Account
             </button>
-            {group.players.find(p => p.id === user.id)?.isHost && (
-              <button 
+            {group.status === 'active' && (!group.currentTheme || group.currentTheme.status === 'reveal') && group.players.find(p => p.id === user.id)?.isHost && (
+              <button
                 className="action-button primary"
                 onClick={handleStartRound}
                 aria-label="Start new round for submissions"
@@ -469,7 +489,9 @@ function GroupView() {
                     <div className="theme-header">
                       <h3>Current Theme</h3>
                       <div className="theme-meta">
-                        <span className="theme-status">Active</span>
+                        <span className="theme-status">
+                          {group.currentTheme.status === 'voting' ? 'Voting' : group.currentTheme.status === 'reveal' ? 'Results' : 'Submissions Open'}
+                        </span>
                         <span className="round-leader-badge">
                           {isRoundLeader
                             ? 'You are the Round Leader'
@@ -482,11 +504,11 @@ function GroupView() {
                     <div className="theme-body">
                       <h4>{group.currentTheme.title}</h4>
                       <p className="theme-description">{group.currentTheme.description}</p>
-                      
+
                       <div className="theme-stats">
                         <div className="theme-stat">
                           <span className="stat-label">Submissions</span>
-                          <span className="stat-value">{group.currentTheme.submissions}</span>
+                          <span className="stat-value">{group.currentTheme.submissionCount ?? 0}</span>
                         </div>
                         <div className="theme-stat">
                           <span className="stat-label">Deadline</span>
@@ -496,53 +518,12 @@ function GroupView() {
                         </div>
                       </div>
 
-                      <button 
+                      <button
                         className="view-round-button"
                         onClick={() => setActiveTab('round')}
                       >
                         View Round →
                       </button>
-
-                      {userSubmission ? (
-                        <div className="user-submission">
-                          <div className="submission-header">
-                            <h5>Your Submission</h5>
-                            <span className="submitted-time">
-                              Submitted {new Date(userSubmission.submittedAt).toLocaleTimeString()}
-                            </span>
-                          </div>
-                          <div className="submission-details">
-                            <div className="submission-detail">
-                              <span className="detail-label">Song:</span>
-                              <span className="detail-value">{userSubmission.songTitle}</span>
-                            </div>
-                            <div className="submission-detail">
-                              <span className="detail-label">Artist:</span>
-                              <span className="detail-value">{userSubmission.artist}</span>
-                            </div>
-                            <div className="submission-detail">
-                              <span className="detail-label">Spotify URI:</span>
-                              <span className="detail-value">{userSubmission.spotifyUri}</span>
-                            </div>
-                          </div>
-                          <div className="submission-actions">
-                            <button 
-                              className="edit-button"
-                              onClick={handleEditSubmission}
-                              aria-label="Edit your submission"
-                            >
-                              Edit Submission
-                            </button>
-                          </div>
-                        </div>
-                      ) : (
-                        <button 
-                          className="theme-action-button"
-                          onClick={() => setShowSubmitModal(true)}
-                        >
-                          Submit Song
-                        </button>
-                      )}
                     </div>
                   </div>
                 )}
@@ -586,7 +567,7 @@ function GroupView() {
                   <div className="stat-card">
                     <div className="stat-icon" aria-hidden="true">🎵</div>
                     <h4>Total Songs</h4>
-                    <p>{group.history.reduce((sum, h) => sum + (h.totalSubmissions || 0), 0) + (group.currentTheme?.submissions || 0)} submitted</p>
+                    <p>{group.history.reduce((sum, h) => sum + (h.totalSubmissions || 0), 0) + (group.currentTheme?.submissionCount || 0)} submitted</p>
                   </div>
                   <div className="stat-card">
                     <div className="stat-icon" aria-hidden="true">🏆</div>
@@ -611,7 +592,7 @@ function GroupView() {
               <section className="tab-content">
                 <div className="round-header">
                   <h2>Round {group.currentRound}</h2>
-                  {timeRemaining !== null && timeRemaining > 0 && (
+                  {group.currentTheme.status === 'submission' && timeRemaining !== null && timeRemaining > 0 && (
                     <div className="round-countdown">
                       <span className="countdown-icon">⏱️</span>
                       <span className="countdown-text">
@@ -640,7 +621,7 @@ function GroupView() {
                       <div className="round-stats">
                         <div className="round-stat">
                           <span className="stat-label">Submissions</span>
-                          <span className="stat-value">{group.currentTheme.submissions}</span>
+                          <span className="stat-value">{group.currentTheme.submissionCount ?? 0}</span>
                         </div>
                         <div className="round-stat">
                           <span className="stat-label">Deadline</span>
@@ -652,78 +633,144 @@ function GroupView() {
                     </div>
                   </div>
 
-                  {/* Submissions Section */}
-                  <div className="submissions-section">
-                    <h3>Submissions</h3>
-                    <p className="submissions-count">{group.currentTheme.submissions} player(s) have submitted songs</p>
-                    
-                    <div className="submissions-list">
-                      {group.players.filter(p => p.id !== selectedRoundLeader?.id).map(player => (
-                        <div key={player.id} className="submission-item">
-                          <div className="submission-player">
-                            <span className="submission-avatar" aria-hidden="true">{player.username[0]}</span>
-                            <span className="submission-name">{player.username}</span>
-                            <span className="submission-status">
-                              {userSubmission ? 'Submitted' : 'Pending'}
-                            </span>
-                          </div>
-                          <div className="submission-song">
-                            {userSubmission ? (
-                              <>
-                                <span className="song-title">{userSubmission.songTitle}</span>
-                                <span className="song-artist">by {userSubmission.artist}</span>
-                              </>
-                            ) : (
-                              <span className="no-submission">No song submitted yet</span>
-                            )}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* User's Submission */}
-                  <div className="user-submission-card">
-                    <h3>Your Submission</h3>
-                    {userSubmission ? (
-                      <div className="user-submission-content">
-                        <div className="submission-details">
-                          <div className="submission-detail">
-                            <span className="detail-label">Song:</span>
-                            <span className="detail-value">{userSubmission.songTitle}</span>
-                          </div>
-                          <div className="submission-detail">
-                            <span className="detail-label">Artist:</span>
-                            <span className="detail-value">{userSubmission.artist}</span>
-                          </div>
-                          <div className="submission-detail">
-                            <span className="detail-label">Spotify URI:</span>
-                            <span className="detail-value">{userSubmission.spotifyUri}</span>
-                          </div>
-                          <div className="submission-detail">
-                            <span className="detail-label">Submitted:</span>
-                            <span className="detail-value">{new Date(userSubmission.submittedAt).toLocaleString()}</span>
-                          </div>
-                        </div>
-                        <button 
-                          className="edit-button"
-                          onClick={handleEditSubmission}
-                        >
-                          Edit Submission
-                        </button>
+                  {/* Submission phase */}
+                  {group.currentTheme.status === 'submission' && (
+                    isRoundLeader ? (
+                      <div className="user-submission-card">
+                        <h3>You're the Round Leader</h3>
+                        <p className="no-submission">Wait for the other players to submit their songs.</p>
+                        <p className="submissions-count">{group.currentTheme.submissionCount ?? 0} submission(s) so far</p>
                       </div>
                     ) : (
-                      <div className="no-submission-content">
-                        <p>You haven't submitted a song for this round yet.</p>
-                        <button 
-                          className="submit-button"
-                          onClick={() => setShowSubmitModal(true)}
-                        >
-                          Submit Song
-                        </button>
+                      <div className="user-submission-card">
+                        <h3>Your Submission</h3>
+                        {userSubmission ? (
+                          <div className="user-submission-content">
+                            <div className="submission-details">
+                              <div className="submission-detail">
+                                <span className="detail-label">Song:</span>
+                                <span className="detail-value">{userSubmission.songTitle}</span>
+                              </div>
+                              <div className="submission-detail">
+                                <span className="detail-label">Artist:</span>
+                                <span className="detail-value">{userSubmission.artist}</span>
+                              </div>
+                              <div className="submission-detail">
+                                <span className="detail-label">Spotify URI:</span>
+                                <span className="detail-value">{userSubmission.spotifyUri}</span>
+                              </div>
+                            </div>
+                            <p className="submissions-count">Submitted — waiting for the rest of the group ({group.currentTheme.submissionCount ?? 0} so far)</p>
+                          </div>
+                        ) : (
+                          <div className="no-submission-content">
+                            <p>You haven't submitted a song for this round yet.</p>
+                            <button
+                              className="submit-button"
+                              onClick={() => setShowSubmitModal(true)}
+                            >
+                              Submit Song
+                            </button>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
+                    )
+                  )}
+
+                  {/* Voting phase */}
+                  {group.currentTheme.status === 'voting' && (
+                    <div className="submissions-section">
+                      <h3>Vote</h3>
+                      <p className="submissions-count">Submissions are anonymous until results are revealed.</p>
+
+                      <div className="submissions-list">
+                        {(group.currentTheme.submissions || []).map(submission => (
+                          <div
+                            key={submission.id}
+                            className={`submission-item ${!userVote ? 'selectable' : ''} ${selectedSubmissionId === submission.id ? 'selected' : ''}`}
+                            onClick={() => !userVote && setSelectedSubmissionId(submission.id)}
+                          >
+                            <div className="submission-song">
+                              <span className="song-title">{submission.songTitle}</span>
+                              <span className="song-artist">by {submission.artist}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {userVote ? (
+                        <p className="submissions-count">You've voted — waiting for the rest of the group.</p>
+                      ) : selectedSubmissionId ? (
+                        <div className="voting-actions">
+                          <label>
+                            Points:
+                            <select value={votePoints} onChange={(e) => setVotePoints(parseInt(e.target.value))}>
+                              {Array.from({ length: group.settings.maxJuryPoints || 3 }, (_, i) => i + 1).map(n => (
+                                <option key={n} value={n}>{n}</option>
+                              ))}
+                            </select>
+                          </label>
+                          <button className="theme-action-button" onClick={() => handleCastVote(false)}>
+                            Cast Vote
+                          </button>
+                          {group.settings.allowDownvotes && (
+                            <button className="cancel-button" onClick={() => handleCastVote(true)}>
+                              Downvote
+                            </button>
+                          )}
+                          {isRoundLeader && (
+                            <button className="edit-button" onClick={handleCzarSelectWinner}>
+                              Select as Winner (Round Leader)
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <p className="submissions-count">Select a submission above to vote.</p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Reveal phase */}
+                  {group.currentTheme.status === 'reveal' && (
+                    <div className="submissions-section">
+                      <h3>Results</h3>
+                      <p className="round-leader-badge">Round Leader was: {group.currentTheme.czarUsername || 'Unknown'}</p>
+
+                      <div className="submissions-list">
+                        {(group.currentTheme.submissions || []).map(submission => (
+                          <div key={submission.id} className="submission-item">
+                            <div className="submission-song">
+                              <span className="song-title">{submission.songTitle}</span>
+                              <span className="song-artist">by {submission.artist}</span>
+                              {submission.wonBy && <span className="host-badge">🏆 Winner</span>}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="leaderboard-card">
+                        <h3>Scores</h3>
+                        <div className="leaderboard-list">
+                          {group.players
+                            .slice()
+                            .sort((a, b) => b.score - a.score)
+                            .map((player, index) => (
+                              <div key={player.id} className="leaderboard-item">
+                                <span className="rank">{index + 1}</span>
+                                <span className="player-name">{player.username}</span>
+                                <span className="score">{player.score} pts</span>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+
+                      {group.players.find(p => p.id === user.id)?.isHost && (
+                        <button className="setup-button primary" onClick={handleStartRound}>
+                          Start Next Round
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
               </section>
             )}
@@ -974,7 +1021,7 @@ function GroupView() {
                           type="number" 
                           value={editedSettings.overrideThreshold}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, overrideThreshold: parseInt(e.target.value) }))}
-                          min="50"
+                          min="51"
                           max="100"
                         />
                       </div>
@@ -982,6 +1029,7 @@ function GroupView() {
 
                     <div className="rules-section">
                       <h3>Timing</h3>
+                      <small className="form-hint">Changes to timing apply to the next round — the round in progress keeps its original deadline.</small>
                       <div className="form-row">
                         <label>Submission Time (hours):</label>
                         <input 
