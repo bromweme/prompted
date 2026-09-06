@@ -21,6 +21,11 @@ export default defineConfig({
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // Mobile viewport coverage — same suites, narrow screen + touch input.
+    // Pixel 7 is Chromium-based, so this isolates the variable to
+    // viewport/touch rather than also swapping the rendering engine
+    // (iPhone presets would pull in WebKit).
+    { name: 'mobile-chrome', use: { ...devices['Pixel 7'] } },
   ],
   // Boots the real backend (server.js) and the real Vite dev server so the
   // suite exercises actual socket.io traffic end to end — no mocking. Both

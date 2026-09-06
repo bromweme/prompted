@@ -98,6 +98,10 @@
   height: fit-content;
   position: sticky;
   top: var(--space-4);
+  /* Grid items default to min-width:auto, which refuses to shrink below
+     their content and blows the track past the container on narrow
+     viewports. */
+  min-width: 0;
 }
 
 .group-nav {
@@ -145,6 +149,9 @@
   border: 1px solid var(--color-border-subtle);
   box-shadow: var(--shadow-sm);
   padding: var(--space-4);
+  /* See .group-sidebar — without this the grid track is sized to the
+     content and overflows the viewport on narrow screens. */
+  min-width: 0;
 }
 
 .tab-content h2 {
