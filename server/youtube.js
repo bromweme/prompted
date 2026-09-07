@@ -1,0 +1,129 @@
+const { youtubeApiKey, youtubeSearchEnabled } = require('./config');
+
+// YouTube Data API v3 search.
+//
+// Quota matters here: the default allowance is 10,000 units/day and
+// search.list costs 100 units per call — about 100 searches a day for the
+// whole server, shared by every player. So results are cached by query and the
+// client debounces typing. Without both, a few players typing in the search
+// box would exhaust the day's quota in minutes.
+
+const SEARCH_ENDPOINT = 'https://www.googleapis.com/youtube/v3/search';
+const MAX_RESULTS = 8;
+const CACHE_TTL_MS = 30 * 60 * 1000;
+const CACHE_MAX_ENTRIES = 500;
+
+const cache = new Map(); // normalized query -> { at, results }
+
+function normalizeQuery(query) {
+  return query.trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function readCache(key) {
+  const hit = cache.get(key);
+  if (!hit) return null;
+  if (Date.now() - hit.at > CACHE_TTL_MS) {
+    cache.delete(key);
+    return null;
+  }
+  // Refresh insertion order so the map evicts least-recently-used.
+  cache.delete(key);
+  cache.set(key, hit);
+  return hit.results;
+}
+
+function writeCache(key, results) {
+  cache.set(key, { at: Date.now(), results });
+  while (cache.size > CACHE_MAX_ENTRIES) {
+    cache.delete(cache.keys().next().value);
+  }
+}
+
+// Stands in for the API until a key exists, so the search UI and the e2e suite
+// are developable and testable offline and without spending quota.
+const FIXTURES = [
+  { videoId: 'dQw4w9WgXcQ', title: 'Rick Astley - Never Gonna Give You Up', channelTitle: 'Rick Astley' },
+  { videoId: '9bZkp7q19f0', title: 'PSY - GANGNAM STYLE', channelTitle: 'officialpsy' },
+  { videoId: 'kJQP7kiw5Fk', title: 'Luis Fonsi - Despacito ft. Daddy Yankee', channelTitle: 'Luis Fonsi' },
+  { videoId: 'fJ9rUzIMcZQ', title: 'Queen - Bohemian Rhapsody', channelTitle: 'Queen Official' },
+  { videoId: 'YQHsXMglC9A', title: 'Adele - Hello', channelTitle: 'Adele' },
+  { videoId: 'JGwWNGJdvx8', title: 'Ed Sheeran - Shape of You', channelTitle: 'Ed Sheeran' },
+  { videoId: 'CevxZvSJLk8', title: 'Katy Perry - Roar', channelTitle: 'Katy Perry' },
+  { videoId: 'RgKAFK5djSk', title: 'Wiz Khalifa - See You Again ft. Charlie Puth', channelTitle: 'Wiz Khalifa' }
+];
+
+function thumbnailFor(videoId) {
+  return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+}
+
+function searchFixtures(query) {
+  const q = normalizeQuery(query);
+  const matches = FIXTURES.filter(
+    v => v.title.toLowerCase().includes(q) || v.channelTitle.toLowerCase().includes(q)
+  );
+  // An unmatched query still returns something, so the picker UI is always
+  // exercisable regardless of what gets typed.
+  const chosen = matches.length > 0 ? matches : FIXTURES;
+  return chosen.slice(0, MAX_RESULTS).map(v => ({ ...v, thumbnail: thumbnailFor(v.videoId) }));
+}
+
+/**
+ * Returns up to MAX_RESULTS videos as { videoId, title, thumbnail, channelTitle }.
+ * Falls back to fixtures when no API key is configured; throws only when a
+ * configured key actually fails, so a real outage is visible rather than being
+ * silently papered over with fixture data.
+ */
+async function searchVideos(query) {
+  const key = normalizeQuery(query);
+  if (!key) return [];
+
+  const cached = readCache(key);
+  if (cached) return cached;
+
+  if (!youtubeSearchEnabled) {
+    const results = searchFixtures(query);
+    writeCache(key, results);
+    return results;
+  }
+
+  const url = new URL(SEARCH_ENDPOINT);
+  url.searchParams.set('part', 'snippet');
+  url.searchParams.set('type', 'video');
+  url.searchParams.set('videoEmbeddable', 'true'); // unembeddable results would break the reveal iframe
+  url.searchParams.set('maxResults', String(MAX_RESULTS));
+  url.searchParams.set('q', query);
+  url.searchParams.set('key', youtubeApiKey);
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    // The key never appears in the thrown message; body can echo the request.
+    throw new Error(`YouTube search failed (${response.status}): ${body.slice(0, 200)}`);
+  }
+
+  const data = await response.json();
+  const results = (data.items || [])
+    .filter(item => item.id && item.id.videoId)
+    .map(item => ({
+      videoId: item.id.videoId,
+      title: item.snippet.title,
+      channelTitle: item.snippet.channelTitle,
+      thumbnail:
+        (item.snippet.thumbnails && item.snippet.thumbnails.medium && item.snippet.thumbnails.medium.url) ||
+        thumbnailFor(item.id.videoId)
+    }));
+
+  writeCache(key, results);
+  return results;
+}
+
+// YouTube ids are exactly 11 chars of [A-Za-z0-9_-]. Validating the shape lets
+// the id be dropped straight into an embed URL without becoming an injection
+// point in the iframe src.
+const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/;
+
+function isValidVideoId(value) {
+  return typeof value === 'string' && VIDEO_ID_PATTERN.test(value);
+}
+
+module.exports = { searchVideos, isValidVideoId, MAX_RESULTS };

@@ -121,7 +121,7 @@ function CreateGroup() {
     }
 
     // Send group creation request to server
-    socket.emit('create_group', { groupData, username: user.name, userId: user.id })
+    socket.emit('create_group', { groupData })
 
     // Listen for group creation confirmation
     socket.once('group_created', ({ group }) => {

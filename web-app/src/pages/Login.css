@@ -103,63 +103,42 @@
   margin-bottom: var(--space-4);
 }
 
-/* Spotify's own brand color is kept intentionally — this is a third-party
-   sign-in affordance, not one of our own primary actions. */
-.spotify-login-btn {
-  background: #1db954;
-  color: var(--color-text-primary);
-  border: none;
-  padding: var(--space-3) var(--space-5);
-  border-radius: var(--radius-full);
-  font-size: var(--text-body);
-  font-weight: var(--weight-semibold);
-  cursor: pointer;
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  transition: transform var(--transition-base), box-shadow var(--transition-base), background-color var(--transition-base);
-  min-width: 280px;
+/* Google renders its own button inside this slot, and its markup and styling
+   are fixed by Google's brand terms — so this only reserves the space and
+   centres it, rather than trying to restyle the control itself. */
+.google-signin-slot {
+  display: flex;
   justify-content: center;
+  min-height: 44px;
 }
 
-.spotify-login-btn:hover:not(:disabled) {
-  transform: translateY(-1px);
-  box-shadow: var(--shadow-md);
-  background-color: #1ed760;
+.auth-status {
+  margin-top: var(--space-3);
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  line-height: 1.5;
 }
 
-.spotify-login-btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.auth-status code {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  font-size: 0.95em;
 }
 
-.spotify-icon {
-  width: 22px;
-  height: 22px;
-  fill: var(--color-text-primary);
-}
-
-.btn-text {
+.auth-status-warning {
   color: var(--color-text-primary);
+}
+
+.auth-status-error {
+  color: var(--color-danger, #c0392b);
 }
 
 .connection-status {
   margin-top: var(--space-3);
   color: var(--color-text-secondary);
   font-size: var(--text-caption);
-}
-
-.demo-notice {
-  background: var(--color-bg);
-  padding: var(--space-3);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border-subtle);
-}
-
-.demo-notice p {
-  color: var(--color-text-secondary);
-  font-size: var(--text-caption);
-  margin: 0;
 }
 
 .login-footer {
@@ -199,9 +178,6 @@
     gap: var(--space-2);
   }
 
-  .spotify-login-btn {
-    width: 100%;
-  }
 }
 
 @media (min-width: 1280px) {

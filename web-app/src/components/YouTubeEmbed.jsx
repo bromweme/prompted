@@ -1,0 +1,30 @@
+import './YouTubeEmbed.css'
+
+// YouTube ids are exactly 11 characters of [A-Za-z0-9_-]. The id goes straight
+// into the iframe src, so it is re-checked here as well as on the server —
+// a client-side render should never be the only thing standing between a
+// stored value and a URL.
+const VIDEO_ID_PATTERN = /^[A-Za-z0-9_-]{11}$/
+
+function YouTubeEmbed({ videoId, title }) {
+  if (!VIDEO_ID_PATTERN.test(videoId || '')) {
+    return <p className="youtube-embed-error">This video can no longer be played.</p>
+  }
+
+  return (
+    <div className="youtube-embed">
+      <iframe
+        src={`https://www.youtube-nocookie.com/embed/${videoId}`}
+        title={title ? `${title} — YouTube video player` : 'YouTube video player'}
+        loading="lazy"
+        // Deliberately narrow: enough for playback and fullscreen, nothing
+        // that would let an embedded page reach the camera, mic or location.
+        allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+        referrerPolicy="strict-origin-when-cross-origin"
+      />
+    </div>
+  )
+}
+
+export default YouTubeEmbed

@@ -102,6 +102,12 @@
   gap: var(--space-4);
 }
 
+/* Grid items default to min-width:auto and refuse to shrink below their
+   content, which sizes the track past the card once a value is long. */
+.profile-card > * {
+  min-width: 0;
+}
+
 .profile-avatar-section {
   display: flex;
   flex-direction: column;
@@ -189,6 +195,10 @@
   color: var(--color-text-primary);
   font-weight: var(--weight-semibold);
   font-size: var(--text-body);
+  /* Emails and similar user-supplied values are one unbreakable token with
+     no wrap opportunity; left alone they widen the row past the viewport. */
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .edit-form {
@@ -450,4 +460,11 @@ input:checked + .slider:before {
   .profile-card {
     grid-template-columns: 320px 1fr;
   }
+}
+
+.avatar-photo {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  object-fit: cover;
 }

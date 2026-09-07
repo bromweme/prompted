@@ -1080,6 +1080,23 @@
   .nav-item {
     white-space: nowrap;
   }
+
+  /* A 180px label column leaves ~98px for the control at phone widths, which
+     truncates option text everywhere and, in WebKit, leaks the <select>'s
+     widest-option width into the page's layout overflow (48px of horizontal
+     page scroll on a 390px viewport — no width or min-width on the select
+     suppresses it). Giving each control the full row width avoids both.
+     Checkbox rows are a single label element and textarea rows already
+     stack, so neither needs this. */
+  .rules-edit-form .form-row:not(.checkbox):not(.textarea-row) {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-1);
+  }
+
+  .rules-edit-form .form-row:not(.checkbox):not(.textarea-row) label {
+    flex: 0 0 auto;
+  }
 }
 
 @media (min-width: 1280px) {

@@ -21,7 +21,7 @@ function Dashboard() {
     if (!socket || !isConnected || !user) return
 
     // Fetch user's groups from server
-    socket.emit('get_groups', { userId: user.id })
+    socket.emit('get_groups')
 
     socket.on('groups_list', ({ groups: serverGroups }) => {
       // Transform server groups to match UI format
@@ -72,7 +72,7 @@ function Dashboard() {
     }
 
     // Fetch group details from server
-    socket.emit('get_group', { groupId, username: user.name, userId: user.id })
+    socket.emit('get_group', { groupId })
 
     socket.once('group_details', ({ group }) => {
       // Transform server group data to match UI format
@@ -131,7 +131,7 @@ function Dashboard() {
     }
 
     const groupId = joinCode.trim().toUpperCase()
-    socket.emit('join_group', { groupId, username: user.name, userId: user.id })
+    socket.emit('join_group', { groupId })
 
     socket.once('group_joined', ({ group }) => {
       setShowJoinModal(false)

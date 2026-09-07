@@ -2,21 +2,35 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const dotenv = require('dotenv');
+const config = require('./config');
+const { createAuthMiddleware } = require('./auth');
+const { searchVideos, isValidVideoId } = require('./youtube');
 const { PersistentStore } = require('./db');
 
-dotenv.config();
+// The only origins the app is actually served from. Socket.io matches these
+// as exact strings, so a '*' entry here was never a wildcard — it only ever
+// matched a literal "Origin: *" header, which no browser sends.
+const ALLOWED_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:8081',
+  'exp://localhost:19000'
+];
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ['http://localhost:3000', 'http://localhost:5173', 'http://localhost:8081', 'exp://localhost:19000', '*'],
+    origin: ALLOWED_ORIGINS,
     methods: ['GET', 'POST']
   }
 });
 
-app.use(cors());
+// cors() with no options answers every origin with "Access-Control-Allow-Origin: *".
+// Requests with no Origin header at all (curl, the Playwright webServer probe)
+// are still allowed through; this only restricts which browser origins may
+// read the response.
+app.use(cors({ origin: ALLOWED_ORIGINS, methods: ['GET', 'POST'] }));
 app.use(express.json());
 
 // Health check (also used by Playwright's webServer config to know when
@@ -28,6 +42,85 @@ app.get('/', (req, res) => {
 // Group state storage, backed by SQLite (see db.js) so it survives a server restart
 const topics = new PersistentStore('topics'); // Global topic bank: id -> { id, text, creatorId, isPublic, createdAt }
 const groups = new PersistentStore('groups'); // id -> { id, name, description, settings, host, players, status, currentRound, currentTheme, history }
+
+// Every socket payload comes from an untrusted client, so handlers validate
+// the fields they use instead of trusting the shape. Caps sit comfortably
+// above the maxLength the UI enforces, so they only ever reject input that
+// didn't come from the app.
+const LIMITS = {
+  id: 200,
+  username: 100,
+  groupName: 100,
+  groupDescription: 500,
+  videoTitle: 200,
+  channelTitle: 200,
+  thumbnailUrl: 500,
+  searchQuery: 120,
+  topicText: 300
+};
+
+// Returns the trimmed string, or null if it isn't a usable one. Callers treat
+// null as "reject this request" rather than substituting a default, so bad
+// input fails loudly at the edge instead of being stored half-formed.
+function cleanText(value, maxLength) {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maxLength) return null;
+  return trimmed;
+}
+
+function cleanId(value) {
+  return cleanText(value, LIMITS.id);
+}
+
+// Wraps a socket handler so a malformed payload can only fail that one event.
+// Without this, an exception thrown inside a handler is an uncaught exception,
+// which terminates the process — any connected client could take the server
+// down (and every in-progress round with it) by emitting one bad payload.
+function withErrorHandling(socket, eventName, handler) {
+  return (payload) => {
+    try {
+      handler(payload || {});
+    } catch (err) {
+      console.error(`Handler error for "${eventName}" from ${socket.id}:`, err);
+      socket.emit('error', { message: 'Something went wrong handling that request' });
+    }
+  };
+}
+
+// Per-socket token bucket, shared across every event that socket emits.
+// The bucket refills continuously, so a client may spend up to RATE_BURST
+// events at once — opening a group view legitimately fires several in a row —
+// but cannot sustain more than RATE_SUSTAINED per second afterwards.
+const RATE_BURST = 20;
+const RATE_SUSTAINED = 5;
+
+function createRateLimiter() {
+  let tokens = RATE_BURST;
+  let lastRefill = Date.now();
+
+  return function takeToken() {
+    const now = Date.now();
+    tokens = Math.min(RATE_BURST, tokens + ((now - lastRefill) / 1000) * RATE_SUSTAINED);
+    lastRefill = now;
+    if (tokens < 1) return false;
+    tokens -= 1;
+    return true;
+  };
+}
+
+// Drops the event with an error reply rather than disconnecting, so a client
+// that trips the limit recovers on its own once the bucket refills.
+function withRateLimit(socket, eventName, takeToken, handler) {
+  return (payload) => {
+    if (!takeToken()) {
+      console.warn(`Rate limit exceeded on "${eventName}" from ${socket.id}`);
+      socket.emit('error', { message: 'You are sending requests too quickly — please slow down' });
+      return;
+    }
+    handler(payload);
+  };
+}
 
 // overrideThreshold is always a whole percentage (e.g. 70) in settings objects
 // and over the wire; it's only ever converted to a 0-1 fraction at the point
@@ -88,7 +181,13 @@ function publicizeTheme(theme, group) {
     delete publicTheme.votes;
   } else if (theme.status === 'voting') {
     // Submissions are visible for judging, but anonymously.
-    publicTheme.submissions = theme.submissions.map(s => ({ id: s.id, songTitle: s.songTitle, artist: s.artist }));
+    publicTheme.submissions = theme.submissions.map(s => ({
+      id: s.id,
+      videoId: s.videoId,
+      title: s.title,
+      thumbnail: s.thumbnail,
+      channelTitle: s.channelTitle
+    }));
     publicTheme.voteCount = theme.votes.length;
     delete publicTheme.votes;
   }
@@ -190,7 +289,8 @@ function calculateGroupResults(group) {
     totalSubmissions: theme.submissions.length,
     winningPoints: group.settings.czarPoints || 5,
     winner: winnerUsername,
-    song: winner ? winner.songTitle : null
+    song: winner ? winner.title : null,
+    videoId: winner ? winner.videoId : null
   });
 
   groups.set(group.id, group);
@@ -199,21 +299,60 @@ function calculateGroupResults(group) {
 }
 
 // Socket.io connection handling
+// Authenticate every connection once, before any event handler can run.
+// socket.data.userId is set there from a verified identity and is the only
+// source of truth for who the caller is from this point on.
+io.use(createAuthMiddleware());
+
 io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
+  console.log('User connected:', socket.id, 'as', socket.data.userId);
 
-  // Set default username if not provided
-  socket.data.username = socket.data.username || `Player${socket.id.substring(0, 4)}`;
+  // The identity bound by the auth middleware. Handlers use these instead of
+  // anything in an event payload, which is what makes the host and
+  // round-leader checks actually enforceable rather than advisory.
+  const userId = socket.data.userId;
+  const username = socket.data.username;
 
-  // Submit topic to the global topic bank
-  socket.on('submit_topic', ({ text, isPublic }) => {
-    console.log('Topic submission:', { text, isPublic, socketId: socket.id });
+  // Hand the client a session token so its next reconnect skips Google.
+  socket.emit('session', {
+    sessionToken: socket.data.sessionToken,
+    user: {
+      id: userId,
+      name: username,
+      email: socket.data.email,
+      picture: socket.data.picture
+    }
+  });
+
+  const takeToken = createRateLimiter();
+
+  // Registers an application event handler behind the rate limiter and the
+  // crash guard. Used instead of socket.on directly for everything below.
+  // 'disconnect' is registered separately: it isn't client-driven, and
+  // dropping it because the bucket happens to be empty would leave the player
+  // marked connected forever.
+  const on = (eventName, handler) => socket.on(
+    eventName,
+    withRateLimit(socket, eventName, takeToken, withErrorHandling(socket, eventName, handler))
+  );
+
+  // Submit topic to the global topic bank. Ownership is keyed to the
+  // authenticated userId, so it survives reconnects and cannot be claimed
+  // on someone else's behalf.
+  on('submit_topic', ({ text, isPublic }) => {
+    console.log('Topic submission:', { text, isPublic, socketId: socket.id, userId });
+
+    const topicText = cleanText(text, LIMITS.topicText);
+    if (!topicText) {
+      socket.emit('error', { message: `Topic text is required and must be at most ${LIMITS.topicText} characters` });
+      return;
+    }
 
     const topic = {
       id: Date.now().toString(),
-      text: text.trim(),
-      creatorId: socket.id,
-      isPublic: isPublic || false,
+      text: topicText,
+      creatorId: userId,
+      isPublic: isPublic === true,
       createdAt: new Date().toISOString()
     };
 
@@ -221,47 +360,70 @@ io.on('connection', (socket) => {
     socket.emit('topic_submitted', { topic });
   });
 
-  // Get available topics (global bank browsed by the ThemeIdeas page)
-  socket.on('get_topics', () => {
-    const privateTopics = Array.from(topics.values()).filter(t => t.creatorId === socket.id);
-    const publicTopics = Array.from(topics.values());
+  // Get available topics (global bank browsed by the ThemeIdeas page). A topic
+  // is only ever returned if it's public or the requester created it —
+  // previously every topic went out in publicTopics regardless of isPublic,
+  // so everyone could read everyone else's private ideas.
+  on('get_topics', () => {
+    const all = Array.from(topics.values());
+    const privateTopics = all.filter(t => t.creatorId === userId && t.isPublic !== true);
+    const publicTopics = all.filter(t => t.isPublic === true);
 
     socket.emit('topics_list', { privateTopics, publicTopics });
   });
 
   // Delete topic from bank (only the creator can delete their own topic)
-  socket.on('delete_topic', ({ topicId }) => {
-    const publicTopic = topics.get(topicId);
-    if (publicTopic && publicTopic.creatorId === socket.id) {
-      topics.delete(topicId);
-      socket.emit('topic_deleted', { topicId });
+  on('delete_topic', ({ topicId }) => {
+    const id = cleanId(topicId);
+    const topic = id && topics.get(id);
+    if (topic && topic.creatorId === userId) {
+      topics.delete(id);
+      socket.emit('topic_deleted', { topicId: id });
     }
   });
 
   // Create group
-  socket.on('create_group', ({ groupData, username, userId }) => {
+  on('create_group', ({ groupData }) => {
     console.log('Create group request:', { groupData, socketId: socket.id, userId });
 
-    socket.data.username = username || socket.data.username || 'Unknown';
-    socket.data.userId = userId;
+    const data = groupData || {};
+    const name = cleanText(data.name, LIMITS.groupName);
+    if (!name) {
+      socket.emit('error', { message: `Group name is required and must be at most ${LIMITS.groupName} characters` });
+      return;
+    }
 
-    const groupId = groupData.id || `GROUP${Date.now()}`;
+    // The description is optional, but a present-and-oversized one is still
+    // a rejection rather than something to silently truncate.
+    let description = '';
+    if (data.description !== undefined && data.description !== null && data.description !== '') {
+      description = cleanText(data.description, LIMITS.groupDescription);
+      if (!description) {
+        socket.emit('error', { message: `Group description must be at most ${LIMITS.groupDescription} characters` });
+        return;
+      }
+    }
 
-    const settings = { ...(groupData.settings || {}) };
+    // The id is always generated here. Honouring a client-supplied one let
+    // any client overwrite an existing group -- ids double as the invite
+    // code, so a shared invite link was enough to seize someone's group.
+    const groupId = `GROUP${Date.now()}`;
+
+    const settings = { ...(data.settings || {}) };
     if (settings.overrideThreshold !== undefined && !isValidOverrideThreshold(settings.overrideThreshold)) {
       settings.overrideThreshold = 70;
     }
 
     const group = {
       id: groupId,
-      name: groupData.name,
-      description: groupData.description,
-      isPrivate: groupData.isPrivate || false,
+      name,
+      description,
+      isPrivate: data.isPrivate || false,
       host: userId,
       players: [{
         id: socket.id,
         userId,
-        username: socket.data.username || 'Unknown',
+        username,
         score: 0,
         isHost: true,
         connected: true
@@ -281,29 +443,31 @@ io.on('connection', (socket) => {
   });
 
   // Get user's groups
-  socket.on('get_groups', ({ userId } = {}) => {
+  on('get_groups', () => {
     console.log('Get groups request:', { socketId: socket.id, userId });
 
-    const uid = userId || socket.data.userId;
     const userGroups = Array.from(groups.values()).filter(group =>
-      group.players.some(player => player.userId === uid)
+      group.players.some(player => player.userId === userId)
     );
 
     socket.emit('groups_list', { groups: userGroups });
   });
 
   // Join group
-  socket.on('join_group', ({ groupId, username, userId }) => {
-    console.log('Join group request:', { groupId, username, socketId: socket.id, userId });
+  on('join_group', ({ groupId }) => {
+    console.log('Join group request:', { groupId, socketId: socket.id, userId });
 
-    const group = groups.get(groupId);
+    const gid = cleanId(groupId);
+    if (!gid) {
+      socket.emit('error', { message: 'A group id is required to join' });
+      return;
+    }
+
+    const group = groups.get(gid);
     if (!group) {
       socket.emit('error', { message: 'Group not found' });
       return;
     }
-
-    socket.data.username = username || socket.data.username || 'Unknown';
-    socket.data.userId = userId || socket.data.userId;
 
     // Check if player already in group (identified by stable userId, not socket id)
     const existingPlayer = group.players.find(p => p.userId === userId);
@@ -316,14 +480,14 @@ io.on('connection', (socket) => {
       group.players.push({
         id: socket.id,
         userId,
-        username: username,
+        username,
         score: 0,
         isHost: false,
         connected: true
       });
     }
 
-    groups.set(groupId, group);
+    groups.set(gid, group);
 
     // Tell the joiner directly (they navigate off this) and update everyone
     // else already viewing the group so the new player shows up live. The
@@ -337,13 +501,16 @@ io.on('connection', (socket) => {
   });
 
   // Get group details
-  socket.on('get_group', ({ groupId, username, userId }) => {
+  on('get_group', ({ groupId }) => {
     console.log('Get group request:', { groupId, socketId: socket.id, userId });
 
-    socket.data.username = username || socket.data.username || 'Unknown';
-    socket.data.userId = userId || socket.data.userId;
+    const gid = cleanId(groupId);
+    if (!gid) {
+      socket.emit('error', { message: 'A group id is required' });
+      return;
+    }
 
-    const group = groups.get(groupId);
+    const group = groups.get(gid);
     if (!group) {
       socket.emit('error', { message: 'Group not found' });
       return;
@@ -351,35 +518,39 @@ io.on('connection', (socket) => {
 
     // Refresh this player's socket mapping so server -> client broadcasts
     // (group_updated) still reach them after a reconnect or page refresh.
-    const uid = socket.data.userId;
-    if (uid) {
-      const player = group.players.find(p => p.userId === uid);
-      if (player) {
-        player.id = socket.id;
-        player.connected = true;
-        groups.set(groupId, group);
-      }
+    const player = group.players.find(p => p.userId === userId);
+    if (player) {
+      player.id = socket.id;
+      player.connected = true;
+      groups.set(gid, group);
     }
 
     socket.emit('group_details', {
       group: { ...group, currentTheme: publicizeTheme(group.currentTheme, group) },
-      isRoundLeader: !!(group.currentTheme && uid === group.currentTheme.czarId)
+      isRoundLeader: !!(group.currentTheme && userId === group.currentTheme.czarId)
     });
   });
 
   // Update group settings
-  socket.on('update_group', ({ groupId, settings, userId }) => {
+  on('update_group', ({ groupId, settings }) => {
     console.log('Update group request:', { groupId, settings, socketId: socket.id, userId });
 
-    const group = groups.get(groupId);
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
     if (!group) {
       socket.emit('error', { message: 'Group not found' });
       return;
     }
 
-    // Only host can update group settings (compared by stable userId, not socket id)
-    if (group.host !== (userId || socket.data.userId)) {
+    // Only host can update group settings, compared against the identity the
+    // auth middleware bound to this socket.
+    if (group.host !== userId) {
       socket.emit('error', { message: 'Only host can update group settings' });
+      return;
+    }
+
+    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
+      socket.emit('error', { message: 'Settings must be an object' });
       return;
     }
 
@@ -392,23 +563,24 @@ io.on('connection', (socket) => {
 
     // Update group settings
     group.settings = { ...group.settings, ...settings };
-    groups.set(groupId, group);
+    groups.set(gid, group);
     broadcastGroup(group);
 
-    console.log('Group updated:', groupId);
+    console.log('Group updated:', gid);
   });
 
   // Start group: transitions out of setup and creates the first round
-  socket.on('start_group', ({ groupId, userId }) => {
+  on('start_group', ({ groupId }) => {
     console.log('Start group request:', { groupId, socketId: socket.id, userId });
 
-    const group = groups.get(groupId);
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
     if (!group) {
       socket.emit('error', { message: 'Group not found' });
       return;
     }
 
-    if (group.host !== (userId || socket.data.userId)) {
+    if (group.host !== userId) {
       socket.emit('error', { message: 'Only host can start the group' });
       return;
     }
@@ -425,8 +597,8 @@ io.on('connection', (socket) => {
     }
 
     const roundLeader = beginRound(group);
-    groups.set(groupId, group);
-    console.log('Group started, round 1 created:', groupId, 'round leader:', roundLeader.username);
+    groups.set(gid, group);
+    console.log('Group started, round 1 created:', gid, 'round leader:', roundLeader.username);
     broadcastGroup(group);
   });
 
@@ -434,16 +606,17 @@ io.on('connection', (socket) => {
   // previous round has been revealed. Host-only, reuses the same
   // round-creation logic as start_group. czarUserId lets the host hand-pick
   // a Round Leader instead of a random one (used by the "Pick Round Leader" UI).
-  socket.on('start_round', ({ groupId, userId, czarUserId }) => {
+  on('start_round', ({ groupId, czarUserId }) => {
     console.log('Start round request:', { groupId, socketId: socket.id, userId, czarUserId });
 
-    const group = groups.get(groupId);
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
     if (!group) {
       socket.emit('error', { message: 'Group not found' });
       return;
     }
 
-    if (group.host !== (userId || socket.data.userId)) {
+    if (group.host !== userId) {
       socket.emit('error', { message: 'Only host can start a round' });
       return;
     }
@@ -464,97 +637,158 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const roundLeader = beginRound(group, czarUserId);
-    groups.set(groupId, group);
-    console.log('Round started for group:', groupId, 'round leader:', roundLeader.username);
+    // An unknown czarUserId is ignored by beginRound, which falls back to a
+    // random connected player, so it needs no separate rejection here.
+    const roundLeader = beginRound(group, cleanId(czarUserId));
+    groups.set(gid, group);
+    console.log('Round started for group:', gid, 'round leader:', roundLeader.username);
     broadcastGroup(group);
   });
 
-  // Submit a song for the current round (non-Round-Leader players only)
-  socket.on('submit_song', ({ groupId, spotifyUri, songTitle, artist, userId }) => {
-    console.log('Submit song request:', { groupId, socketId: socket.id, userId });
+  // Search YouTube so players pick a real video instead of pasting a link.
+  // Results are cached server-side (see youtube.js) because search.list costs
+  // 100 of the 10,000 daily quota units per call.
+  on('search_youtube', async ({ query }) => {
+    const q = cleanText(query, LIMITS.searchQuery);
+    if (!q) {
+      socket.emit('youtube_results', { query: '', results: [] });
+      return;
+    }
 
-    const group = groups.get(groupId);
+    try {
+      const results = await searchVideos(q);
+      socket.emit('youtube_results', { query: q, results });
+    } catch (err) {
+      console.error('YouTube search failed:', err.message);
+      socket.emit('error', { message: 'Video search is unavailable right now' });
+    }
+  });
+
+  // Submit a video for the current round (non-Round-Leader players only)
+  on('submit_video', ({ groupId, videoId, title, thumbnail, channelTitle }) => {
+    console.log('Submit video request:', { groupId, socketId: socket.id, userId });
+
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
     if (!group) {
       socket.emit('error', { message: 'Group not found' });
       return;
     }
 
-    const uid = userId || socket.data.userId;
     const theme = group.currentTheme;
     if (!theme || theme.status !== 'submission') {
       socket.emit('error', { message: 'Submissions are not open for this round' });
       return;
     }
 
-    if (uid === theme.czarId) {
-      socket.emit('error', { message: 'The Round Leader cannot submit a song' });
+    if (userId === theme.czarId) {
+      socket.emit('error', { message: 'The Round Leader cannot submit a video' });
       return;
     }
 
-    const player = group.players.find(p => p.userId === uid);
+    const player = group.players.find(p => p.userId === userId);
     if (!player || player.connected === false) {
       socket.emit('error', { message: 'You must be connected to submit' });
       return;
     }
 
-    if (theme.submissions.some(s => s.playerUserId === uid)) {
-      socket.emit('error', { message: 'You already submitted a song this round' });
+    if (theme.submissions.some(s => s.playerUserId === userId)) {
+      socket.emit('error', { message: 'You already submitted a video this round' });
       return;
     }
 
-    theme.submissions.push({ id: `sub_${Date.now()}`, playerUserId: uid, spotifyUri, songTitle, artist });
+    // The id is checked against YouTube's exact 11-character format, so it can
+    // be interpolated into an embed URL on the client without becoming an
+    // injection point in the iframe src.
+    if (!isValidVideoId(videoId)) {
+      socket.emit('error', { message: 'That is not a valid YouTube video id' });
+      return;
+    }
+
+    const videoTitle = cleanText(title, LIMITS.videoTitle);
+    const channel = cleanText(channelTitle, LIMITS.channelTitle) || 'Unknown channel';
+    if (!videoTitle) {
+      socket.emit('error', { message: `A video needs a title of at most ${LIMITS.videoTitle} characters` });
+      return;
+    }
+
+    // The thumbnail is decorative and the client puts it in an <img src>.
+    // Anything that is not a plain https URL falls back to YouTube's canonical
+    // one rather than failing the submission over a cosmetic field.
+    let thumb = cleanText(thumbnail, LIMITS.thumbnailUrl);
+    if (!thumb || thumb.slice(0, 8) !== 'https://') {
+      thumb = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+    }
+
+    theme.submissions.push({
+      id: `sub_${Date.now()}`,
+      playerUserId: userId,
+      videoId,
+      title: videoTitle,
+      thumbnail: thumb,
+      channelTitle: channel
+    });
 
     const eligiblePlayers = group.players.filter(p => p.connected !== false && p.userId !== theme.czarId);
     if (eligiblePlayers.length > 0 && theme.submissions.length >= eligiblePlayers.length) {
       theme.status = 'voting';
     }
 
-    groups.set(groupId, group);
+    groups.set(gid, group);
     broadcastGroup(group);
   });
 
   // Cast a vote on a submission (any connected player, including the Round Leader)
-  socket.on('cast_vote', ({ groupId, submissionId, points, isDownvote, userId }) => {
+  on('cast_vote', ({ groupId, submissionId, points, isDownvote }) => {
     console.log('Cast vote request:', { groupId, submissionId, socketId: socket.id, userId });
 
-    const group = groups.get(groupId);
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
     if (!group) {
       socket.emit('error', { message: 'Group not found' });
       return;
     }
 
-    const uid = userId || socket.data.userId;
     const theme = group.currentTheme;
     if (!theme || theme.status !== 'voting') {
       socket.emit('error', { message: 'Voting is not open for this round' });
       return;
     }
 
-    if (theme.votes.some(v => v.voterUserId === uid)) {
+    if (theme.votes.some(v => v.voterUserId === userId)) {
       socket.emit('error', { message: 'You already voted this round' });
       return;
     }
 
-    if (!isDownvote && points > (group.settings.maxJuryPoints || 3)) {
-      socket.emit('error', { message: `Points cannot exceed ${group.settings.maxJuryPoints || 3}` });
+    const subId = cleanId(submissionId);
+    if (!subId || !theme.submissions.some(sub => sub.id === subId)) {
+      socket.emit('error', { message: 'That submission is not part of this round' });
       return;
     }
 
-    const voter = group.players.find(p => p.userId === uid);
+    // The old check only bounded points from above, so a negative or
+    // non-numeric value went straight into the tally and could swing the
+    // result or poison a score with NaN.
+    const maxPoints = group.settings.maxJuryPoints || 3;
+    if (!isDownvote && (typeof points !== 'number' || !Number.isFinite(points) || points < 0 || points > maxPoints)) {
+      socket.emit('error', { message: `Points must be a number between 0 and ${maxPoints}` });
+      return;
+    }
+
+    const voter = group.players.find(p => p.userId === userId);
     if (!voter || voter.connected === false) {
       socket.emit('error', { message: 'You must be connected to vote' });
       return;
     }
 
     theme.votes.push({
-      voterUserId: uid,
-      submissionId,
+      voterUserId: userId,
+      submissionId: subId,
       points: isDownvote ? -(group.settings.downvoteCost || 1) : points,
       isDownvote: !!isDownvote
     });
 
-    groups.set(groupId, group);
+    groups.set(gid, group);
 
     const connectedPlayers = group.players.filter(p => p.connected !== false);
     if (theme.votes.length >= connectedPlayers.length) {
@@ -565,33 +799,39 @@ io.on('connection', (socket) => {
   });
 
   // Round Leader explicitly selects a winner (can resolve the round before everyone votes)
-  socket.on('czar_select_winner', ({ groupId, submissionId, userId }) => {
+  on('czar_select_winner', ({ groupId, submissionId }) => {
     console.log('Czar select winner request:', { groupId, submissionId, socketId: socket.id, userId });
 
-    const group = groups.get(groupId);
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
     if (!group) {
       socket.emit('error', { message: 'Group not found' });
       return;
     }
 
-    const uid = userId || socket.data.userId;
     const theme = group.currentTheme;
     if (!theme || theme.status !== 'voting') {
       socket.emit('error', { message: 'Voting is not open for this round' });
       return;
     }
 
-    if (uid !== theme.czarId) {
+    if (userId !== theme.czarId) {
       socket.emit('error', { message: 'Only the Round Leader can select a winner' });
       return;
     }
 
-    theme.czarSelection = submissionId;
-    groups.set(groupId, group);
+    const subId = cleanId(submissionId);
+    if (!subId || !theme.submissions.some(sub => sub.id === subId)) {
+      socket.emit('error', { message: 'That submission is not part of this round' });
+      return;
+    }
+
+    theme.czarSelection = subId;
+    groups.set(gid, group);
     calculateGroupResults(group);
   });
 
-  socket.on('disconnect', () => {
+  socket.on('disconnect', withErrorHandling(socket, 'disconnect', () => {
     console.log('User disconnected:', socket.id);
 
     // Mark this player disconnected in every group they belong to (matched by
@@ -606,10 +846,12 @@ io.on('connection', (socket) => {
         broadcastGroup(group);
       }
     });
-  });
+  }));
 });
 
-const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+server.listen(config.port, () => {
+  console.log(`Server running on port ${config.port}`);
+  if (config.authTestMode) {
+    console.warn('[auth] AUTH_TEST_MODE is ON - test identities are accepted. Never enable this in production.');
+  }
 });

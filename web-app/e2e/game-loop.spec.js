@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, submitVideoThroughSearch } from './helpers.js'
 
 // This test drives the real, merged group game loop end to end over real
 // socket.io traffic (see server/server.js): create a group, join it as a
@@ -7,10 +7,11 @@ import { createGroupThroughWizard } from './helpers.js'
 // resolve results — with a live check that the Round Leader's identity
 // never appears in a wire payload before the round is revealed.
 //
-// UserContext.jsx keys identity off localStorage, so two Playwright *tabs*
-// in the same context would collide on the same fake user. Each player
-// therefore gets its own browser context (separate storage), seeded with a
-// distinct identity via addInitScript before the app boots.
+// Identity is established at the socket handshake and bound server-side, and
+// the test identity is seeded into localStorage, so two Playwright *tabs* in
+// the same context would collide on the same user. Each player therefore gets
+// its own browser context (separate storage), seeded with a distinct identity
+// before the app boots.
 
 /**
  * Decode a socket.io v4 text frame ("42[\"event\",payload]") into
@@ -53,9 +54,7 @@ function latestGroupUpdate(events) {
 
 async function newPlayerContext(browser, { id, name }) {
   const context = await browser.newContext()
-  await context.addInitScript((user) => {
-    window.localStorage.setItem('user', JSON.stringify(user))
-  }, { id, name, email: `${id}@example.com`, avatar: '🎵', bio: '', location: '' })
+  await seedTestUser(context, { id, name })
   const page = await context.newPage()
   const events = captureSocketEvents(page)
   return { context, page, events }
@@ -67,6 +66,7 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
   const player2 = await newPlayerContext(browser, { id: `e2e-guest-${runId}`, name: 'Guest Player' })
 
   let groupId
+  let submittedTitle
 
   await test.step('host creates a group', async () => {
     await createGroupThroughWizard(player1.page, `E2E Group ${runId}`)
@@ -130,15 +130,10 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
     }
   })
 
-  await test.step('the non-Round-Leader submits a song through the real UI', async () => {
+  await test.step('the non-Round-Leader submits a video through the real UI', async () => {
     await nonLeader.page.getByRole('button', { name: 'Round', exact: true }).click()
-    await nonLeader.page.getByRole('button', { name: 'Submit Song' }).click()
-
-    const dialog = nonLeader.page.getByRole('dialog')
-    await dialog.getByLabel('Spotify URI').fill('spotify:track:e2e12345')
-    await dialog.getByLabel('Song Title').fill('E2E Test Song')
-    await dialog.getByLabel('Artist').fill('E2E Artist')
-    await dialog.getByRole('button', { name: 'Submit Song' }).click()
+    submittedTitle = await submitVideoThroughSearch(nonLeader.page, 'queen')
+    expect(submittedTitle).toBeTruthy()
 
     // Only one non-leader player exists, so one submission closes submission
     // phase immediately.
@@ -148,7 +143,7 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
 
   await test.step('submissions are anonymous during voting', async () => {
     await leader.page.getByRole('button', { name: 'Round', exact: true }).click()
-    await expect(leader.page.getByText('E2E Test Song')).toBeVisible()
+    await expect(leader.page.getByText(submittedTitle)).toBeVisible()
 
     // Submitter identity must not be present on the anonymized submission
     // (group.host legitimately carries the host's id elsewhere in the same
@@ -161,7 +156,7 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
 
   await test.step('both players vote, including the Round Leader', async () => {
     for (const player of [leader, nonLeader]) {
-      await player.page.getByText('E2E Test Song').click()
+      await player.page.getByText(submittedTitle).click()
       await player.page.getByRole('button', { name: 'Cast Vote' }).click()
     }
 
@@ -178,7 +173,9 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
     // override rather than falling through to the popular-vote branch.
     const winningSubmission = theme.submissions.find((s) => s.wonBy)
     expect(winningSubmission).toBeTruthy()
-    expect(winningSubmission.songTitle).toBe('E2E Test Song')
+    expect(winningSubmission.title).toBe(submittedTitle)
+    // The id is what the reveal iframe is built from, so its shape matters.
+    expect(winningSubmission.videoId).toMatch(/^[A-Za-z0-9_-]{11}$/)
     expect(winningSubmission.wonBy).toBe('public_override')
 
     // Now that the round is revealed, the Round Leader's name is public.
@@ -197,7 +194,7 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
     // History recorded the completed round.
     expect(result.history).toHaveLength(1)
     expect(result.history[0]).toMatchObject({
-      song: 'E2E Test Song',
+      song: submittedTitle,
       winner: submitterName,
       totalSubmissions: 1,
       winningPoints: 5,
@@ -205,6 +202,14 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
 
     // Same numbers should be visible to the player who plays through it.
     await expect(nonLeader.page.getByText('🏆 Winner')).toBeVisible()
+
+    // The reveal is the "watch together" moment: the winning video must
+    // actually be embedded, not just named.
+    const embed = nonLeader.page.locator('.youtube-embed iframe').first()
+    await expect(embed).toHaveAttribute(
+      'src',
+      new RegExp(`youtube-nocookie\\.com/embed/${winningSubmission.videoId}`)
+    )
   })
 
   await test.step('a second round can start cleanly afterward', async () => {

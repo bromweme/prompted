@@ -161,7 +161,14 @@ function Account() {
             <div className="profile-card">
               <div className="profile-avatar-section">
                 <div className="current-avatar">
-                  <span className="avatar-display">{isEditing ? editForm.avatar : user.avatar}</span>
+                  {/* Google accounts come with a profile picture; the emoji
+                      picker below is still the fallback for accounts without
+                      one, and for anyone who'd rather pick their own. */}
+                  {!isEditing && !user.avatar && user.picture ? (
+                    <img className="avatar-photo" src={user.picture} alt="" width="110" height="110" />
+                  ) : (
+                    <span className="avatar-display">{isEditing ? editForm.avatar : (user.avatar || '🎵')}</span>
+                  )}
                 </div>
                 {isEditing && (
                   <div className="avatar-selector">

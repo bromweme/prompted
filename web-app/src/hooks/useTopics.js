@@ -1,8 +1,13 @@
 import { useState, useEffect } from 'react'
 import { useSocket } from '../context/SocketContext'
+import { useUser } from '../context/UserContext'
 
 export const useTopics = (gameId = 'global') => {
   const { socket, isConnected } = useSocket()
+  // Topic ownership is resolved server-side from the authenticated socket, so
+  // no id travels in the payload. This is only used to hold off until the
+  // user is actually signed in.
+  const { isAuthenticated } = useUser()
   const [themes, setThemes] = useState([])
   const [showAddModal, setShowAddModal] = useState(false)
   const [editingTheme, setEditingTheme] = useState(null)
@@ -10,13 +15,14 @@ export const useTopics = (gameId = 'global') => {
   const [isPublic, setIsPublic] = useState(false)
 
   useEffect(() => {
-    if (!socket || !isConnected) return
+    if (!socket || !isConnected || !isAuthenticated) return
 
     // Load topics from server
     socket.emit('get_topics', { gameId })
 
     socket.on('topics_list', ({ privateTopics, publicTopics }) => {
-      // Combine both private and public topics
+      // The two lists are disjoint (private = your own non-public ones,
+      // public = everyone's public ones), so this can't double up your own.
       const allTopics = [...privateTopics, ...publicTopics]
       setThemes(allTopics)
     })
@@ -36,7 +42,7 @@ export const useTopics = (gameId = 'global') => {
       socket.off('topic_submitted')
       socket.off('topic_deleted')
     }
-  }, [socket, isConnected, gameId])
+  }, [socket, isConnected, gameId, isAuthenticated])
 
   const handleAddTheme = () => {
     if (!newTheme.trim()) {

@@ -3,6 +3,8 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
 import { useModalA11y } from '../hooks/useModalA11y'
+import YouTubeSearch from '../components/YouTubeSearch'
+import YouTubeEmbed from '../components/YouTubeEmbed'
 import './GroupView.css'
 
 // Server player records carry both a transient socket id (`id`) and a stable
@@ -65,9 +67,8 @@ function GroupView() {
   const [group, setGroup] = useState(null)
   const [activeTab, setActiveTab] = useState('overview')
   const [showSubmitModal, setShowSubmitModal] = useState(false)
-  const [spotifyUri, setSpotifyUri] = useState('')
-  const [songTitle, setSongTitle] = useState('')
-  const [artist, setArtist] = useState('')
+  // The video chosen from search results: { videoId, title, thumbnail, channelTitle }
+  const [selectedVideo, setSelectedVideo] = useState(null)
   const [userSubmission, setUserSubmission] = useState(null)
   const [isEditing, setIsEditing] = useState(false)
   const [isEditingRules, setIsEditingRules] = useState(false)
@@ -173,7 +174,7 @@ function GroupView() {
       // Arrived via a shared invite link — join automatically. This is safe
       // to call even for an existing member (the server treats it as a
       // reconnect rather than adding a duplicate).
-      socket.emit('join_group', { groupId, username: user.name, userId: user.id })
+      socket.emit('join_group', { groupId })
 
       socket.once('group_joined', ({ group, isRoundLeader: youAreRoundLeader }) => {
         setGroup(normalizeGroupData(group))
@@ -186,7 +187,7 @@ function GroupView() {
       })
     } else {
       // Fetch group data from server
-      socket.emit('get_group', { groupId, username: user.name, userId: user.id })
+      socket.emit('get_group', { groupId })
 
       socket.once('group_details', ({ group, isRoundLeader: youAreRoundLeader }) => {
         setGroup(normalizeGroupData(group))
@@ -241,7 +242,7 @@ function GroupView() {
       return
     }
 
-    socket.emit('start_round', { groupId, userId: user.id, czarUserId })
+    socket.emit('start_round', { groupId, czarUserId })
 
     socket.once('error', ({ message }) => {
       console.error('Error starting round:', message)
@@ -271,7 +272,7 @@ function GroupView() {
       return
     }
 
-    socket.emit('start_group', { groupId, userId: user.id })
+    socket.emit('start_group', { groupId })
 
     socket.once('group_updated', () => {
       alert('Group started! First round beginning.')
@@ -297,8 +298,7 @@ function GroupView() {
     // overrideThreshold is a whole percentage everywhere — no conversion needed
     socket.emit('update_group', {
       groupId,
-      settings: editedSettings,
-      userId: user.id
+      settings: editedSettings
     })
 
     socket.once('group_updated', ({ group }) => {
@@ -341,9 +341,9 @@ function GroupView() {
     }
   }
 
-  const handleSubmitSong = () => {
-    if (!spotifyUri.trim() || !songTitle.trim() || !artist.trim()) {
-      alert('Please fill in all fields')
+  const handleSubmitVideo = () => {
+    if (!selectedVideo) {
+      alert('Please pick a video from the search results')
       return
     }
 
@@ -352,23 +352,22 @@ function GroupView() {
       return
     }
 
-    socket.emit('submit_song', { groupId, spotifyUri, songTitle, artist, userId: user.id })
+    socket.emit('submit_video', {
+      groupId,
+      videoId: selectedVideo.videoId,
+      title: selectedVideo.title,
+      thumbnail: selectedVideo.thumbnail,
+      channelTitle: selectedVideo.channelTitle
+    })
 
     socket.once('error', ({ message }) => {
-      console.error('Error submitting song:', message)
-      alert(`Failed to submit song: ${message}`)
+      console.error('Error submitting video:', message)
+      alert(`Failed to submit video: ${message}`)
     })
 
-    setUserSubmission({
-      spotifyUri,
-      songTitle,
-      artist,
-      submittedAt: new Date().toISOString()
-    })
+    setUserSubmission({ ...selectedVideo, submittedAt: new Date().toISOString() })
     setShowSubmitModal(false)
-    setSpotifyUri('')
-    setSongTitle('')
-    setArtist('')
+    setSelectedVideo(null)
     setIsEditing(false)
   }
 
@@ -383,8 +382,7 @@ function GroupView() {
       groupId,
       submissionId: selectedSubmissionId,
       points: votePoints,
-      isDownvote,
-      userId: user.id
+      isDownvote
     })
 
     socket.once('error', ({ message }) => {
@@ -404,8 +402,7 @@ function GroupView() {
 
     socket.emit('czar_select_winner', {
       groupId,
-      submissionId: selectedSubmissionId,
-      userId: user.id
+      submissionId: selectedSubmissionId
     })
 
     socket.once('error', ({ message }) => {
@@ -687,7 +684,7 @@ function GroupView() {
                     isRoundLeader ? (
                       <div className="user-submission-card">
                         <h3>You're the Round Leader</h3>
-                        <p className="no-submission">Wait for the other players to submit their songs.</p>
+                        <p className="no-submission">Wait for the other players to submit their videos.</p>
                         <p className="submissions-count">{group.currentTheme.submissionCount ?? 0} submission(s) so far</p>
                       </div>
                     ) : (
@@ -695,30 +692,29 @@ function GroupView() {
                         <h3>Your Submission</h3>
                         {userSubmission ? (
                           <div className="user-submission-content">
-                            <div className="submission-details">
-                              <div className="submission-detail">
-                                <span className="detail-label">Song:</span>
-                                <span className="detail-value">{userSubmission.songTitle}</span>
-                              </div>
-                              <div className="submission-detail">
-                                <span className="detail-label">Artist:</span>
-                                <span className="detail-value">{userSubmission.artist}</span>
-                              </div>
-                              <div className="submission-detail">
-                                <span className="detail-label">Spotify URI:</span>
-                                <span className="detail-value">{userSubmission.spotifyUri}</span>
-                              </div>
+                            <div className="youtube-selection">
+                              <img
+                                className="youtube-result-thumb"
+                                src={userSubmission.thumbnail}
+                                alt=""
+                                width="120"
+                                height="68"
+                              />
+                              <span className="youtube-result-meta">
+                                <span className="youtube-result-title">{userSubmission.title}</span>
+                                <span className="youtube-result-channel">{userSubmission.channelTitle}</span>
+                              </span>
                             </div>
                             <p className="submissions-count">Submitted — waiting for the rest of the group ({group.currentTheme.submissionCount ?? 0} so far)</p>
                           </div>
                         ) : (
                           <div className="no-submission-content">
-                            <p>You haven't submitted a song for this round yet.</p>
+                            <p>You haven't submitted a video for this round yet.</p>
                             <button
                               className="submit-button"
                               onClick={() => setShowSubmitModal(true)}
                             >
-                              Submit Song
+                              Submit Video
                             </button>
                           </div>
                         )}
@@ -743,8 +739,8 @@ function GroupView() {
                             aria-pressed={selectedSubmissionId === submission.id}
                           >
                             <div className="submission-song">
-                              <span className="song-title">{submission.songTitle}</span>
-                              <span className="song-artist">by {submission.artist}</span>
+                              <span className="song-title">{submission.title}</span>
+                              <span className="song-artist">{submission.channelTitle}</span>
                             </div>
                           </button>
                         ))}
@@ -792,10 +788,11 @@ function GroupView() {
                         {(group.currentTheme.submissions || []).map(submission => (
                           <div key={submission.id} className="submission-item">
                             <div className="submission-song">
-                              <span className="song-title">{submission.songTitle}</span>
-                              <span className="song-artist">by {submission.artist}</span>
+                              <span className="song-title">{submission.title}</span>
+                              <span className="song-artist">{submission.channelTitle}</span>
                               {submission.wonBy && <span className="host-badge">🏆 Winner</span>}
                             </div>
+                            <YouTubeEmbed videoId={submission.videoId} title={submission.title} />
                           </div>
                         ))}
                       </div>
@@ -1355,7 +1352,7 @@ function GroupView() {
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 id="submit-modal-title">{isEditing ? 'Edit Song' : 'Submit Song'}</h2>
+              <h2 id="submit-modal-title">{isEditing ? 'Edit Video' : 'Submit Video'}</h2>
               <button
                 className="close-button"
                 onClick={closeSubmitModal}
@@ -1365,45 +1362,27 @@ function GroupView() {
               </button>
             </div>
 
-            <form className="modal-body" onSubmit={(e) => { e.preventDefault(); handleSubmitSong(); }}>
-              <div className="form-group">
-                <label htmlFor="spotify-uri">Spotify URI *</label>
-                <input
-                  id="spotify-uri"
-                  type="text"
-                  value={spotifyUri}
-                  onChange={(e) => setSpotifyUri(e.target.value)}
-                  placeholder="spotify:track:..."
-                  required
-                />
-                <small className="form-hint">Find the Spotify URI in Spotify by sharing → Copy Spotify URI</small>
-              </div>
-              
-              <div className="form-group">
-                <label htmlFor="song-title">Song Title *</label>
-                <input
-                  id="song-title"
-                  type="text"
-                  value={songTitle}
-                  onChange={(e) => setSongTitle(e.target.value)}
-                  placeholder="Enter song title"
-                  required
-                  maxLength={100}
-                />
-              </div>
+            <form className="modal-body" onSubmit={(e) => { e.preventDefault(); handleSubmitVideo(); }}>
+              <YouTubeSearch selected={selectedVideo} onSelect={setSelectedVideo} />
 
-              <div className="form-group">
-                <label htmlFor="artist">Artist *</label>
-                <input
-                  id="artist"
-                  type="text"
-                  value={artist}
-                  onChange={(e) => setArtist(e.target.value)}
-                  placeholder="Enter artist name"
-                  required
-                  maxLength={100}
-                />
-              </div>
+              {selectedVideo && (
+                <div className="form-group">
+                  <span className="detail-label">Your pick</span>
+                  <div className="youtube-selection">
+                    <img
+                      className="youtube-result-thumb"
+                      src={selectedVideo.thumbnail}
+                      alt=""
+                      width="120"
+                      height="68"
+                    />
+                    <span className="youtube-result-meta">
+                      <span className="youtube-result-title">{selectedVideo.title}</span>
+                      <span className="youtube-result-channel">{selectedVideo.channelTitle}</span>
+                    </span>
+                  </div>
+                </div>
+              )}
 
               <div className="modal-actions">
                 <button
@@ -1413,12 +1392,12 @@ function GroupView() {
                 >
                   Cancel
                 </button>
-                <button 
+                <button
                   type="submit"
                   className="submit-button"
-                  disabled={!spotifyUri.trim() || !songTitle.trim() || !artist.trim()}
+                  disabled={!selectedVideo}
                 >
-                  {isEditing ? 'Update Song' : 'Submit Song'}
+                  {isEditing ? 'Update Video' : 'Submit Video'}
                 </button>
               </div>
             </form>

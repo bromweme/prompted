@@ -1,0 +1,106 @@
+.youtube-search {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.youtube-search-status {
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  min-height: 1.2em;
+}
+
+.youtube-search-error {
+  color: var(--color-danger, #c0392b);
+}
+
+.youtube-results {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  /* The list is the one part of the modal that scrolls, so a long result set
+     can't push the action buttons off-screen on a phone. */
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.youtube-result {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+  /* Flex children default to min-width:auto and would otherwise be sized by
+     the untruncatable video title. */
+  min-width: 0;
+}
+
+.youtube-result:hover {
+  border-color: var(--color-accent);
+}
+
+.youtube-result.selected {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent) inset;
+}
+
+.youtube-result-thumb {
+  width: 120px;
+  height: 68px;
+  flex: 0 0 auto;
+  object-fit: cover;
+  border-radius: var(--radius-sm);
+  background: var(--color-border-subtle);
+}
+
+.youtube-result-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.youtube-result-title {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold);
+  font-size: var(--text-caption);
+  /* Titles are arbitrary user-facing text of any length; clamp rather than
+     let them set the row's width. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.youtube-result-channel {
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.youtube-selection {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  min-width: 0;
+}
+
+@media (max-width: 768px) {
+  .youtube-result-thumb {
+    width: 88px;
+    height: 50px;
+  }
+}
