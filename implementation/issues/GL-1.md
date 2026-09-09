@@ -1,6 +1,6 @@
 # GL-1 — Implement real Leave Group and Delete Group
 
-- **Status:** Implemented
+- **Status:** Done
 - **Priority:** high
 - **Depends on:** none
 - **Source finding:** `f.leave`, `f.ui-dead` (deep-discovery)
