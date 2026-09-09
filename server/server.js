@@ -1013,6 +1013,69 @@ io.on('connection', (socket) => {
     console.log('Group updated:', gid);
   });
 
+  // Leave group: the caller removes themselves from the roster. Identity is
+  // the auth-bound userId, never anything in the payload. The group survives —
+  // remaining members are broadcast the updated roster, and the leaver is
+  // confirmed so their client can navigate to the dashboard. Leaving when
+  // already gone is a no-op, not an error, because the client may race a
+  // reconnect or a page refresh against this exact call.
+  on('leave_group', ({ groupId }) => {
+    console.log('Leave group request:', { groupId, socketId: socket.id, userId });
+
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+
+    const index = group.players.findIndex(p => p.userId === userId);
+    if (index !== -1) {
+      group.players.splice(index, 1);
+      groups.set(gid, group);
+      broadcastGroup(group);
+      console.log('Player left group:', { userId, groupId: gid });
+    }
+
+    // Always confirm so the caller navigates home, even in the no-op case.
+    socket.emit('left_group', { groupId: gid });
+  });
+
+  // Delete group: permanently removes the group, host only. Any other caller
+  // is refused with no state change. On success every still-connected member
+  // is told the group is gone so their clients can navigate to the dashboard.
+  on('delete_group', ({ groupId }) => {
+    console.log('Delete group request:', { groupId, socketId: socket.id, userId });
+
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+
+    // Host check against the authenticated identity, never the payload.
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can delete the group' });
+      return;
+    }
+
+    // Capture the still-connected member sockets before the group is gone.
+    // Each player carries `id` = socket id and `connected`, the same mapping
+    // broadcastGroup relies on, so this matches how every other event reaches
+    // players without depending on socket.io rooms.
+    const connectedSockets = group.players
+      .filter(p => p.connected !== false)
+      .map(p => p.id);
+
+    groups.delete(gid);
+    console.log('Group deleted:', gid);
+
+    connectedSockets.forEach(socketId => {
+      io.to(socketId).emit('group_deleted', { groupId: gid });
+    });
+  });
+
   // Start group: transitions out of setup and creates the first round
   on('start_group', ({ groupId, czarUserId }) => {
     console.log('Start group request:', { groupId, socketId: socket.id, userId });

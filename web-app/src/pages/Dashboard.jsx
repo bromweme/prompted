@@ -162,11 +162,7 @@ function Dashboard() {
             <section className="groups-section">
               <div className="section-header">
                 <h2>My Groups</h2>
-                <div className="group-tabs">
-                  <button className="tab-button active">Active</button>
-                  <button className="tab-button">Completed</button>
-                  <button className="tab-button">Archived</button>
-                </div>
+                <span className="status-label" aria-hidden="true">Active</span>
               </div>
 
               <div className="groups-grid">
@@ -240,11 +236,7 @@ function Dashboard() {
             <section className="groups-section">
               <div className="section-header">
                 <h2>My Groups</h2>
-                <div className="group-tabs">
-                  <button className="tab-button active">Active</button>
-                  <button className="tab-button">Completed</button>
-                  <button className="tab-button">Archived</button>
-                </div>
+                <span className="status-label" aria-hidden="true">Active</span>
               </div>
 
               <div className="groups-grid">
@@ -258,32 +250,6 @@ function Dashboard() {
               </div>
             </section>
           )}
-
-          <section className="quick-actions-section">
-            <h2>Quick Actions</h2>
-            <div className="quick-actions-grid">
-              <button className="quick-action-card">
-                <div className="action-icon" aria-hidden="true">🔍</div>
-                <h3>Browse Groups</h3>
-                <p>Find public groups to join</p>
-              </button>
-              <button className="quick-action-card">
-                <div className="action-icon" aria-hidden="true">👥</div>
-                <h3>Invite Friends</h3>
-                <p>Share your group with friends</p>
-              </button>
-              <button className="quick-action-card">
-                <div className="action-icon" aria-hidden="true">📊</div>
-                <h3>View Stats</h3>
-                <p>Check your performance history</p>
-              </button>
-              <button className="quick-action-card">
-                <div className="action-icon" aria-hidden="true">⚙️</div>
-                <h3>Settings</h3>
-                <p>Manage your account settings</p>
-              </button>
-            </div>
-          </section>
         </div>
       </main>
 

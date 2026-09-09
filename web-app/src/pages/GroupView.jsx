@@ -76,7 +76,6 @@ function GroupView() {
   // The video chosen from search results: { videoId, title, thumbnail, channelTitle }
   const [selectedVideo, setSelectedVideo] = useState(null)
   const [userSubmission, setUserSubmission] = useState(null)
-  const [isEditing, setIsEditing] = useState(false)
   const [isEditingRules, setIsEditingRules] = useState(false)
   const [editedSettings, setEditedSettings] = useState(null)
   const [showRoundLeaderModal, setShowRoundLeaderModal] = useState(false)
@@ -97,6 +96,10 @@ function GroupView() {
   // during an offline spell is still waiting on the next connection.
   const [hostNotices, setHostNotices] = useState([])
   const [linkCopied, setLinkCopied] = useState(false)
+  // True while a Leave Group / Delete Group request is in flight so the button
+  // disables and a double click can't fire the emit twice.
+  const [leaving, setLeaving] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   const submitModalRef = useRef(null)
   const roundLeaderModalRef = useRef(null)
@@ -105,7 +108,6 @@ function GroupView() {
 
   const closeSubmitModal = () => {
     setShowSubmitModal(false)
-    setIsEditing(false)
     setSelectedVideo(null)
   }
 
@@ -269,13 +271,31 @@ function GroupView() {
       }))
     })
 
+    // Server confirmation that this player was removed from the group. This —
+    // not the Leave click — is what returns the leaver to the dashboard, so
+    // the roster on the server is guaranteed to be up to date first.
+    socket.on('left_group', () => {
+      navigate('/dashboard')
+    })
+
+    // The group this page is showing no longer exists (host deleted it, or a
+    // socket-based removal). Return every still-connected member — and the
+    // deleting host, since the server includes the host among the connected
+    // sockets it notifies — to the dashboard. Guard on groupId so a stale
+    // event from another group's teardown can't yank this page away.
+    socket.on('group_deleted', ({ groupId: deletedId }) => {
+      if (deletedId === groupId) navigate('/dashboard')
+    })
+
     return () => {
       socket.off('group_updated')
       socket.off('player_joined_group')
       socket.off('group_details')
+      socket.off('left_group')
+      socket.off('group_deleted')
       socket.off('error')
     }
-  }, [groupId, location.state, location.search, socket, isConnected, user])
+  }, [groupId, location.state, location.search, socket, isConnected, user, navigate])
 
   // Both the first round (start_group) and every later one (start_round) go
   // through the same Judge-selection prompt, so the host always gets the
@@ -387,9 +407,43 @@ function GroupView() {
   }
 
   const handleLeaveGroup = () => {
-    if (confirm('Are you sure you want to leave this group?')) {
-      navigate('/dashboard')
+    if (!confirm('Are you sure you want to leave this group?')) return
+    if (leaving) return
+    if (!socket || !isConnected) {
+      alert('Please wait for server connection')
+      return
     }
+    setLeaving(true)
+    // Do NOT navigate here — the server confirms the removal with a
+    // `left_group` reply, and only that drives the navigation back to the
+    // dashboard. Navigating on click would leave a stale member roster behind.
+    socket.emit('leave_group', { groupId })
+
+    socket.once('error', ({ message }) => {
+      console.error('Error leaving group:', message)
+      alert(message)
+      setLeaving(false)
+    })
+  }
+
+  const handleDeleteGroup = () => {
+    if (!confirm('Are you sure you want to delete this group? This cannot be undone.')) return
+    if (deleting) return
+    if (!socket || !isConnected) {
+      alert('Please wait for server connection')
+      return
+    }
+    setDeleting(true)
+    // Do NOT navigate here either — the server confirms the deletion with a
+    // `group_deleted` reply (host is among the connected members it notifies),
+    // and that drives the navigation back to the dashboard.
+    socket.emit('delete_group', { groupId })
+
+    socket.once('error', ({ message }) => {
+      console.error('Error deleting group:', message)
+      alert(message)
+      setDeleting(false)
+    })
   }
 
   const isHost = !!group && group.players.find(p => p.id === user?.id)?.isHost
@@ -472,7 +526,6 @@ function GroupView() {
     setUserSubmission({ ...selectedVideo, submittedAt: new Date().toISOString() })
     setShowSubmitModal(false)
     setSelectedVideo(null)
-    setIsEditing(false)
   }
 
   const handleSelectTopic = (topicId) => {
@@ -669,7 +722,11 @@ function GroupView() {
                       <h3>Current Theme</h3>
                       <div className="theme-meta">
                         <span className="theme-status">
-                          {group.currentTheme.status === 'voting' ? 'Voting' : group.currentTheme.status === 'reveal' ? 'Results' : 'Submissions Open'}
+                          {group.currentTheme.status === 'topic_selection' ? 'Choosing a topic'
+                            : group.currentTheme.status === 'submission' ? 'Submissions Open'
+                            : group.currentTheme.status === 'voting' ? 'Voting'
+                            : group.currentTheme.status === 'reveal' ? 'Results'
+                            : group.currentTheme.status}
                         </span>
                         <span className="round-leader-badge">
                           {isRoundLeader
@@ -1635,22 +1692,20 @@ function GroupView() {
               {isHost ? (
                 <button 
                   className="leave-button delete"
-                  onClick={() => {
-                    if (confirm('Are you sure you want to delete this group? This cannot be undone.')) {
-                      navigate('/dashboard')
-                    }
-                  }}
+                  onClick={handleDeleteGroup}
+                  disabled={deleting}
                   aria-label="Delete group"
                 >
-                  Delete Group
+                  {deleting ? 'Deleting…' : 'Delete Group'}
                 </button>
               ) : (
                 <button 
                   className="leave-button"
                   onClick={handleLeaveGroup}
+                  disabled={leaving}
                   aria-label="Leave group"
                 >
-                  Leave Group
+                  {leaving ? 'Leaving…' : 'Leave Group'}
                 </button>
               )}
             </div>
@@ -1669,7 +1724,7 @@ function GroupView() {
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 id="submit-modal-title">{isEditing ? 'Edit Video' : 'Submit Video'}</h2>
+              <h2 id="submit-modal-title">Submit Video</h2>
               <button
                 className="close-button"
                 onClick={closeSubmitModal}
@@ -1714,7 +1769,7 @@ function GroupView() {
                   className="submit-button"
                   disabled={!selectedVideo}
                 >
-                  {isEditing ? 'Update Video' : 'Submit Video'}
+                  Submit Video
                 </button>
               </div>
             </form>
