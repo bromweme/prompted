@@ -1019,6 +1019,12 @@ io.on('connection', (socket) => {
   // confirmed so their client can navigate to the dashboard. Leaving when
   // already gone is a no-op, not an error, because the client may race a
   // reconnect or a page refresh against this exact call.
+  //
+  // The host is refused: a group must always have a host who is a current
+  // member, or it could never be started, edited, or deleted again. The host
+  // delete_group event is the supported path for disbanding, and the UI never
+  // offers a host a Leave button, so rejecting here restores the guarantee
+  // without changing any supported flow.
   on('leave_group', ({ groupId }) => {
     console.log('Leave group request:', { groupId, socketId: socket.id, userId });
 
@@ -1026,6 +1032,14 @@ io.on('connection', (socket) => {
     const group = gid && groups.get(gid);
     if (!group) {
       socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+
+    // A current member who is not the host may leave freely. A host may not:
+    // they are the group's sole point of management, and letting them out
+    // would strand the group host-less and undeletable.
+    if (group.host === userId) {
+      socket.emit('error', { message: 'The host cannot leave the group' });
       return;
     }
 

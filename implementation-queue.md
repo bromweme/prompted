@@ -17,17 +17,17 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | Wave | Commit | Issue ids | Outcome |
 |---|---|---|---|
 | Wave 1 | `8253c51` | `GL-1`, `GL-2`, `GL-3` | GL-2, GL-3 `Done`; GL-1 `Implemented` (review-work). Review filed `REP-GL1-1` (host-leave orphan) and `REP-GL1-2` (client-navigation test gap), both `Ready`, blocking GL-1. |
+| Wave 2 | `WIP` | `REP-GL1-1`, `REP-GL1-2` | Both repair issues `Implemented`, awaiting closure review. Server rejects host `leave_group` so a group always keeps a host who is a current member; `leave-delete.spec.js` gained two browser click→navigate tests. Full chromium suite 76/76 green; oxlint 0 errors. `GL-1` unblocks on closure review. |
 
 ## Ready frontier
 
 The current dependency-free frontier. An issue is listed here only when every issue it depends on is `Done`.
 
-| Id | Title | Priority | Depends on |
-|---|---|---|---|
-| `REP-GL1-1` | A host who `leave_group` via a crafted socket orphans the group (host-less, undeletable) | high | — |
-| `REP-GL1-2` | No e2e test proves the client navigates on `left_group` / `group_deleted` | medium | — |
+_Empty_ — `REP-GL1-1` and `REP-GL1-2` are now `Implemented` (Wave 2), awaiting closure review.
 
-Blocking: `GL-1` is `Implemented` and kept out of `Done` by `REP-GL1-1` and `REP-GL1-2`. `GL-2` and `GL-3` are `Done`.
+No issue is `Ready` for the next wave until the closure review clears `REP-GL1-1` and `REP-GL1-2` (and with them `GL-1`).
+
+Closure status: `GL-1` and both its repairs `REP-GL1-1` / `REP-GL1-2` are `Implemented`; the next `/execution:review-work` closure pass clears them to `Done`. `GL-2` and `GL-3` are already `Done`.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 

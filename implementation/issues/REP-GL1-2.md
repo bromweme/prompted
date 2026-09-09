@@ -1,6 +1,6 @@
 # REP-GL1-2 — No e2e test proves the client navigates on `left_group` / `group_deleted`
 
-- **Status:** Ready (repair, filed by review-work initial review)
+- **Status:** Implemented (Wave 2, worker B; awaiting closure review)
 - **Priority:** medium
 - **Source issue:** GL-1
 - **Blocks:** `GL-1`

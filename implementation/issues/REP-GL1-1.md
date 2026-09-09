@@ -1,6 +1,6 @@
 # REP-GL1-1 — A host who leaves orphans the group (host-less and undeletable)
 
-- **Status:** Ready (repair, filed by review-work initial review)
+- **Status:** Implemented (Wave 2, worker A; awaiting closure review)
 - **Priority:** high
 - **Guarantee to restore:** A group must always have a host who is a current member, so the group can always be started, edited, transfer-resilient, and deleted. Removing a member must never strand a group in a state no remaining member can recover.
 - **Blocks:** `GL-1` (keeps it from reaching `Done`)

@@ -174,4 +174,87 @@ test.describe('leave and delete group', () => {
     host.socket.close()
     member.socket.close()
   })
+
+  // The two cases below drive the REAL Leave Group / Delete Group buttons in a
+  // real browser page and assert the page navigates to /dashboard only after
+  // the server replies with left_group / group_deleted. They deliberately do
+  // NOT drive either actor over raw sockets: the whole point is that a browser
+  // click -> server reply -> navigate('/dashboard') path is exercised, so
+  // removing the client wiring in GroupView.jsx (the emits, the reply
+  // listeners, and their navigate calls) would make these fail.
+
+  test('a browser non-host member clicks Leave Group and is navigated to /dashboard', async ({ browser }) => {
+    const runId = testRunId()
+
+    // Host creates a group through the real wizard.
+    const hostContext = await browser.newContext()
+    await seedTestUser(hostContext, { id: `ld-br-host-${runId}`, name: 'Browser Host' })
+    const hostPage = await hostContext.newPage()
+    await createGroupThroughWizard(hostPage, `Browser Leave ${runId}`)
+    await expect(hostPage).toHaveURL(/\/group\/.+/)
+    const groupId = hostPage.url().split('/group/')[1]
+
+    // Non-host member joins through the real invite link, landing in the Group
+    // View as an ordinary (non-host) member.
+    const memberContext = await browser.newContext()
+    await seedTestUser(memberContext, { id: `ld-br-member-${runId}`, name: 'Browser Member' })
+    const memberPage = await memberContext.newPage()
+    await memberPage.goto(`/group/${groupId}?join=true`)
+    await expect(memberPage.locator('.group-info-card')).toBeVisible()
+
+    // The member's page shows the Leave Group button and must NOT be the host:
+    // the host's page is the one carrying Delete Group.
+    const leaveButton = memberPage.getByRole('button', { name: 'Leave Group' })
+    await expect(leaveButton).toBeVisible()
+    await expect(memberPage.getByRole('button', { name: 'Delete Group' })).toHaveCount(0)
+    await expect(hostPage.getByRole('button', { name: 'Delete Group' })).toBeVisible()
+
+    // The click pops a browser confirm(); accept it. The dialog only appears
+    // if handleLeaveGroup's confirm() ran, so its arrival is itself the proof
+    // the real button wiring fired.
+    const accepted = new Promise((resolve) => {
+      memberPage.once('dialog', (dialog) => {
+        resolve(dialog.message)
+        dialog.accept()
+      })
+    })
+    await leaveButton.click()
+    await accepted
+
+    // The navigation is driven purely by the left_group reply -> navigate.
+    await expect(memberPage).toHaveURL(/\/dashboard/, { timeout: 15_000 })
+
+    await memberContext.close()
+    await hostContext.close()
+  })
+
+  test('a browser host clicks Delete Group and is navigated to /dashboard', async ({ browser }) => {
+    const runId = testRunId()
+
+    // Host creates a group through the real wizard and stays in the Group View.
+    const context = await browser.newContext()
+    await seedTestUser(context, { id: `ld-br-del-${runId}`, name: 'Browser Delete Host' })
+    const page = await context.newPage()
+    await createGroupThroughWizard(page, `Browser Delete ${runId}`)
+    await expect(page).toHaveURL(/\/group\/.+/)
+
+    // The host's page is the one that shows Delete Group (not Leave Group).
+    const deleteButton = page.getByRole('button', { name: 'Delete Group' })
+    await expect(deleteButton).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Leave Group' })).toHaveCount(0)
+
+    const accepted = new Promise((resolve) => {
+      page.once('dialog', (dialog) => {
+        resolve(dialog.message)
+        dialog.accept()
+      })
+    })
+    await deleteButton.click()
+    await accepted
+
+    // The navigation is driven purely by the group_deleted reply -> navigate.
+    await expect(page).toHaveURL(/\/dashboard/, { timeout: 15_000 })
+
+    await context.close()
+  })
 })

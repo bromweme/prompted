@@ -3,10 +3,9 @@
 - **Status:** Implemented
 - **Priority:** high
 - **Depends on:** none
-- **Blocker(s):** `REP-GL1-1`, `REP-GL1-2` (filed by review-work initial review)
 - **Source finding:** `f.leave`, `f.ui-dead` (deep-discovery)
 - **Repair scope:** server engine + GroupView client + e2e. This is a cross-component repair; the server event contract and the client wiring are both required and are owned by different assignments in one wave (server = issue-worker A, client = issue-worker B).
-- **Wave result:** Implemented in Wave 1. Server `leave_group`/`delete_group` handlers and client wiring merged; `leave-delete.spec.js` proves the server contract. Full chromium suite 70/70 green; oxlint 0 errors. Review-work initial review found no blocking defect in delivered behavior but filed two repairs before marking `Done` (host-leave orphan robustness; missing browser-navigation test coverage).
+- **Wave result:** Implemented in Wave 1; repair closures complete in Wave 2, awaiting closure review. Initial review (Wave 1) filed two repairs — `REP-GL1-1` (host-leave orphan) and `REP-GL1-2` (client-navigation test gap) — both closed in Wave 2: the server now rejects host `leave_group` so a group always keeps a host who is a current member, and `leave-delete.spec.js` gained two browser tests that click the real Leave/Delete buttons and assert `/dashboard` navigation on the server reply. Full chromium suite 76/76 green; oxlint 0 errors.
 
 ## What is broken
 
