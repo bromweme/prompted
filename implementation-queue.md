@@ -16,7 +16,7 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 
 | Wave | Commit | Issue ids | Outcome |
 |---|---|---|---|
-| Wave 1 | `d0b3fef` | `GL-1`, `GL-2`, `GL-3` | Implemented: real Leave/Delete Group, dead Edit-Video path removed, Overview phase label fixed, Dashboard dead controls neutralized. Wave checks: full chromium e2e 70/70, oxlint 0 errors. Ready for independent `review-work`. |
+| Wave 1 | `8253c51` | `GL-1`, `GL-2`, `GL-3` | Implemented: real Leave/Delete Group, dead Edit-Video path removed, Overview phase label fixed, Dashboard dead controls neutralized. Wave checks: full chromium e2e 70/70, oxlint 0 errors. Ready for independent `review-work`. |
 
 ## Ready frontier
 
