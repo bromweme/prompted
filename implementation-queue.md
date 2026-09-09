@@ -17,7 +17,7 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | Wave | Commit | Issue ids | Outcome |
 |---|---|---|---|
 | Wave 1 | `8253c51` | `GL-1`, `GL-2`, `GL-3` | GL-2, GL-3 `Done`; GL-1 `Implemented` (review-work). Review filed `REP-GL1-1` (host-leave orphan) and `REP-GL1-2` (client-navigation test gap), both `Ready`, blocking GL-1. |
-| Wave 2 | `WIP` | `REP-GL1-1`, `REP-GL1-2` | Both repair issues `Implemented`, awaiting closure review. Server rejects host `leave_group` so a group always keeps a host who is a current member; `leave-delete.spec.js` gained two browser click→navigate tests. Full chromium suite 76/76 green; oxlint 0 errors. `GL-1` unblocks on closure review. |
+| Wave 2 | `0964c00` | `REP-GL1-1`, `REP-GL1-2` | Both repair issues `Implemented`, awaiting closure review. Server rejects host `leave_group` so a group always keeps a host who is a current member; `leave-delete.spec.js` gained two browser click→navigate tests. Full chromium suite 76/76 green; oxlint 0 errors. `GL-1` unblocks on closure review. |
 
 ## Ready frontier
 
