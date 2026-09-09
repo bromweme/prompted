@@ -1,11 +1,12 @@
 # GL-3 — Neutralize the dead Dashboard tabs and Quick Actions
 
-- **Status:** Implemented
+- **Status:** Done
 - **Priority:** medium
 - **Depends on:** none
 - **Source finding:** `f.ui-dead` (deep-discovery)
 - **Owner:** `web-app/src/pages/Dashboard.jsx` and `web-app/src/pages/Dashboard.css` (single worker)
 - **Wave result:** Implemented in Wave 1. Dead tab strip replaced with a single non-interactive "Active" label; Quick Actions cards removed. `group-layout` + `accessibility` specs pass.
+- **Review:** Initial review (review-work) found no defects in either ordinary or adversarial pass.
 
 ## What is broken
 

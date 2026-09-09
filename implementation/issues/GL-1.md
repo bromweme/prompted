@@ -3,9 +3,10 @@
 - **Status:** Implemented
 - **Priority:** high
 - **Depends on:** none
+- **Blocker(s):** `REP-GL1-1`, `REP-GL1-2` (filed by review-work initial review)
 - **Source finding:** `f.leave`, `f.ui-dead` (deep-discovery)
 - **Repair scope:** server engine + GroupView client + e2e. This is a cross-component repair; the server event contract and the client wiring are both required and are owned by different assignments in one wave (server = issue-worker A, client = issue-worker B).
-- **Wave result:** Implemented in Wave 1. Server `leave_group`/`delete_group` handlers and client wiring merged; `leave-delete.spec.js` proves all done conditions. Full chromium suite 70/70 green; oxlint 0 errors.
+- **Wave result:** Implemented in Wave 1. Server `leave_group`/`delete_group` handlers and client wiring merged; `leave-delete.spec.js` proves the server contract. Full chromium suite 70/70 green; oxlint 0 errors. Review-work initial review found no blocking defect in delivered behavior but filed two repairs before marking `Done` (host-leave orphan robustness; missing browser-navigation test coverage).
 
 ## What is broken
 

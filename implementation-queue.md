@@ -16,7 +16,7 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 
 | Wave | Commit | Issue ids | Outcome |
 |---|---|---|---|
-| Wave 1 | `8253c51` | `GL-1`, `GL-2`, `GL-3` | Implemented: real Leave/Delete Group, dead Edit-Video path removed, Overview phase label fixed, Dashboard dead controls neutralized. Wave checks: full chromium e2e 70/70, oxlint 0 errors. Ready for independent `review-work`. |
+| Wave 1 | `8253c51` | `GL-1`, `GL-2`, `GL-3` | GL-2, GL-3 `Done`; GL-1 `Implemented` (review-work). Review filed `REP-GL1-1` (host-leave orphan) and `REP-GL1-2` (client-navigation test gap), both `Ready`, blocking GL-1. |
 
 ## Ready frontier
 
@@ -24,7 +24,10 @@ The current dependency-free frontier. An issue is listed here only when every is
 
 | Id | Title | Priority | Depends on |
 |---|---|---|---|
-| *(none)* | Wave 1 (`GL-1`, `GL-2`, `GL-3`) is `Implemented` and pending independent review | — | — |
+| `REP-GL1-1` | A host who `leave_group` via a crafted socket orphans the group (host-less, undeletable) | high | — |
+| `REP-GL1-2` | No e2e test proves the client navigates on `left_group` / `group_deleted` | medium | — |
+
+Blocking: `GL-1` is `Implemented` and kept out of `Done` by `REP-GL1-1` and `REP-GL1-2`. `GL-2` and `GL-3` are `Done`.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 

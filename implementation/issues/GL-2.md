@@ -1,11 +1,12 @@
 # GL-2 — Fix the dead Edit Video path and the misleading Overview phase label
 
-- **Status:** Implemented
+- **Status:** Done
 - **Priority:** medium
 - **Depends on:** none
 - **Source finding:** `f.ui-dead` (deep-discovery)
 - **Owner:** `web-app/src/pages/GroupView.jsx` (single worker; no server change)
 - **Wave result:** Implemented in Wave 1. Dead `isEditing` Edit-Video branch removed; Overview phase label now switches on real status. Full chromium suite green.
+- **Review:** Initial review (review-work) found no defects in either ordinary or adversarial pass.
 
 ## What is broken
 
