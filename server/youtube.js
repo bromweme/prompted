@@ -1,4 +1,5 @@
 const { youtubeApiKey, youtubeSearchEnabled } = require('./config');
+const { decodeHtmlEntities } = require('./htmlEntities');
 
 // YouTube Data API v3 search.
 //
@@ -49,8 +50,24 @@ const FIXTURES = [
   { videoId: 'YQHsXMglC9A', title: 'Adele - Hello', channelTitle: 'Adele' },
   { videoId: 'JGwWNGJdvx8', title: 'Ed Sheeran - Shape of You', channelTitle: 'Ed Sheeran' },
   { videoId: 'CevxZvSJLk8', title: 'Katy Perry - Roar', channelTitle: 'Katy Perry' },
-  { videoId: 'RgKAFK5djSk', title: 'Wiz Khalifa - See You Again ft. Charlie Puth', channelTitle: 'Wiz Khalifa' }
+  { videoId: 'RgKAFK5djSk', title: 'Wiz Khalifa - See You Again ft. Charlie Puth', channelTitle: 'Wiz Khalifa' },
+  // Written HTML-escaped on purpose: this is the exact shape the real API
+  // sends, so the fixture path exercises decoding rather than hiding it.
+  {
+    videoId: 'L_jWHffIx5E',
+    title: 'Smash Mouth - &quot;All Star&quot; (Steve&#39;s Remix) &amp; More',
+    channelTitle: 'Smash Mouth &amp; Friends'
+  }
 ];
+
+// Decoded once at module load, mirroring what searchVideos does at the API
+// boundary — so both paths hand the client the same already-clean text, and
+// a search matches what the player can actually see.
+const DECODED_FIXTURES = FIXTURES.map(v => ({
+  ...v,
+  title: decodeHtmlEntities(v.title),
+  channelTitle: decodeHtmlEntities(v.channelTitle)
+}));
 
 function thumbnailFor(videoId) {
   return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
@@ -58,12 +75,12 @@ function thumbnailFor(videoId) {
 
 function searchFixtures(query) {
   const q = normalizeQuery(query);
-  const matches = FIXTURES.filter(
+  const matches = DECODED_FIXTURES.filter(
     v => v.title.toLowerCase().includes(q) || v.channelTitle.toLowerCase().includes(q)
   );
   // An unmatched query still returns something, so the picker UI is always
   // exercisable regardless of what gets typed.
-  const chosen = matches.length > 0 ? matches : FIXTURES;
+  const chosen = matches.length > 0 ? matches : DECODED_FIXTURES;
   return chosen.slice(0, MAX_RESULTS).map(v => ({ ...v, thumbnail: thumbnailFor(v.videoId) }));
 }
 
@@ -106,8 +123,12 @@ async function searchVideos(query) {
     .filter(item => item.id && item.id.videoId)
     .map(item => ({
       videoId: item.id.videoId,
-      title: item.snippet.title,
-      channelTitle: item.snippet.channelTitle,
+      // The API returns snippet text HTML-escaped. Decoded here, at the
+      // boundary, and therefore before writeCache below — so it happens once
+      // per unique result rather than on every render, and every consumer
+      // (search list, submission, round history) sees the same clean text.
+      title: decodeHtmlEntities(item.snippet.title),
+      channelTitle: decodeHtmlEntities(item.snippet.channelTitle),
       thumbnail:
         (item.snippet.thumbnails && item.snippet.thumbnails.medium && item.snippet.thumbnails.medium.url) ||
         thumbnailFor(item.id.videoId)

@@ -6,6 +6,10 @@ const FOCUSABLE_SELECTOR =
 // Shared modal accessibility behavior: focuses the first interactive element
 // when a modal opens, traps Tab/Shift+Tab focus inside it, closes on
 // Escape, and restores focus to the trigger element on close.
+//
+// Passing no onClose makes the modal non-dismissable: focus is still trapped
+// and managed, but Escape does nothing. Used by first-time profile setup,
+// where dismissing would just reopen it on the next load.
 export function useModalA11y(isOpen, containerRef, onClose) {
   useEffect(() => {
     if (!isOpen) return
@@ -21,7 +25,7 @@ export function useModalA11y(isOpen, containerRef, onClose) {
 
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
-        onClose()
+        if (onClose) onClose()
         return
       }
       if (e.key !== 'Tab') return

@@ -4,22 +4,20 @@ import { useUser } from '../context/UserContext'
 import { useTopics } from '../hooks/useTopics'
 import { useSocket } from '../context/SocketContext'
 import { useModalA11y } from '../hooks/useModalA11y'
+import AppNav from '../components/AppNav'
+import AvatarPicker from '../components/AvatarPicker'
 import './Account.css'
 
 function Account() {
   const navigate = useNavigate()
-  const { user, updateUser } = useUser()
-  const { isConnected } = useSocket()
+  const { user, signOut } = useUser()
+  const { socket, isConnected } = useSocket()
+  const [saveError, setSaveError] = useState(null)
   const themeModalRef = useRef(null)
   
   const [activeTab, setActiveTab] = useState('profile')
   const [isEditing, setIsEditing] = useState(false)
-  const [editForm, setEditForm] = useState({
-    name: '',
-    avatar: '',
-    bio: '',
-    location: ''
-  })
+  const [editForm, setEditForm] = useState({ name: '', avatar: '' })
 
   // Use shared topics hook
   const {
@@ -41,47 +39,36 @@ function Account() {
 
   useModalA11y(showAddModal, themeModalRef, handleCloseModal)
 
-  const commonAvatars = ['🎵', '🎸', '🎹', '🎤', '🎧', '🎻', '🥁', '🎷', '🎺', '🎼', '🎹', '🎬', '🎮', '🎲']
-
+  // The server is the source of truth: it echoes the saved profile back
+  // through the session payload, which re-runs this and closes the form.
   useEffect(() => {
     if (user) {
-      setEditForm({
-        name: user.name,
-        avatar: user.avatar,
-        bio: user.bio || '',
-        location: user.location || ''
-      })
+      setEditForm({ name: user.name, avatar: user.avatar })
+      setIsEditing(false)
     }
   }, [user])
 
   const handleEditClick = () => {
-    setEditForm({
-      name: user.name,
-      avatar: user.avatar,
-      bio: user.bio || '',
-      location: user.location || ''
-    })
+    setEditForm({ name: user.name, avatar: user.avatar })
+    setSaveError(null)
     setIsEditing(true)
   }
 
   const handleCancelEdit = () => {
     setIsEditing(false)
-    setEditForm({
-      name: user.name,
-      avatar: user.avatar,
-      bio: user.bio || '',
-      location: user.location || ''
-    })
+    setSaveError(null)
+    setEditForm({ name: user.name, avatar: user.avatar })
   }
 
   const handleSaveProfile = () => {
-    updateUser({
-      name: editForm.name,
-      avatar: editForm.avatar,
-      bio: editForm.bio,
-      location: editForm.location
-    })
-    setIsEditing(false)
+    if (!socket || !isConnected) {
+      setSaveError('Still connecting — try again in a moment.')
+      return
+    }
+
+    setSaveError(null)
+    socket.once('error', ({ message }) => setSaveError(message))
+    socket.emit('update_profile', { displayName: editForm.name, avatar: editForm.avatar })
   }
 
   const handleAvatarSelect = (avatar) => {
@@ -89,8 +76,7 @@ function Account() {
   }
 
   const handleLogout = () => {
-    // Clear user data from localStorage
-    localStorage.removeItem('user')
+    signOut()
     navigate('/')
   }
 
@@ -102,20 +88,10 @@ function Account() {
     <div className="account-page">
       <a href="#main-content" className="skip-link">Skip to main content</a>
       
-      <header className="page-header">
-        <div className="header-content">
-          <button 
-            className="back-button"
-            onClick={() => navigate('/dashboard')}
-            aria-label="Go back to dashboard"
-          >
-            ← Back to Dashboard
-          </button>
-          <h1>Account Settings</h1>
-        </div>
-      </header>
+      <AppNav />
 
       <main id="main-content" className="account-main">
+        <h1 className="page-title">Account Settings</h1>
         <div className="account-content">
           {/* Tab Navigation */}
           <nav className="account-tabs" aria-label="Account sections">
@@ -172,19 +148,12 @@ function Account() {
                 </div>
                 {isEditing && (
                   <div className="avatar-selector">
-                    <h3>Choose Avatar</h3>
-                    <div className="avatar-grid">
-                      {commonAvatars.map((avatar) => (
-                        <button
-                          key={avatar}
-                          className={`avatar-option ${editForm.avatar === avatar ? 'selected' : ''}`}
-                          onClick={() => handleAvatarSelect(avatar)}
-                          aria-label={`Select ${avatar} avatar`}
-                        >
-                          {avatar}
-                        </button>
-                      ))}
-                    </div>
+                    <h3 id="account-avatar-label">Choose Avatar</h3>
+                    <AvatarPicker
+                      value={editForm.avatar}
+                      onChange={handleAvatarSelect}
+                      labelledBy="account-avatar-label"
+                    />
                   </div>
                 )}
               </div>
@@ -200,33 +169,11 @@ function Account() {
                         value={editForm.name}
                         onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
                         placeholder="Enter your display name"
-                        maxLength={30}
+                        maxLength={100}
                       />
                     </div>
 
-                    <div className="form-group">
-                      <label htmlFor="bio">Bio</label>
-                      <textarea
-                        id="bio"
-                        value={editForm.bio}
-                        onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
-                        placeholder="Tell us about yourself"
-                        rows={3}
-                        maxLength={150}
-                      />
-                    </div>
-
-                    <div className="form-group">
-                      <label htmlFor="location">Location</label>
-                      <input
-                        id="location"
-                        type="text"
-                        value={editForm.location}
-                        onChange={(e) => setEditForm({ ...editForm, location: e.target.value })}
-                        placeholder="City, Country"
-                        maxLength={50}
-                      />
-                    </div>
+                    {saveError && <p className="save-error" role="alert">{saveError}</p>}
 
                     <div className="form-actions">
                       <button 
@@ -253,18 +200,6 @@ function Account() {
                       <span className="detail-label">Email</span>
                       <span className="detail-value">{user.email}</span>
                     </div>
-                    {user.bio && (
-                      <div className="detail-row">
-                        <span className="detail-label">Bio</span>
-                        <span className="detail-value">{user.bio}</span>
-                      </div>
-                    )}
-                    {user.location && (
-                      <div className="detail-row">
-                        <span className="detail-label">Location</span>
-                        <span className="detail-value">{user.location}</span>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>

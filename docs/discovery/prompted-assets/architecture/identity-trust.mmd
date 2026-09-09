@@ -1,0 +1,22 @@
+sequenceDiagram
+    participant B as Browser
+    participant G as Google
+    participant M as Auth middleware
+    participant S as Server
+    participant D as SQLite
+
+    B->>G: sign in
+    G-->>B: ID token (~1 hour)
+    B->>M: socket handshake { googleIdToken }
+    M->>M: verify signature, expiry,<br/>issuer, audience, email_verified
+    M->>M: mint HMAC session token<br/>(30 days, not JWT)
+    M->>S: bind socket.data.userId
+    S->>D: getOrCreateProfile
+    D-->>S: profile (avatar null = new player)
+    S-->>B: session { token, user, avatarChoices }
+    Note over B: token stored in localStorage
+
+    B->>M: later handshake { sessionToken }
+    M->>M: recompute HMAC, constant-time compare,<br/>check expiry
+    M->>S: bind socket.data.userId
+    Note over M,S: a fresh token is minted<br/>on every connection

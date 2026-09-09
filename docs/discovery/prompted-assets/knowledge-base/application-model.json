@@ -1,0 +1,1834 @@
+{
+ "schemaVersion": "1.0.0",
+ "generatedAt": "2026-09-09",
+ "application": {
+  "name": "Prompted",
+  "description": "A multiplayer music game. A Judge sets a prompt, the other players each answer it with one YouTube video, everyone votes, and a winner is scored. Groups are standing, so the same people play round after round.",
+  "outcomes": [
+   "A group of friends discovers music through each other, one prompt at a time.",
+   "Judging stays fair because nobody knows who submitted what, or who is judging, until the round is over.",
+   "Prompts stay private to the people you actually play with, never shared app-wide."
+  ]
+ },
+ "scope": {
+  "included": [
+   "server/ - the Express and socket.io game server, its persistence, identity and YouTube integration",
+   "web-app/src/ - the React single-page client",
+   "web-app/e2e/ - the Playwright end-to-end suite, read as behavioral evidence",
+   "README.md and GAME_DESIGN.md - documented intent"
+  ],
+  "excluded": [
+   "web-app/test-results/ and playwright-report/ - generated trace artifacts",
+   "node_modules and lock files",
+   "server/.env and web-app/.env - secrets, confirmed to exist, never opened",
+   "The React Native application described in the documents; it does not exist in this repository - confirmed absent"
+  ]
+ },
+ "analysis": {
+  "methods": [
+   {
+    "id": "m.corpus",
+    "tool": "source-corpus.py",
+    "purpose": "Hash and inventory the corpus, mark duplicates, exclude generated output.",
+    "coverage": "84 corpus files, 0 duplicates"
+   },
+   {
+    "id": "m.read",
+    "tool": "direct source reading",
+    "purpose": "Full reads of every server module, client page, component, hook, context and spec file.",
+    "languages": [
+     "JavaScript",
+     "JSX",
+     "CSS",
+     "Markdown"
+    ],
+    "coverage": "complete for the included scope"
+   },
+   {
+    "id": "m.grep",
+    "tool": "ripgrep",
+    "purpose": "Enumerate the socket event surface, the settings actually read, and prove specific absences such as the missing leave and delete handlers and the never-read votingTime.",
+    "coverage": "whole repository"
+   },
+   {
+    "id": "m.run",
+    "tool": "Playwright",
+    "purpose": "Execute the full suite across four browser projects and repeat it to measure the flake rate.",
+    "coverage": "65 tests per run, 260 executions across 4 projects"
+   }
+  ],
+  "sourceRoots": [
+   "server",
+   "web-app/src",
+   "web-app/e2e"
+  ],
+  "excludedPaths": [
+   "web-app/test-results",
+   "web-app/playwright-report",
+   "node_modules",
+   "server/.env",
+   "web-app/.env"
+  ],
+  "coverageLimits": [
+   "Findings marked static-analysis come from reading code, not from watching it run. The distinction is kept in every capability status.",
+   "The live Google sign-in path and the live YouTube API path are never exercised by the suite, by design, so neither is confirmed working here.",
+   "The working tree carries substantial uncommitted round-stall/deadline work and the phase rework that postdate HEAD (cfa08f6). Every line citation in this model refers to the current tree, which is the baseline commit plus that uncommitted drift; only what is committed to cfa08f6 can be dated to a commit."
+  ],
+  "revisions": [
+   {
+    "path": ".",
+    "revision": "cfa08f6d250be8a925386c1a50570e083f48baec"
+   },
+   {
+    "path": ".",
+    "revision": "working tree at generation: 24 modified files (+1864/-923) and 26 untracked files on top of cfa08f6, dominated by the round-stall/deadline work, the topic_selection phase rework, the profile system and the expanded end-to-end suite"
+   }
+  ]
+ },
+ "capabilities": [
+  {
+   "id": "cap.signin",
+   "name": "Google sign-in with durable session",
+   "description": "A player signs in with Google once; a signed session token in localStorage carries them across reloads and reconnects without a second Google round trip.",
+   "status": "implemented-and-connected",
+   "evidenceIds": [
+    "ev.auth.middleware",
+    "ev.session.token"
+   ]
+  },
+  {
+   "id": "cap.profile",
+   "name": "Player profile with display name and avatar",
+   "description": "First sign-in forces a name and an emoji avatar chosen from a server-owned allowlist; a null avatar is the signal for first-time setup.",
+   "status": "demonstrated-by-test",
+   "evidenceIds": [
+    "ev.auth.middleware"
+   ]
+  },
+  {
+   "id": "cap.group.create",
+   "name": "Create a group through a four-step wizard",
+   "description": "A host names a group and sets up to 21 options across four steps. Nine of those options reach any behavior.",
+   "status": "partial",
+   "evidenceIds": [
+    "ev.settings.sentby.client",
+    "ev.settings.readby.server"
+   ]
+  },
+  {
+   "id": "cap.group.join",
+   "name": "Join a group by code or invite link",
+   "description": "A player joins by entering the group code or by opening an invite link; rejoining is idempotent and is treated as a reconnect.",
+   "status": "demonstrated-by-test",
+   "evidenceIds": [
+    "ev.offline.test"
+   ]
+  },
+  {
+   "id": "cap.round.run",
+   "name": "Run a round from topic to reveal",
+   "description": "The Judge picks a topic, contestants each submit one video, everyone votes, and the round resolves to a winner and a history entry.",
+   "status": "demonstrated-by-test",
+   "evidenceIds": [
+    "ev.round.lifecycle",
+    "ev.round.scoring",
+    "ev.judge.hidden.test"
+   ]
+  },
+  {
+   "id": "cap.round.anonymity",
+   "name": "Conceal identities until reveal",
+   "description": "The Judge's identity never appears in a broadcast before reveal, submissions are anonymous during voting, and comments carry no author until reveal.",
+   "status": "demonstrated-by-test",
+   "evidenceIds": [
+    "ev.round.publicize",
+    "ev.judge.hidden.test"
+   ]
+  },
+  {
+   "id": "cap.topics",
+   "name": "Personal topic library shared only with groupmates",
+   "description": "Each player owns a topic library. Public topics reach only the people they actually play with, never the whole app.",
+   "status": "demonstrated-by-test",
+   "evidenceIds": [
+    "ev.topics.scope",
+    "ev.topics.test"
+   ]
+  },
+  {
+   "id": "cap.search",
+   "name": "YouTube video search with quota control",
+   "description": "Players search YouTube inside the submit modal. Results are cached by query and fall back to a fixture list when no API key is configured.",
+   "status": "implemented-and-connected",
+   "evidenceIds": [
+    "ev.youtube.quota",
+    "ev.youtube.decode"
+   ]
+  },
+  {
+   "id": "cap.entities",
+   "name": "Correct display of API-escaped titles",
+   "description": "Video titles and channel names are decoded once at the API boundary, so every surface shows real punctuation rather than HTML entities.",
+   "status": "demonstrated-by-test",
+   "evidenceIds": [
+    "ev.entities.module",
+    "ev.entities.test"
+   ]
+  },
+  {
+   "id": "cap.deadline",
+   "name": "Submission time limit",
+   "description": "A per-round deadline set when the Judge picks a topic is genuinely enforced. A single idempotent seam (advanceIfExpired) advances a round to voting if submissions arrived, restarts the same round up to three times if none did, and then stalls it for the host with a durable notice.",
+   "status": "demonstrated-by-test",
+   "evidenceIds": [
+    "ev.deadline.contract",
+    "ev.deadline.rearm",
+    "ev.deadline.callsites",
+    "ev.deadline.test"
+   ]
+  },
+  {
+   "id": "cap.votingdeadline",
+   "name": "Voting phase deadline",
+   "description": "votingTime is collected and displayed but nothing ever forces voting to reveal, and close_submissions only works during the submission phase. A round can therefore hang in voting forever unless every eligible voter votes or the Judge names a winner.",
+   "status": "documented-but-not-found",
+   "evidenceIds": [
+    "ev.deadline.novoting"
+   ]
+  },
+  {
+   "id": "cap.leave",
+   "name": "Leave or delete a group",
+   "description": "Both controls are present and styled as destructive, but neither sends anything to the server.",
+   "status": "stubbed-or-mocked",
+   "evidenceIds": [
+    "ev.leave.noemit",
+    "ev.leave.noevent"
+   ]
+  },
+  {
+   "id": "cap.skipjudge",
+   "name": "Skip being Judge",
+   "description": "Documented in both design documents, with a stored setting in the wizard, but no implementation on either side.",
+   "status": "documented-but-not-found",
+   "evidenceIds": [
+    "ev.skipczar.absent",
+    "ev.docs.stale"
+   ]
+  },
+  {
+   "id": "cap.gameend",
+   "name": "Finish a game after a set number of rounds",
+   "description": "totalRounds is collected and displayed as Round n of N, but nothing ends the group when the count is reached.",
+   "status": "documented-but-not-found",
+   "evidenceIds": [
+    "ev.settings.display.only"
+   ]
+  },
+  {
+   "id": "cap.hosttransfer",
+   "name": "Transfer or replace the host",
+   "description": "No handler exists. The host is fixed at creation, so an absent host permanently blocks new rounds.",
+   "status": "documented-but-not-found",
+   "evidenceIds": [
+    "ev.host.fixed"
+   ]
+  },
+  {
+   "id": "cap.a11y",
+   "name": "Accessibility guarding across the whole site",
+   "description": "axe scans, a resting-visibility sweep, a hover cascade audit and two static CSS lints run over every page and every modal.",
+   "status": "demonstrated-by-test",
+   "evidenceIds": [
+    "ev.css.invisible",
+    "ev.a11y.cascade",
+    "ev.suite.result",
+    "ev.suite.stability"
+   ]
+  }
+ ],
+ "nodes": [
+  {
+   "id": "n.player",
+   "name": "Player",
+   "kind": "actor",
+   "description": "A signed-in person who joins groups, submits videos and votes.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.auth.middleware"
+   ]
+  },
+  {
+   "id": "n.host",
+   "name": "Host",
+   "kind": "actor",
+   "description": "The player who created a group. Fixed at creation; only the host may start rounds, edit rules, close submissions or reassign a stalled Judge.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.host.fixed"
+   ]
+  },
+  {
+   "id": "n.judge",
+   "name": "Judge",
+   "kind": "actor",
+   "description": "One player per round who picks the topic and may name a winner outright. Called czar in the code and Round Leader in some comments.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.round.lifecycle"
+   ]
+  },
+  {
+   "id": "n.webapp",
+   "name": "Web client",
+   "kind": "application",
+   "description": "React 19 single-page app served by Vite. Six routes, one of them public.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.settings.sentby.client"
+   ]
+  },
+  {
+   "id": "n.server",
+   "name": "Game server",
+   "kind": "application",
+   "description": "Express and socket.io process. The sole authority for game rules.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.round.lifecycle"
+   ]
+  },
+  {
+   "id": "n.socket",
+   "name": "Socket.io channel",
+   "kind": "interface",
+   "description": "The only application interface. 25 inbound events, more than a dozen outbound. There is no game REST API.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.auth.middleware"
+   ]
+  },
+  {
+   "id": "n.authmw",
+   "name": "Auth middleware",
+   "kind": "module",
+   "description": "Binds a verified identity to socket.data.userId once per connection, before any handler can run.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.auth.middleware"
+   ]
+  },
+  {
+   "id": "n.session",
+   "name": "Session token module",
+   "kind": "module",
+   "description": "Mints and verifies hand-rolled HMAC session tokens.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.session.token"
+   ]
+  },
+  {
+   "id": "n.profiles",
+   "name": "Profile store",
+   "kind": "module",
+   "description": "Display names and emoji avatars keyed by the Google subject id.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.db.store"
+   ]
+  },
+  {
+   "id": "n.store",
+   "name": "PersistentStore",
+   "kind": "module",
+   "description": "Write-through Map-compatible cache over SQLite.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.db.store"
+   ]
+  },
+  {
+   "id": "n.sqlite",
+   "name": "SQLite database",
+   "kind": "data-store",
+   "description": "prompted.db in WAL mode. Three tables: users, topics, groups. One JSON blob per row.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.db.store"
+   ]
+  },
+  {
+   "id": "n.youtube.mod",
+   "name": "YouTube module",
+   "kind": "module",
+   "description": "Search, LRU cache, entity decoding, fixture fallback and video-id validation.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.youtube.quota"
+   ]
+  },
+  {
+   "id": "n.entities",
+   "name": "HTML entity decoder",
+   "kind": "module",
+   "description": "Decode-only fixed-table transform applied at the API boundary.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.entities.module"
+   ]
+  },
+  {
+   "id": "n.google",
+   "name": "Google Identity Services",
+   "kind": "external-system",
+   "description": "Issues and signs the ID token that establishes who a player is.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.auth.testmode"
+   ]
+  },
+  {
+   "id": "n.ytapi",
+   "name": "YouTube Data API v3",
+   "kind": "external-system",
+   "description": "search.list. 100 quota units per call against a 10,000 unit daily allowance.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.youtube.quota"
+   ]
+  },
+  {
+   "id": "n.group",
+   "name": "Group",
+   "kind": "data-entity",
+   "description": "A standing set of players with settings, a player roster, a current round and a history. The id doubles as the invite code.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.host.fixed"
+   ]
+  },
+  {
+   "id": "n.theme",
+   "name": "Round",
+   "kind": "data-entity",
+   "description": "Called currentTheme. Holds the topic, the Judge id, submissions, votes, the phase, the submission deadline, and the auto re-arm counter and exhausted flag that enforce it.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.round.lifecycle",
+    "ev.deadline.contract"
+   ]
+  },
+  {
+   "id": "n.topic",
+   "name": "Topic",
+   "kind": "data-entity",
+   "description": "A prompt owned by the player who wrote it, optionally public to groupmates.",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.topics.scope"
+   ]
+  },
+  {
+   "id": "n.suite",
+   "name": "Playwright suite",
+   "kind": "subsystem",
+   "description": "65 tests across four browser projects, booting both real servers.",
+   "support": "demonstrated-test",
+   "evidenceIds": [
+    "ev.suite.result"
+   ]
+  }
+ ],
+ "relationships": [
+  {
+   "id": "r.client.socket",
+   "source": "n.webapp",
+   "target": "n.socket",
+   "kind": "communicates-over",
+   "label": "all game traffic",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.auth.middleware"
+   ]
+  },
+  {
+   "id": "r.socket.server",
+   "source": "n.socket",
+   "target": "n.server",
+   "kind": "handled-by",
+   "label": "25 inbound events",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.auth.middleware"
+   ]
+  },
+  {
+   "id": "r.server.authmw",
+   "source": "n.server",
+   "target": "n.authmw",
+   "kind": "uses",
+   "label": "binds identity before any handler",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.auth.middleware"
+   ]
+  },
+  {
+   "id": "r.authmw.google",
+   "source": "n.authmw",
+   "target": "n.google",
+   "kind": "verifies-token-with",
+   "label": "first sign-in only",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.auth.testmode"
+   ]
+  },
+  {
+   "id": "r.authmw.session",
+   "source": "n.authmw",
+   "target": "n.session",
+   "kind": "mints-and-verifies",
+   "label": "every connection",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.session.token"
+   ]
+  },
+  {
+   "id": "r.server.store",
+   "source": "n.server",
+   "target": "n.store",
+   "kind": "reads-and-writes",
+   "label": "groups and topics",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.db.store"
+   ]
+  },
+  {
+   "id": "r.profiles.store",
+   "source": "n.profiles",
+   "target": "n.store",
+   "kind": "reads-and-writes",
+   "label": "users table",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.db.store"
+   ]
+  },
+  {
+   "id": "r.store.sqlite",
+   "source": "n.store",
+   "target": "n.sqlite",
+   "kind": "persists-to",
+   "label": "write-through on every set",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.db.store"
+   ]
+  },
+  {
+   "id": "r.server.youtube",
+   "source": "n.server",
+   "target": "n.youtube.mod",
+   "kind": "delegates-search-to",
+   "label": "search_youtube",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.youtube.quota"
+   ]
+  },
+  {
+   "id": "r.youtube.api",
+   "source": "n.youtube.mod",
+   "target": "n.ytapi",
+   "kind": "calls",
+   "label": "search.list, 8 second timeout",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.youtube.quota"
+   ]
+  },
+  {
+   "id": "r.youtube.entities",
+   "source": "n.youtube.mod",
+   "target": "n.entities",
+   "kind": "decodes-with",
+   "label": "before caching",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.youtube.decode"
+   ]
+  },
+  {
+   "id": "r.group.theme",
+   "source": "n.group",
+   "target": "n.theme",
+   "kind": "contains",
+   "label": "one current round",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.round.lifecycle"
+   ]
+  },
+  {
+   "id": "r.judge.theme",
+   "source": "n.judge",
+   "target": "n.theme",
+   "kind": "selects-topic-for",
+   "label": "topic_selection phase; deadline starts on the pick",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.round.lifecycle"
+   ]
+  },
+  {
+   "id": "r.host.group",
+   "source": "n.host",
+   "target": "n.group",
+   "kind": "controls",
+   "label": "start rounds, edit rules, close submissions, reassign Judge",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.host.fixed"
+   ]
+  },
+  {
+   "id": "r.player.topic",
+   "source": "n.player",
+   "target": "n.topic",
+   "kind": "owns",
+   "label": "personal library",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.topics.scope"
+   ]
+  },
+  {
+   "id": "r.suite.server",
+   "source": "n.suite",
+   "target": "n.server",
+   "kind": "exercises",
+   "label": "boots the real process",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.suite.result"
+   ]
+  },
+  {
+   "id": "r.suite.client",
+   "source": "n.suite",
+   "target": "n.webapp",
+   "kind": "drives",
+   "label": "four browser projects",
+   "direction": "directed",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.suite.result"
+   ]
+  }
+ ],
+ "flows": [
+  {
+   "id": "flow.round",
+   "name": "Play a round end to end",
+   "description": "The core value path. Everything else in the product exists to make this possible.",
+   "trigger": "The host starts a round and chooses how the Judge is picked.",
+   "outcome": "A winner is scored, the round is written to history, and every player sees the reveal.",
+   "status": "demonstrated-by-test",
+   "evidenceIds": [
+    "ev.round.lifecycle",
+    "ev.round.scoring",
+    "ev.deadline.contract",
+    "ev.judge.hidden.test",
+    "ev.suite.result"
+   ],
+   "steps": [
+    {
+     "id": "s.1",
+     "description": "Host emits start_group or start_round. The server checks host identity and that the group has at least two members, then beginRound picks the Judge (randomly among connected players, or the host may name one via czarUserId) and opens the topic_selection phase with no deadline.",
+     "evidenceIds": [
+      "ev.membership.gate",
+      "ev.beginround.pool"
+     ]
+    },
+    {
+     "id": "s.2",
+     "description": "Only the Judge is shown the topic picker. Choosing a topic sets the title, computes a deadline from submissionTime and moves the round to submission. If the Judge goes away, only the host can reassign the Judge; there is no clock in this phase.",
+     "evidenceIds": [
+      "ev.round.lifecycle",
+      "ev.deadline.contract"
+     ]
+    },
+    {
+     "id": "s.3",
+     "description": "Each contestant searches YouTube and submits exactly one video. The Judge cannot submit. The phase ends when every eligible player has submitted, when advanceIfExpired fires (allowing a nudge before the countdown), or when the host force-closes it.",
+     "evidenceIds": [
+      "ev.deadline.contract",
+      "ev.deadline.test"
+     ]
+    },
+    {
+     "id": "s.4",
+     "description": "Submissions are shown anonymously. Players award points to any submission but their own, and may downvote or comment when the host enabled it. The Judge may also vote. advanceIfExpired is the sole deadline seam, evaluated at join, get, submit and nudge.",
+     "evidenceIds": [
+      "ev.round.publicize",
+      "ev.vote.selfblock",
+      "ev.vote.judge",
+      "ev.deadline.callsites"
+     ]
+    },
+    {
+     "id": "s.5",
+     "description": "The round resolves when every eligible voter has voted, or immediately if the Judge names a winner. The winner is decided by public override, then Judge selection, then highest tally. There is no voting deadline and no host escape from the voting phase.",
+     "evidenceIds": [
+      "ev.round.scoring",
+      "ev.deadline.novoting"
+     ]
+    },
+    {
+     "id": "s.6",
+     "description": "Reveal exposes submitters, votes, comment authors and the Judge, and the round is appended to group history with every video so the history view can rebuild a watch-all link.",
+     "evidenceIds": [
+      "ev.round.publicize",
+      "ev.round.scoring"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "flow.identity",
+   "name": "Become a trusted identity",
+   "description": "How a visitor turns into a player the server will act for, and stays one across reloads.",
+   "trigger": "A visitor opens the site and signs in with Google.",
+   "outcome": "A durable identity bound to every socket connection, with a stored profile.",
+   "status": "implemented-and-connected",
+   "evidenceIds": [
+    "ev.auth.middleware",
+    "ev.session.token",
+    "ev.auth.testmode"
+   ],
+   "steps": [
+    {
+     "id": "s.1",
+     "description": "Google Identity Services mints an ID token in the browser.",
+     "evidenceIds": [
+      "ev.auth.testmode"
+     ]
+    },
+    {
+     "id": "s.2",
+     "description": "The token is presented on the socket handshake. The server verifies signature, expiry, issuer, audience and the email-verified claim.",
+     "evidenceIds": [
+      "ev.auth.middleware"
+     ]
+    },
+    {
+     "id": "s.3",
+     "description": "The server mints its own HMAC session token, because a Google ID token expires too quickly for the reconnect pattern, and the client stores it.",
+     "evidenceIds": [
+      "ev.session.token"
+     ]
+    },
+    {
+     "id": "s.4",
+     "description": "A profile is created on first sign-in with a null avatar, which is what makes the client run first-time setup.",
+     "evidenceIds": [
+      "ev.db.store"
+     ]
+    },
+    {
+     "id": "s.5",
+     "description": "Every later connection presents the session token instead, and a fresh token is minted each time.",
+     "evidenceIds": [
+      "ev.session.norevoke"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "flow.topics",
+   "name": "Own a topic and share it only with groupmates",
+   "description": "The privacy model that separates this product from an app-wide prompt bank.",
+   "trigger": "A player writes a topic in their personal library.",
+   "outcome": "The topic is available to that player everywhere, and to groupmates only inside a shared group.",
+   "status": "demonstrated-by-test",
+   "evidenceIds": [
+    "ev.topics.scope",
+    "ev.topics.test"
+   ],
+   "steps": [
+    {
+     "id": "s.1",
+     "description": "submit_topic stores the topic against the authenticated user id.",
+     "evidenceIds": [
+      "ev.topics.scope"
+     ]
+    },
+    {
+     "id": "s.2",
+     "description": "get_topics returns only that user's own topics, public and private.",
+     "evidenceIds": [
+      "ev.topics.scope"
+     ]
+    },
+    {
+     "id": "s.3",
+     "description": "Inside a group, topicsForGroup adds other members' public topics, and marks the ones already played there.",
+     "evidenceIds": [
+      "ev.topics.scope"
+     ]
+    }
+   ]
+  }
+ ],
+ "partitions": [
+  {
+   "id": "p.server",
+   "name": "Server",
+   "basis": "runtime process",
+   "nodeIds": [
+    "n.server",
+    "n.socket",
+    "n.authmw",
+    "n.session",
+    "n.profiles",
+    "n.store",
+    "n.youtube.mod",
+    "n.entities"
+   ]
+  },
+  {
+   "id": "p.client",
+   "name": "Client",
+   "basis": "runtime process",
+   "nodeIds": [
+    "n.webapp"
+   ]
+  },
+  {
+   "id": "p.data",
+   "name": "Data",
+   "basis": "persistence",
+   "nodeIds": [
+    "n.sqlite",
+    "n.group",
+    "n.theme",
+    "n.topic"
+   ]
+  },
+  {
+   "id": "p.external",
+   "name": "External",
+   "basis": "outside the boundary",
+   "nodeIds": [
+    "n.google",
+    "n.ytapi"
+   ]
+  }
+ ],
+ "evidence": [
+  {
+   "id": "ev.round.lifecycle",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "beginRound creates currentTheme with status 'topic_selection' and deadline null (the Submission clock starts when the topic is chosen, not when the round begins). publicizeTheme and calculateGroupResults drive the submission, voting and reveal transitions.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 244,
+    "endLine": 281,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.round.publicize",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "publicizeTheme strips czarId from every broadcast, hides submissions and votes during topic_selection and submission, anonymizes submissions during voting, withholds comments unless showCommentsLive is on, and exposes the Judge id early when anonymousCzar is false.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 286,
+    "endLine": 330,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.round.scoring",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "calculateGroupResults tallies votes, resolves the winner by public override (submission whose vote share meets the threshold), then Judge selection, then popular vote; charges downvotes, then appends a history entry carrying every video in the round.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 393,
+    "endLine": 480,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.deadline.set",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "theme.deadline is computed from settings.submissionTime when the Judge selects a topic (select_topic), so the submission clock starts on the pick.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 634,
+    "endLine": 634,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.deadline.contract",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "advanceIfExpired is the single idempotent deadline seam: guarded on phase, deadline and rearmExhausted; evaluated against the server's own clock (no scheduler, no timer); opens voting when submissions arrived; otherwise restarts the same round (kept Judge and topic, currentRound not incremented, no history entry) up to MAX_AUTO_REARMS, then stalls for the host.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 198,
+    "endLine": 238,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.deadline.rearm",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "MAX_AUTO_REARMS is 3; addHostNotice raises durable host messages with kinds 'round_restarted' (each re-arm) and 'round_stalled' (attempts exhausted).",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 169,
+    "endLine": 182,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.deadline.callsites",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "advanceIfExpired is evaluated at join_group (:805), get_group (:852), submit_video (:1203) and again when the client emits check_round_deadline (:872-882) as its countdown reaches zero. There is no scheduler: an idle group advances only when someone interacts with it, so enforcement is interaction-driven rather than timed.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": null,
+    "endLine": null,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.deadline.validation",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "submissionTime is validated as a whole number of hours from 1 to 168 at group creation and on edit. A value outside the bounds is rejected on both paths.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 159,
+    "endLine": 162,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.deadline.test",
+   "type": "test-result",
+   "source": "web-app/e2e/round-deadline.spec.js",
+   "description": "13 tests (395 lines) drive the real deadline seam with raw socket clients: expiry-into-voting, a premature nudge is ignored, re-arm keeps Judge/topic, exhaustion raises round_stalled, host notice acknowledgment, close_submissions, reassign_judge, and submissionTime validation.",
+   "support": "demonstrated-test",
+   "location": {
+    "path": "web-app/e2e/round-deadline.spec.js",
+    "line": 1,
+    "endLine": 395,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.deadline.novoting",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "No server behavior reads settings.votingTime; close_submissions only acts while the phase is 'submission' (status gate), so there is no host escape from a round stuck in voting. A round in voting hangs until every eligible voter votes or the Judge names a winner.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": null,
+    "endLine": null,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.csstoken.regression",
+   "type": "test-result",
+   "source": "web-app/e2e/css-tokens.spec.js",
+   "description": "The static token guard (undefined var() check) caught a real regression in the new host-notice styling: GroupView.css:1284 referenced an undefined token var(--color-text); the static guard failed across all four browser projects until it was corrected to var(--color-text-primary) in this refresh.",
+   "support": "demonstrated-test",
+   "location": {
+    "path": "web-app/src/pages/GroupView.css",
+    "line": 1284,
+    "endLine": 1284,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.ui.editvideo",
+   "type": "source-analysis",
+   "source": "web-app/src/pages/GroupView.jsx",
+   "description": "The submit modal branches its title and button on isEditing ('Edit Video'/'Update Video'), and setIsEditing is only ever called with false. setIsEditing(true) is never called, so the Edit Video path is unreachable.",
+   "support": "static-analysis",
+   "location": {
+    "path": "web-app/src/pages/GroupView.jsx",
+    "line": null,
+    "endLine": null,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.ui.dashboards",
+   "type": "source-analysis",
+   "source": "web-app/src/pages/Dashboard.jsx",
+   "description": "The Active/Completed/Archived tab buttons carry no filtering behavior (they are presentational), and the Quick Actions cards have no onClick handlers at all.",
+   "support": "static-analysis",
+   "location": {
+    "path": "web-app/src/pages/Dashboard.jsx",
+    "line": null,
+    "endLine": null,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.ui.account",
+   "type": "source-analysis",
+   "source": "web-app/src/pages/Account.jsx",
+   "description": "The Account Settings toggles (Email Notifications, Public Profile, Sound Effects) are cosmetic defaultChecked checkboxes with no persistence, and Deactivate Account is a stub with no behavior.",
+   "support": "static-analysis",
+   "location": {
+    "path": "web-app/src/pages/Account.jsx",
+    "line": null,
+    "endLine": null,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.ui.phaselabel",
+   "type": "source-analysis",
+   "source": "web-app/src/pages/GroupView.jsx",
+   "description": "The Overview phase label shows 'Voting' for voting, 'Results' for reveal, and 'Submissions Open' for any other phase - so during topic_selection, before a topic or deadline exists, it is misleading.",
+   "support": "static-analysis",
+   "location": {
+    "path": "web-app/src/pages/GroupView.jsx",
+    "line": 672,
+    "endLine": 672,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.membership.gate",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "Round start requires at least MIN_PLAYERS_TO_START group members; the comment states that presence is deliberately not considered.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 1042,
+    "endLine": 1046,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.beginround.pool",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "beginRound prefers connected players but falls back to the full roster; a host-forced Judge (czarUserId) is looked up with no connected check.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 244,
+    "endLine": 256,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.vote.judge",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "cast_vote contains no Judge exclusion; the handler comment states that any connected player including the Round Leader may vote. A player whose own submission is the only one on offer is not an eligible voter.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 1285,
+    "endLine": 1287,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.vote.selfblock",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "Self-vote is refused server-side, not only disabled in the UI.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 1243,
+    "endLine": 1246,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.vote.downvote.record",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "A downvote is stored with its points negated to minus downvoteCost, which is then summed into the submission tally.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 1274,
+    "endLine": 1274,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.vote.downvote.voter",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "calculateGroupResults separately deducts downvoteCost from the voter, unconditionally, whether or not the downvoted submission won.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 445,
+    "endLine": 454,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.settings.readby.server",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "The server reads exactly nine settings keys: allowOverride, allowVotingComments, anonymousCzar, czarPoints, downvoteCost, maxJuryPoints, overrideThreshold, showCommentsLive, submissionTime.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": null,
+    "endLine": null,
+    "revision": "cfa08f6 + uncommitted drift"
+   },
+   "result": "grep -ohE 'settings\\.[a-zA-Z]+' server/server.js | sort -u -> 9 distinct keys"
+  },
+  {
+   "id": "ev.settings.sentby.client",
+   "type": "source-analysis",
+   "source": "web-app/src/pages/CreateGroup.jsx",
+   "description": "The Create Group wizard transmits 21 settings keys in a single create_group payload.",
+   "support": "static-analysis",
+   "location": {
+    "path": "web-app/src/pages/CreateGroup.jsx",
+    "line": 104,
+    "endLine": 131,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.settings.display.only",
+   "type": "source-analysis",
+   "source": "web-app/src/pages/GroupView.jsx",
+   "description": "totalRounds and maxPlayers appear only as rendered text and in the rules summary; no code branches on either value.",
+   "support": "static-analysis",
+   "location": {
+    "path": "web-app/src/pages/GroupView.jsx",
+    "line": null,
+    "endLine": null,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.settings.downvotes.clientonly",
+   "type": "source-analysis",
+   "source": "web-app/src/pages/GroupView.jsx",
+   "description": "allowDownvotes gates the downvote control in the UI only; cast_vote never checks the toggle, so a crafted isDownvote:true still passes.",
+   "support": "static-analysis",
+   "location": {
+    "path": "web-app/src/pages/GroupView.jsx",
+    "line": 1013,
+    "endLine": 1013,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.leave.noemit",
+   "type": "source-analysis",
+   "source": "web-app/src/pages/GroupView.jsx",
+   "description": "handleLeaveGroup runs a confirm dialog and then navigates away; it emits no socket event.",
+   "support": "static-analysis",
+   "location": {
+    "path": "web-app/src/pages/GroupView.jsx",
+    "line": 1636,
+    "endLine": 1655,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.leave.noevent",
+   "type": "source-analysis",
+   "source": "web-app/src",
+   "description": "An exhaustive grep of client socket emits returns no leave_group or delete_group, and the server registers no such handler.",
+   "support": "static-analysis",
+   "result": "grep -ohE \"emit\\('[a-z_]+'\" -r web-app/src | sort -u -> no leave or delete event"
+  },
+  {
+   "id": "ev.host.fixed",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "group.host is set once at creation and no handler reassigns it.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": null,
+    "endLine": null,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.auth.middleware",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "Identity is bound once by the connection middleware; handlers read socket.data.userId and never trust a payload field.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": 486,
+    "endLine": 494,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.auth.testmode",
+   "type": "source-analysis",
+   "source": "server/config.js",
+   "description": "AUTH_TEST_MODE is guarded at boot (the process exits if it is combined with NODE_ENV=production), re-checked at call time in auth.js, and the matching client seam is dev-build only.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/config.js",
+    "line": 12,
+    "endLine": 16,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.session.token",
+   "type": "source-analysis",
+   "source": "server/session.js",
+   "description": "Session tokens are a base64url payload plus an HMAC-SHA256 signature, deliberately not JWT, compared in constant time, and carried only on the socket handshake.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/session.js",
+    "line": 4,
+    "endLine": 11,
+    "revision": "cfa08f6"
+   }
+  },
+  {
+   "id": "ev.session.norevoke",
+   "type": "source-analysis",
+   "source": "server/session.js",
+   "description": "Verification recomputes the HMAC and checks the expiry claim; no record of issued tokens exists, so there is no way to revoke one early.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/session.js",
+    "line": 55,
+    "endLine": 83,
+    "revision": "cfa08f6"
+   }
+  },
+  {
+   "id": "ev.db.store",
+   "type": "source-analysis",
+   "source": "server/db.js",
+   "description": "PersistentStore is a Map-compatible write-through cache over a SQLite table in WAL mode, storing one JSON blob per row.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/db.js",
+    "line": 1,
+    "endLine": 55,
+    "revision": "cfa08f6"
+   }
+  },
+  {
+   "id": "ev.db.mutationhazard",
+   "type": "source-analysis",
+   "source": "server/db.js",
+   "description": "get() returns the live cached object; a caller that mutates it without calling set() again leaves memory and disk out of step.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/db.js",
+    "line": 27,
+    "endLine": 29,
+    "revision": "cfa08f6"
+   }
+  },
+  {
+   "id": "ev.youtube.quota",
+   "type": "source-analysis",
+   "source": "server/youtube.js",
+   "description": "A search.list call costs 100 of 10,000 daily units; results are cached by normalized query with a 30-minute TTL and a 500-entry LRU bound.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/youtube.js",
+    "line": 6,
+    "endLine": 41,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.youtube.decode",
+   "type": "source-analysis",
+   "source": "server/youtube.js",
+   "description": "Entity decoding is applied to API results before writeCache, and to the fixture list once at module load.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/youtube.js",
+    "line": 126,
+    "endLine": 137,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.entities.module",
+   "type": "source-analysis",
+   "source": "server/htmlEntities.js",
+   "description": "A decode-only fixed-table transform with full numeric and hex support: no DOM, no parser, a single pass, and unknown entities left untouched.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/htmlEntities.js",
+    "line": 1,
+    "endLine": 58,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.entities.test",
+   "type": "test-result",
+   "source": "web-app/e2e/video-titles.spec.js",
+   "description": "Entity decoding is asserted in the search results, the selected-video confirmation and the broadcast round-video list, and each page is checked to contain no raw entity text.",
+   "support": "demonstrated-test",
+   "location": {
+    "path": "web-app/e2e/video-titles.spec.js",
+    "line": 32,
+    "endLine": 137,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.topics.scope",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "get_topics returns only the caller's own topics; topicsForGroup adds other members' public topics but only within a group they actually share.",
+   "support": "static-analysis",
+   "location": {
+    "path": "server/server.js",
+    "line": null,
+    "endLine": null,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.topics.test",
+   "type": "test-result",
+   "source": "web-app/e2e/topics.spec.js",
+   "description": "A stranger's public topic never appears in another user's library and reaches them only through a shared group.",
+   "support": "demonstrated-test",
+   "location": {
+    "path": "web-app/e2e/topics.spec.js",
+    "line": 132,
+    "endLine": 228,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.judge.hidden.test",
+   "type": "test-result",
+   "source": "web-app/e2e/game-loop.spec.js",
+   "description": "Judge identity is absent from every captured websocket frame before reveal, and submissions carry no playerUserId during voting.",
+   "support": "demonstrated-test",
+   "location": {
+    "path": "web-app/e2e/game-loop.spec.js",
+    "line": 124,
+    "endLine": 169,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.selfvote.test",
+   "type": "test-result",
+   "source": "web-app/e2e/round-phases.spec.js",
+   "description": "A hand-crafted socket payload naming the voter's own submission is refused by the server, independently of the disabled UI control.",
+   "support": "demonstrated-test",
+   "location": {
+    "path": "web-app/e2e/round-phases.spec.js",
+    "line": 296,
+    "endLine": 381,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.offline.test",
+   "type": "test-result",
+   "source": "web-app/e2e/round-phases.spec.js",
+   "description": "A round starts while another member is disconnected.",
+   "support": "demonstrated-test",
+   "location": {
+    "path": "web-app/e2e/round-phases.spec.js",
+    "line": 126,
+    "endLine": 153,
+    "revision": "cfa08f6 + uncommitted drift"
+   }
+  },
+  {
+   "id": "ev.css.invisible",
+   "type": "source-analysis",
+   "source": "web-app/e2e/css-tokens.spec.js",
+   "description": "An undefined custom property invalidates the whole declaration at computed-value time, so background fell back to transparent while the sibling color declaration survived. Every primary button rendered invisible while the suite stayed green.",
+   "support": "static-analysis",
+   "location": {
+    "path": "web-app/e2e/css-tokens.spec.js",
+    "line": 6,
+    "endLine": 15,
+    "revision": "cfa08f6"
+   }
+  },
+  {
+   "id": "ev.a11y.cascade",
+   "type": "source-analysis",
+   "source": "web-app/e2e/a11y-audit.js",
+   "description": "The hover audit simulates the real cascade (importance, specificity, source order) rather than overlaying hover rules, after the overlay approach produced a false positive on an active tab.",
+   "support": "static-analysis",
+   "location": {
+    "path": "web-app/e2e/a11y-audit.js",
+    "line": 156,
+    "endLine": 163,
+    "revision": "cfa08f6"
+   }
+  },
+  {
+   "id": "ev.suite.result",
+   "type": "test-result",
+   "source": "web-app",
+   "description": "Full end-to-end suite across all four browser projects.",
+   "support": "demonstrated-test",
+   "result": "260 passed (65 tests x 4 projects)"
+  },
+  {
+   "id": "ev.docs.stale",
+   "type": "documentation",
+   "source": "README.md",
+   "description": "README.md and GAME_DESIGN.md describe Spotify, PostgreSQL, a React Native app under src/, in-memory state and no user accounts. None of these match the implementation.",
+   "support": "declared",
+   "location": {
+    "path": "README.md",
+    "line": 1,
+    "endLine": 195,
+    "revision": "cfa08f6"
+   }
+  },
+  {
+   "id": "ev.docs.selfconflict",
+   "type": "documentation",
+   "source": "README.md",
+   "description": "README.md describes Spotify submission as the current mechanism and simultaneously lists Spotify integration under Future Enhancements and no real Spotify integration under Current Limitations.",
+   "support": "declared",
+   "location": {
+    "path": "README.md",
+    "line": 69,
+    "endLine": 163,
+    "revision": "cfa08f6"
+   }
+  },
+  {
+   "id": "ev.docs.env.accurate",
+   "type": "documentation",
+   "source": "server/.env.example",
+   "description": "The environment examples describe Google sign-in, the YouTube Data API and session tokens, and they match the implementation.",
+   "support": "declared",
+   "location": {
+    "path": "server/.env.example",
+    "line": 1,
+    "endLine": 30,
+    "revision": "cfa08f6"
+   }
+  },
+  {
+   "id": "ev.skipczar.absent",
+   "type": "source-analysis",
+   "source": "server/server.js",
+   "description": "The documented skip-Judge rotation, its skipped_czar_count field and its skip_czar event have no counterpart in the server.",
+   "support": "static-analysis",
+   "result": "grep for skip czar across server/ returns no matches"
+  },
+  {
+   "id": "ev.corpus",
+   "type": "configuration",
+   "source": "source corpus manifest",
+   "description": "84 source files with no byte-identical duplicates; 1,661 generated Playwright artifacts excluded from review.",
+   "support": "static-analysis",
+   "result": "84 corpus files, 0 duplicates, 1661 generated files excluded",
+   "command": "source-corpus.py inventory"
+  },
+  {
+   "id": "ev.suite.stability",
+   "type": "test-result",
+   "source": "web-app",
+   "description": "Five consecutive full-suite runs at workers=4 with retries disabled, to measure the flake rate. The suite has since grown to 260 executions/run and added the deadline machinery; the css-tokens guard caught one real regression (now fixed).",
+   "support": "demonstrated-test",
+   "command": "5 x npx playwright test",
+   "result": "At baseline: 5/5 green, 1,040 executions, 0 failures, 0 retries. The current suite runs 260 executions per run across four projects."
+  }
+ ],
+ "findings": [
+  {
+   "id": "f.docs",
+   "summary": "Both narrative documents describe a materially different product from the one that exists.",
+   "significance": "A new contributor reading README.md or GAME_DESIGN.md would build against Spotify, PostgreSQL and a React Native app, none of which are present. The environment examples, by contrast, are accurate, so the staleness is specific to the two hand-written documents.",
+   "category": "documentation",
+   "priority": "high",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.docs.stale",
+    "ev.docs.selfconflict",
+    "ev.docs.env.accurate",
+    "ev.corpus"
+   ]
+  },
+  {
+   "id": "f.deadline",
+   "summary": "A round with no submissions restarts (up to three attempts) then stalls; voting has no deadline; enforcement is interaction-driven.",
+   "significance": "The old stall - a deadline computed but never enforced - is gone; advanceIfExpired is the single idempotent seam and 13 tests pin its branches. But it is evaluated only at natural moments (join, get, submit, nudge) with no scheduler, so an idle group advances only when someone pings it. Voting has no deadline at all and close_submissions only works during submission, so a round can hang in voting with no host escape. The topic-selection phase has no clock by design, and its only escape (reassign_judge) is host-only.",
+   "category": "correctness",
+   "priority": "high",
+   "support": "demonstrated-test",
+   "evidenceIds": [
+    "ev.deadline.contract",
+    "ev.deadline.rearm",
+    "ev.deadline.callsites",
+    "ev.deadline.test",
+    "ev.deadline.novoting",
+    "ev.beginround.pool"
+   ]
+  },
+  {
+   "id": "f.settings",
+   "summary": "The wizard collects 21 settings; nine reach the server, six are inert everywhere, and several inert ones are displayed as limits.",
+   "significance": "The server enforces nine keys: submissionTime (now genuinely validated and acted on), showCommentsLive, anonymousCzar, allowOverride, overrideThreshold, czarPoints, downvoteCost, maxJuryPoints and allowVotingComments. allowDownvotes is client-only: it hides the Downvote control but cast_vote never checks the toggle, so a crafted isDownvote:true still passes even when the group forbids downvoting. allowMemberInvites only gates who sees the invite link, not who can join. Six settings are inert everywhere (totalRounds, maxPlayers, allowSkipCzar, votingTime, autoStart, allowCustomTopics) - none appear in server/server.js - and totalRounds and maxPlayers are displayed as if they were limits ('Round 3/6', '4/12 players') that are never applied.",
+   "category": "correctness",
+   "priority": "high",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.settings.sentby.client",
+    "ev.settings.readby.server",
+    "ev.settings.display.only",
+    "ev.settings.downvotes.clientonly"
+   ]
+  },
+  {
+   "id": "f.casstoken",
+   "summary": "The css-tokens static guard caught a real regression (undefined --color-text) in the new host-notice styling; it is fixed in this refresh.",
+   "significance": "The new host-notice styling referenced an undefined token var(--color-text) at GroupView.css:1284, and the static token guard failed across all four browser projects until it was corrected to var(--color-text-primary). This demonstrates the static guard catching a class of bug the runtime visibility audit - which tolerates inherited color - would miss.",
+   "category": "quality",
+   "priority": "medium",
+   "support": "demonstrated-test",
+   "evidenceIds": [
+    "ev.csstoken.regression"
+   ]
+  },
+  {
+   "id": "f.ui-dead",
+   "summary": "Several controls read as actionable but are dead or misleading in the current tree.",
+   "significance": "Edit Video is unreachable (setIsEditing(true) is never called yet the modal title and button branch on it); Dashboard's Active/Completed/Archived tabs are presentational with no filtering, and its Quick Actions cards have no onClick; Account Settings toggles are cosmetic defaultChecked checkboxes with no persistence and Deactivate Account is a stub; and the Overview phase label shows 'Submissions Open' during topic_selection, before a topic or deadline exists.",
+   "category": "correctness",
+   "priority": "medium",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.ui.editvideo",
+    "ev.ui.dashboards",
+    "ev.ui.account",
+    "ev.ui.phaselabel"
+   ]
+  },
+  {
+   "id": "f.leave",
+   "summary": "Leave Group and Delete Group are presented as destructive actions but do nothing.",
+   "significance": "Both controls confirm with the user and then only navigate away. No event is sent and no server handler exists. A player who leaves is still a member, and a host who deletes still owns the group.",
+   "category": "correctness",
+   "priority": "high",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.leave.noemit",
+    "ev.leave.noevent"
+   ]
+  },
+  {
+   "id": "f.host",
+   "summary": "The host role is permanent and cannot be transferred.",
+   "significance": "Only the host may start a round or edit rules, and group.host is written once at creation. If that person stops playing, the group cannot start another round and has no recovery path.",
+   "category": "correctness",
+   "priority": "medium",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.host.fixed"
+   ]
+  },
+  {
+   "id": "f.downvote",
+   "summary": "A downvote costs points twice, and the voter penalty is unconditional.",
+   "significance": "The vote is recorded with negated points that dock the target submission, and the voter is separately charged downvoteCost whether or not the downvoted entry won. Both documents say only that downvotes cost points, which does not settle whether both effects were intended.",
+   "category": "correctness",
+   "priority": "medium",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.vote.downvote.record",
+    "ev.vote.downvote.voter"
+   ]
+  },
+  {
+   "id": "f.threshold",
+   "summary": "An invalid override threshold is silently corrected at group creation but rejected on edit.",
+   "significance": "The same bad value produces a visible error in one path and a silent substitution in the other. The rejection path carries a comment explaining why silence is wrong, which suggests the creation path was simply missed.",
+   "category": "consistency",
+   "priority": "low",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.settings.readby.server"
+   ]
+  },
+  {
+   "id": "f.authority",
+   "summary": "The server is a genuine authority, not a message relay.",
+   "significance": "Identity is bound once at the handshake and every handler reads it rather than trusting the payload. Host-only, Judge-only, self-vote and now deadline rules are enforced server-side, and two of them are proven with hand-crafted socket payloads that no browser could produce.",
+   "category": "architecture",
+   "priority": "medium",
+   "support": "demonstrated-test",
+   "evidenceIds": [
+    "ev.auth.middleware",
+    "ev.selfvote.test",
+    "ev.judge.hidden.test",
+    "ev.deadline.test"
+   ]
+  },
+  {
+   "id": "f.privacy",
+   "summary": "Concealment is enforced by withholding data, not by hiding it in the interface.",
+   "significance": "publicizeTheme removes the Judge id, submitter identities and unrevealed comments from the payload itself, so a modified client cannot reveal them. A test asserts the Judge id is absent from every websocket frame rather than merely absent from the page.",
+   "category": "architecture",
+   "priority": "medium",
+   "support": "demonstrated-test",
+   "evidenceIds": [
+    "ev.round.publicize",
+    "ev.judge.hidden.test"
+   ]
+  },
+  {
+   "id": "f.norevoke",
+   "summary": "Session tokens cannot be revoked and last 30 days by default.",
+   "significance": "Signing out clears local state only. A copied token stays valid until it expires, and a fresh one is minted on every connection, so an active session renews indefinitely. There is no sign-out-everywhere.",
+   "category": "security",
+   "priority": "medium",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.session.norevoke",
+    "ev.session.token"
+   ]
+  },
+  {
+   "id": "f.a11y",
+   "summary": "The accessibility guard covers a class of bug that axe cannot see.",
+   "significance": "A control with no fill at all is not low contrast, it is no color, and axe has nothing to compare. Two runtime probes and two static CSS lints now cover the resting state, the hover cascade, undefined design tokens and page stylesheets that restyle shared classes.",
+   "category": "quality",
+   "priority": "medium",
+   "support": "demonstrated-test",
+   "evidenceIds": [
+    "ev.css.invisible",
+    "ev.a11y.cascade",
+    "ev.csstoken.regression"
+   ]
+  },
+  {
+   "id": "f.focusgap",
+   "summary": "A control that goes invisible on focus would pass every check in the suite.",
+   "significance": "The static lint deliberately exempts focus and active pseudo-classes as safe, and the runtime audit simulates hover only. The exact bug class that was found and fixed for hover has no coverage for keyboard focus, which is the state keyboard-only users depend on. Two keyboard issues are also visible by inspection: ThemeIdeas' 'Quick Theme Inspiration' cards are non-interactive div onClick elements with no role or tabindex, and the CreateGroup topic-selection select renders as a fixed single choice presented as a dropdown.",
+   "category": "test-coverage",
+   "priority": "medium",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.a11y.cascade",
+    "ev.css.invisible"
+   ]
+  },
+  {
+   "id": "f.scoringuntested",
+   "summary": "Only one scoring path is ever played to resolution.",
+   "significance": "Every end-to-end round resolves through the public-override branch at 100 percent vote share. The popular-vote fallback, vote splits, ties, a legitimate downvote against another player and any non-default point configuration are never exercised.",
+   "category": "test-coverage",
+   "priority": "high",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.round.scoring",
+    "ev.suite.result"
+   ]
+  },
+  {
+   "id": "f.dbmutation",
+   "summary": "The persistence layer silently tolerates a caller that mutates and forgets to save.",
+   "significance": "get() hands back the live cached object. Present callers are careful, but nothing in the class prevents a future caller from changing an object in memory and never writing it to disk.",
+   "category": "architecture",
+   "priority": "low",
+   "support": "static-analysis",
+   "evidenceIds": [
+    "ev.db.mutationhazard"
+   ]
+  },
+  {
+   "id": "f.stability",
+   "summary": "The suite is stable at four workers and now covers the deadline behavior.",
+   "significance": "Five consecutive full runs passed at four workers with no retries available to hide a flake. The suite has grown from 208 executions/run (52 tests) to 260 executions/run (65 tests) with the deadline machinery added; the css-tokens guard caught one real regression (the host-notice --color-text token), now fixed.",
+   "category": "quality",
+   "priority": "medium",
+   "support": "demonstrated-test",
+   "evidenceIds": [
+    "ev.suite.stability",
+    "ev.suite.result",
+    "ev.csstoken.regression"
+   ]
+  }
+ ],
+ "unknowns": [
+  {
+   "id": "u.judgevote",
+   "category": "repository-conflict",
+   "priority": "high",
+   "question": "Should the Judge be able to vote as well as name a winner outright?",
+   "significance": "The code allows both, and a comment says so deliberately. Both documents also say every player including the Judge votes. So documentation and implementation agree, but the combination gives one person two levers on the same outcome, and nothing records whether that was weighed.",
+   "nextEvidence": "A product decision. No further source reading will settle it."
+  },
+  {
+   "id": "u.downvote",
+   "category": "repository-conflict",
+   "priority": "medium",
+   "question": "Is a downvote meant to cost the voter points as well as dock the target?",
+   "significance": "Both effects fire today. The documents say only that downvotes cost points, which fits either reading.",
+   "nextEvidence": "A product decision."
+  },
+  {
+   "id": "u.skipjudge",
+   "category": "evidence-gap",
+   "priority": "medium",
+   "question": "Was the skip-Judge rotation dropped on purpose, or simply never built?",
+   "significance": "It is described in both documents and has a setting in the wizard, but no implementation. Nothing records a decision to remove it, so it is unclear whether the setting is a leftover or a placeholder.",
+   "nextEvidence": "Author recollection, or repository history before the current squashed commits."
+  },
+  {
+   "id": "u.rolename",
+   "category": "repository-conflict",
+   "priority": "medium",
+   "question": "What is the role actually called: Judge, Card Czar, or Round Leader?",
+   "significance": "Player-facing text says Judge, internal identifiers say czar, and comments say Round Leader. The documents say Card Czar only. Three names for one concept makes every discussion and every search ambiguous.",
+   "nextEvidence": "A naming decision, then a rename of the internal identifiers."
+  },
+  {
+   "id": "u.gameend",
+   "category": "evidence-gap",
+   "priority": "medium",
+   "question": "Is a group meant to end after totalRounds, or run indefinitely?",
+   "significance": "The interface shows Round n of N and the documents describe a GAME_END state, but nothing ends a group. If groups are meant to be standing leagues, the setting and the counter are both misleading.",
+   "nextEvidence": "A product decision."
+  },
+  {
+   "id": "u.votingdeadline",
+   "category": "evidence-gap",
+   "priority": "medium",
+   "question": "Should the voting phase get a deadline (or a host escape), to match the new submission deadline?",
+   "significance": "votingTime is collected and displayed but nothing ever forces voting to reveal, and close_submissions only works during submission. A round can hang in voting with no host escape. The submission deadline is now well-tested; the voting phase has no counterpart.",
+   "nextEvidence": "A product decision, potentially a designed change like the round-stall work."
+  },
+  {
+   "id": "u.mobile",
+   "category": "resolved",
+   "priority": "low",
+   "question": "Does the React Native application described in both documents exist anywhere?",
+   "significance": "Resolved in this refresh: there is no mobile app. It is documented with a concrete file layout and install steps, but no src/ directory or mobile project exists anywhere in this repository. The documentation is stale, and the finding now lives entirely under f.docs.",
+   "nextEvidence": "None required - the question is settled for this repository; the stale documentation is the deliverable."
+  }
+ ],
+ "artifacts": [
+  {
+   "id": "a.report",
+   "type": "report",
+   "path": "docs/discovery/prompted-deep-discovery.md",
+   "description": "The canonical current-state report."
+  },
+  {
+   "id": "a.index",
+   "type": "index",
+   "path": "docs/discovery/prompted-assets/index.md",
+   "description": "Package entry point."
+  },
+  {
+   "id": "a.kb",
+   "type": "knowledge-base",
+   "path": "docs/discovery/prompted-assets/knowledge-base/index.md",
+   "description": "Evidence-linked knowledge base."
+  },
+  {
+   "id": "a.catalog",
+   "type": "evidence-catalog",
+   "path": "docs/discovery/prompted-assets/knowledge-base/evidence-catalog.md",
+   "description": "Every evidence entry, readable."
+  },
+  {
+   "id": "a.atlas",
+   "type": "architecture-atlas",
+   "path": "docs/discovery/prompted-assets/architecture/atlas.md",
+   "description": "Architecture views with editable diagram source."
+  },
+  {
+   "id": "a.onboarding",
+   "type": "onboarding-guide",
+   "path": "docs/discovery/prompted-assets/onboarding-guide.md",
+   "description": "Learning path for a new engineer."
+  },
+  {
+   "id": "a.sourceguide",
+   "type": "source-guide",
+   "path": "docs/discovery/prompted-assets/source-guide.md",
+   "description": "What each document and source area is worth reading for."
+  },
+  {
+   "id": "a.sourcemodel",
+   "type": "source-model",
+   "path": "docs/discovery/prompted-assets/source-model.json",
+   "description": "Documented intent, reconciled against the build."
+  },
+  {
+   "id": "a.appmodel",
+   "type": "application-model",
+   "path": "docs/discovery/prompted-assets/knowledge-base/application-model.json",
+   "description": "The canonical machine-readable model."
+  }
+ ]
+}

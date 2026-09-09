@@ -1,0 +1,31 @@
+stateDiagram-v2
+    [*] --> topic_selection : host starts<br/>(needs 2 members)
+    topic_selection --> submission : Judge picks a topic<br/>deadline computed here
+    submission --> voting : every connected<br/>non-Judge has submitted
+    submission --> submission : deadline passes, no<br/>submissions: re-arm same<br/>round (up to 3 attempts)
+    submission --> voting : deadline passes<br/>with submissions
+    submission --> [*] : 3 re-arms used up,<br/>0 submissions: stall<br/>(host must start_round)
+    voting --> reveal : every eligible voter has voted
+    voting --> reveal : OR Judge names a winner
+    reveal --> topic_selection : host starts next round
+    reveal --> [*]
+
+    note right of topic_selection
+        Stall risk: only the Judge
+        or a host reassign_judge can
+        advance this phase; no clock
+    end note
+
+    note right of submission
+        advanceIfExpired evaluates the
+        deadline on interaction (no timer).
+        A quiet group advances only when
+        someone pings it
+    end note
+
+    note right of voting
+        Stall risk: no voting deadline.
+        close_submissions only works in
+        submission; a stuck voting round
+        has no host escape
+    end note

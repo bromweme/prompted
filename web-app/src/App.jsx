@@ -6,6 +6,7 @@ import Dashboard from './pages/Dashboard'
 import CreateGroup from './pages/CreateGroup'
 import GroupView from './pages/GroupView'
 import Account from './pages/Account'
+import ThemeIdeas from './pages/ThemeIdeas'
 import './App.css'
 
 // Every page but the sign-in screen needs a confirmed identity, because they
@@ -43,6 +44,9 @@ function App() {
               <Route path="/create-group" element={<RequireAuth><CreateGroup /></RequireAuth>} />
               <Route path="/group/:groupId" element={<RequireAuth><GroupView /></RequireAuth>} />
               <Route path="/account" element={<RequireAuth><Account /></RequireAuth>} />
+              {/* The personal topic library. It existed but was unreachable —
+                  no route pointed at it. */}
+              <Route path="/topics" element={<RequireAuth><ThemeIdeas /></RequireAuth>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

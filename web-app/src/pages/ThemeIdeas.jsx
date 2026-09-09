@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { useTopics } from '../hooks/useTopics'
 import { useSocket } from '../context/SocketContext'
+import AppNav from '../components/AppNav'
 import './ThemeIdeas.css'
 
 function ThemeIdeas() {
@@ -37,25 +38,17 @@ function ThemeIdeas() {
     <div className="theme-ideas-page">
       <a href="#main-content" className="skip-link">Skip to main content</a>
       
-      <header className="page-header">
-        <div className="header-content">
-          <button 
-            className="back-button"
-            onClick={() => navigate('/dashboard')}
-            aria-label="Go back to dashboard"
-          >
-            ← Back to Dashboard
-          </button>
-          <h1>Theme Ideas</h1>
-        </div>
-      </header>
+      <AppNav current="topics" />
 
       <main id="main-content" className="theme-ideas-main">
         <div className="theme-ideas-content">
           <section className="ideas-header">
             <div className="header-info">
-              <h2>Your Theme Ideas</h2>
-              <p className="subtitle">Save your creative theme ideas for future music battles</p>
+              <h1>My Topics</h1>
+              <p className="subtitle">
+                Your personal topic library, reusable in every group. Shared topics are
+                offered to the people you play with; private ones stay yours.
+              </p>
             </div>
             <button 
               className="add-button"

@@ -1,0 +1,26 @@
+.profile-setup-modal {
+  max-width: 520px;
+}
+
+.profile-setup-intro {
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  line-height: 1.5;
+  margin: 0 0 var(--space-3) 0;
+}
+
+/* The avatar label isn't a <label> — it names a radiogroup rather than a
+   single control — so it needs the label styling applied explicitly. */
+.profile-setup-modal .form-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-weight: var(--weight-medium);
+  color: var(--color-text-primary);
+  font-size: var(--text-caption);
+}
+
+.profile-setup-error {
+  color: var(--color-danger, #c0392b);
+  font-size: var(--text-caption);
+  margin: 0;
+}

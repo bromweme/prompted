@@ -1,0 +1,20 @@
+graph LR
+    subgraph ts["topic_selection"]
+        A1["submissions: removed<br/>votes: removed<br/>Judge id: removed"]
+    end
+    subgraph sub["submission"]
+        A2["submissions: removed<br/>only a count is sent<br/>Judge id: removed"]
+    end
+    subgraph vote["voting"]
+        A3["submissions: sent<br/>WITHOUT playerUserId<br/>comments: only if<br/>showCommentsLive<br/>and never with an author<br/>Judge id: removed"]
+    end
+    subgraph rev["reveal"]
+        A4["everything sent:<br/>submitters, votes,<br/>comment authors,<br/>Judge revealed"]
+    end
+
+    ts --> sub --> vote --> rev
+
+    classDef hidden fill:#f2dede,stroke:#a94442,color:#000
+    classDef open fill:#dff0d8,stroke:#3c763d,color:#000
+    class A1,A2,A3 hidden
+    class A4 open

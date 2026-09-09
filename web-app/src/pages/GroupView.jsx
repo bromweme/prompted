@@ -3,8 +3,11 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
 import { useModalA11y } from '../hooks/useModalA11y'
+import AppNav from '../components/AppNav'
 import YouTubeSearch from '../components/YouTubeSearch'
 import YouTubeEmbed from '../components/YouTubeEmbed'
+import RoundVideoList from '../components/RoundVideoList'
+import TopicPicker from '../components/TopicPicker'
 import './GroupView.css'
 
 // Server player records carry both a transient socket id (`id`) and a stable
@@ -15,7 +18,9 @@ function mapPlayers(players, host) {
     id: player.userId,
     username: player.username,
     score: player.score,
-    isHost: player.userId === host
+    isHost: player.userId === host,
+    // Carried through so the UI can gate on the same count the server checks.
+    connected: player.connected !== false
   }))
 }
 
@@ -30,7 +35,6 @@ function normalizeGroupData(group) {
     settings: {
       totalRounds: group.settings.totalRounds || 6,
       maxPlayers: group.settings.maxPlayers || 12,
-      minPlayers: group.settings.minPlayers || 2,
       czarPoints: group.settings.czarPoints || 5,
       allowSkipCzar: group.settings.allowSkipCzar !== false,
       anonymousCzar: group.settings.anonymousCzar !== false,
@@ -44,10 +48,12 @@ function normalizeGroupData(group) {
       autoStart: group.settings.autoStart || false,
       topicSelection: group.settings.topicSelection || 'czar',
       allowCustomTopics: group.settings.allowCustomTopics !== false,
-      presetTopics: group.settings.presetTopics || [],
       enableChat: group.settings.enableChat || false,
       enableSongPreview: group.settings.enableSongPreview !== false,
-      showVoterIdentity: group.settings.showVoterIdentity || false
+      showVoterIdentity: group.settings.showVoterIdentity || false,
+      allowMemberInvites: group.settings.allowMemberInvites === true,
+      allowVotingComments: group.settings.allowVotingComments === true,
+      showCommentsLive: group.settings.showCommentsLive === true
     },
     status: group.status,
     currentRound: group.currentRound,
@@ -79,8 +85,17 @@ function GroupView() {
   const [isRoundLeader, setIsRoundLeader] = useState(false)
   const [selectedSubmissionId, setSelectedSubmissionId] = useState(null)
   const [votePoints, setVotePoints] = useState(1)
+  const [voteComment, setVoteComment] = useState('')
   const [userVote, setUserVote] = useState(null)
+  // Which submission in the current round is this player's own. The server
+  // tells each socket only about its own, so this can gate self-voting in the
+  // UI without leaking anyone else's authorship.
+  const [ownSubmissionId, setOwnSubmissionId] = useState(null)
   const [showInviteModal, setShowInviteModal] = useState(false)
+  // Durable messages for the host, e.g. a round that restarted while they were
+  // away. They persist server-side until acknowledged, so one that arrives
+  // during an offline spell is still waiting on the next connection.
+  const [hostNotices, setHostNotices] = useState([])
   const [linkCopied, setLinkCopied] = useState(false)
 
   const submitModalRef = useRef(null)
@@ -91,9 +106,7 @@ function GroupView() {
   const closeSubmitModal = () => {
     setShowSubmitModal(false)
     setIsEditing(false)
-    setSpotifyUri('')
-    setSongTitle('')
-    setArtist('')
+    setSelectedVideo(null)
   }
 
   useModalA11y(showSubmitModal, submitModalRef, closeSubmitModal)
@@ -102,8 +115,19 @@ function GroupView() {
   useModalA11y(showInviteModal, inviteModalRef, () => setShowInviteModal(false))
 
   useEffect(() => {
-    // Countdown timer for round deadline
+    // Countdown timer for round deadline.
+    //
+    // Reaching zero used to do nothing at all: the display sat at 00:00 while
+    // the round stayed open forever, because no timer on the server ends a
+    // phase. The countdown now tells the server its clock says the window
+    // closed. That is only a nudge — the server re-checks its own clock and
+    // ignores this if the deadline has not really passed — so nothing here is
+    // trusted, and a wrong local clock cannot end anyone's round early.
     if (group?.currentTheme?.deadline) {
+      const notifyExpired = () => {
+        if (socket && groupId) socket.emit('check_round_deadline', { groupId })
+      }
+
       const interval = setInterval(() => {
         const now = new Date().getTime()
         const deadline = new Date(group.currentTheme.deadline).getTime()
@@ -112,20 +136,30 @@ function GroupView() {
         if (remaining <= 0) {
           setTimeRemaining(0)
           clearInterval(interval)
+          notifyExpired()
         } else {
           setTimeRemaining(remaining)
         }
       }, 1000)
 
+      // A tab that was closed or asleep at the deadline comes back to an
+      // already-expired round, which the one-second tick above would report
+      // only after its first pass. Checking immediately keeps that case quick.
+      if (new Date(group.currentTheme.deadline).getTime() - Date.now() <= 0) {
+        notifyExpired()
+      }
+
       return () => clearInterval(interval)
     }
-  }, [group?.currentTheme?.deadline])
+  }, [group?.currentTheme?.deadline, socket, groupId])
 
   // Clear per-round local state whenever a new round begins
   useEffect(() => {
     setUserSubmission(null)
     setUserVote(null)
     setSelectedSubmissionId(null)
+    setVoteComment('')
+    setOwnSubmissionId(null)
   }, [group?.currentTheme?.id])
 
   useEffect(() => {
@@ -141,7 +175,6 @@ function GroupView() {
         settings: groupData.settings || {
           totalRounds: 6,
           maxPlayers: 12,
-          minPlayers: 2,
           czarPoints: 5,
           allowSkipCzar: true,
           anonymousCzar: true,
@@ -155,10 +188,12 @@ function GroupView() {
           autoStart: false,
           topicSelection: 'czar',
           allowCustomTopics: true,
-          presetTopics: [],
           enableChat: false,
           enableSongPreview: true,
-          showVoterIdentity: false
+          showVoterIdentity: false,
+          allowMemberInvites: false,
+          allowVotingComments: false,
+          showCommentsLive: false
         },
         status: groupData.status || 'waiting',
         currentRound: groupData.currentRound || 0,
@@ -169,16 +204,23 @@ function GroupView() {
         history: groupData.history || []
       }
       
+      // Seeds the first paint only. history.state survives a reload, so
+      // treating this as the source of truth left the page showing
+      // creation-time data indefinitely; the fetch below always follows.
       setGroup(fullGroupData)
-    } else if (new URLSearchParams(location.search).get('join') === 'true') {
+    }
+
+    if (new URLSearchParams(location.search).get('join') === 'true') {
       // Arrived via a shared invite link — join automatically. This is safe
       // to call even for an existing member (the server treats it as a
       // reconnect rather than adding a duplicate).
       socket.emit('join_group', { groupId })
 
-      socket.once('group_joined', ({ group, isRoundLeader: youAreRoundLeader }) => {
+      socket.once('group_joined', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, notices }) => {
         setGroup(normalizeGroupData(group))
         setIsRoundLeader(!!youAreRoundLeader)
+        setOwnSubmissionId(yourSubmissionId || null)
+        setHostNotices(notices || [])
       })
 
       socket.once('error', ({ message }) => {
@@ -189,9 +231,11 @@ function GroupView() {
       // Fetch group data from server
       socket.emit('get_group', { groupId })
 
-      socket.once('group_details', ({ group, isRoundLeader: youAreRoundLeader }) => {
+      socket.once('group_details', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, notices }) => {
         setGroup(normalizeGroupData(group))
         setIsRoundLeader(!!youAreRoundLeader)
+        setOwnSubmissionId(yourSubmissionId || null)
+        setHostNotices(notices || [])
       })
 
       socket.once('error', ({ message }) => {
@@ -201,7 +245,9 @@ function GroupView() {
     }
 
     // Listen for group updates
-    socket.on('group_updated', ({ group, isRoundLeader: youAreRoundLeader }) => {
+    socket.on('group_updated', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, notices }) => {
+      if (yourSubmissionId !== undefined) setOwnSubmissionId(yourSubmissionId || null)
+      if (notices !== undefined) setHostNotices(notices || [])
       setGroup(prev => ({
         ...prev,
         ...group,
@@ -231,18 +277,22 @@ function GroupView() {
     }
   }, [groupId, location.state, location.search, socket, isConnected, user])
 
+  // Both the first round (start_group) and every later one (start_round) go
+  // through the same Judge-selection prompt, so the host always gets the
+  // choice rather than only from round 2 onwards.
   const handleStartRound = () => {
-    // Show modal to choose round leader selection method
     setShowRoundLeaderModal(true)
   }
 
-  const emitStartRound = (czarUserId) => {
+  const emitRoundStart = (czarUserId) => {
     if (!socket || !isConnected) {
       alert('Please wait for server connection')
       return
     }
 
-    socket.emit('start_round', { groupId, czarUserId })
+    // Round 1 transitions the group out of setup; later rounds don't.
+    const event = group.status === 'setup' ? 'start_group' : 'start_round'
+    socket.emit(event, { groupId, czarUserId })
 
     socket.once('error', ({ message }) => {
       console.error('Error starting round:', message)
@@ -252,7 +302,7 @@ function GroupView() {
 
   const handleRandomAssign = () => {
     setShowRoundLeaderModal(false)
-    emitStartRound()
+    emitRoundStart()
   }
 
   const handlePickLeader = () => {
@@ -261,27 +311,27 @@ function GroupView() {
     setShowPlayerSelection(true)
   }
 
+  // The Pick Judge modal serves two jobs: choosing who starts a new round, and
+  // replacing the Judge of a round that is already waiting on a topic. The
+  // round's phase says which, so the modal needs no extra state.
+  const isReplacingJudge = group?.currentTheme?.status === 'topic_selection'
+
   const handleSelectPlayer = (player) => {
     setShowPlayerSelection(false)
-    emitStartRound(player.id) // player.id is the stable userId (see mapPlayers)
+    // player.id is the stable userId (see mapPlayers)
+    if (isReplacingJudge) {
+      handleReassignJudge(player.id)
+    } else {
+      emitRoundStart(player.id)
+    }
   }
 
+  // Start Group now opens the same prompt instead of silently assigning a
+  // random Judge. The old success alert is gone: the round view shows the
+  // topic-selection phase directly, and a blocking dialog on a normal flow
+  // just gets in the way.
   const handleStartGroup = () => {
-    if (!socket || !isConnected) {
-      alert('Please wait for server connection')
-      return
-    }
-
-    socket.emit('start_group', { groupId })
-
-    socket.once('group_updated', () => {
-      alert('Group started! First round beginning.')
-    })
-
-    socket.once('error', ({ message }) => {
-      console.error('Error starting group:', message)
-      alert(`Failed to start group: ${message}`)
-    })
+    setShowRoundLeaderModal(true)
   }
 
   const handleEditRules = () => {
@@ -318,11 +368,65 @@ function GroupView() {
     setEditedSettings(null)
   }
 
+  // Host ends the submission window early rather than waiting it out for
+  // someone who is not coming.
+  const handleCloseSubmissions = () => {
+    if (socket && groupId) socket.emit('close_submissions', { groupId })
+  }
+
+  // Host hands the Judge role to someone else while the round is still waiting
+  // for a topic. Topic selection has no deadline by design, so an absent Judge
+  // has nothing to expire and this is the only way out.
+  const handleReassignJudge = (playerUserId) => {
+    if (socket && groupId) socket.emit('reassign_judge', { groupId, czarUserId: playerUserId })
+    setShowPlayerSelection(false)
+  }
+
+  const handleDismissNotice = (noticeId) => {
+    if (socket && groupId) socket.emit('acknowledge_notice', { groupId, noticeId })
+  }
+
   const handleLeaveGroup = () => {
     if (confirm('Are you sure you want to leave this group?')) {
       navigate('/dashboard')
     }
   }
+
+  const isHost = !!group && group.players.find(p => p.id === user?.id)?.isHost
+
+  // Mirrors MIN_PLAYERS_TO_START on the server. A round is a Judge plus at
+  // least one contestant; with one player nobody can submit, so the round
+  // would consume a topic and then stall.
+  //
+  // Counts group MEMBERS, not who is currently online. Who happens to be
+  // connected is not the host's problem — an absent player can submit when
+  // they return, so presence must not block starting a round.
+  const MIN_PLAYERS_TO_START = 2
+  const canStartRound = !!group && group.players.length >= MIN_PLAYERS_TO_START
+
+  // Maps a stable userId to the name shown in the UI.
+  const playerName = (userId) =>
+    (group && group.players.find(p => p.id === userId)?.username) || 'Unknown'
+
+  // Everyone except the Round Leader submits, so this is what "all in" means.
+  // It mirrors the server's own gate (see submit_video), which is what
+  // actually flips the round into voting.
+  const expectedSubmissions = group
+    ? Math.max(group.players.length - 1, 0)
+    : 0
+
+  // Anonymous during voting: the server sends text and submission only.
+  const votingComments = group?.currentTheme?.comments || []
+
+  // At reveal the full votes come through, so comments gain their author.
+  const revealedComments = (group?.currentTheme?.votes || [])
+    .filter(v => v.comment)
+    .map(v => ({ submissionId: v.submissionId, text: v.comment, voterUserId: v.voterUserId }))
+  // Who is offered the invite action. This is a UI affordance only: it decides
+  // who is shown the link, not who may join. Anyone holding a group link can
+  // still join, because joining is keyed on the group id alone and there is no
+  // separate access-control layer behind it.
+  const canInvite = !!group && (isHost || group.settings.allowMemberInvites === true)
 
   const inviteLink = `${window.location.origin}/group/${groupId}?join=true`
 
@@ -371,8 +475,26 @@ function GroupView() {
     setIsEditing(false)
   }
 
+  const handleSelectTopic = (topicId) => {
+    if (!socket || !isConnected) {
+      alert('Please wait for server connection')
+      return
+    }
+
+    socket.emit('select_topic', { groupId, topicId })
+
+    socket.once('error', ({ message }) => {
+      console.error('Error selecting topic:', message)
+      alert(`Failed to select topic: ${message}`)
+    })
+  }
+
   const handleCastVote = (isDownvote = false) => {
     if (!selectedSubmissionId) return
+    if (selectedSubmissionId === ownSubmissionId) {
+      alert('You cannot vote for your own submission')
+      return
+    }
     if (!socket || !isConnected) {
       alert('Please wait for server connection')
       return
@@ -382,7 +504,8 @@ function GroupView() {
       groupId,
       submissionId: selectedSubmissionId,
       points: votePoints,
-      isDownvote
+      isDownvote,
+      comment: group.settings.allowVotingComments ? voteComment.trim() : undefined
     })
 
     socket.once('error', ({ message }) => {
@@ -391,6 +514,7 @@ function GroupView() {
     })
 
     setUserVote({ submissionId: selectedSubmissionId, isDownvote })
+    setVoteComment('')
   }
 
   const handleCzarSelectWinner = () => {
@@ -419,103 +543,112 @@ function GroupView() {
     <div className="group-view-page">
       <a href="#main-content" className="skip-link">Skip to main content</a>
       
-      <header className="group-header">
-        <div className="header-content">
-          <button 
-            className="back-button"
-            onClick={() => navigate('/dashboard')}
-            aria-label="Go back to dashboard"
-          >
-            ← Dashboard
-          </button>
-          
-          <div className="group-info">
-            <h1>{group.name}</h1>
-            <p className="group-description">{group.description}</p>
-            <div className="group-meta">
-              <span className={`status-badge ${group.status}`}>
-                {group.status}
-              </span>
-              <span className="round-info">Round {group.currentRound}/{group.settings.totalRounds}</span>
-              <span className="player-count">{group.players.length} players</span>
-            </div>
-          </div>
-
-          <div className="header-actions">
-            {timeRemaining !== null && timeRemaining > 0 && (
-              <div className="countdown-timer">
-                <span className="timer-icon">⏱️</span>
-                <span className="timer-text">
-                  {Math.floor(timeRemaining / (1000 * 60 * 60))}h {Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60))}m {Math.floor((timeRemaining % (1000 * 60)) / 1000)}s
-                </span>
-              </div>
-            )}
-            <button 
-              className="action-button"
-              onClick={handleInvitePlayer}
-              aria-label="Invite players to group"
-            >
-              Invite Players
-            </button>
-            <button 
-              className="action-button secondary"
-              onClick={() => navigate('/account')}
-              aria-label="Go to account"
-            >
-              Account
-            </button>
-            {group.status === 'active' && (!group.currentTheme || group.currentTheme.status === 'reveal') && group.players.find(p => p.id === user.id)?.isHost && (
-              <button
-                className="action-button primary"
-                onClick={handleStartRound}
-                aria-label="Start new round for submissions"
-              >
-                Start Round
-              </button>
-            )}
-          </div>
-        </div>
-      </header>
+      <AppNav />
 
       <main id="main-content" className="group-main">
         <div className="group-content">
+          {/* Host-only messages that outlived the moment they happened, most
+              importantly a round that restarted while the host was away. */}
+          {hostNotices.length > 0 && (
+            <div className="host-notices">
+              {hostNotices.map(notice => (
+                <div key={notice.id} className="host-notice" role="status">
+                  <p className="host-notice-text">{notice.message}</p>
+                  <button
+                    className="host-notice-dismiss"
+                    onClick={() => handleDismissNotice(notice.id)}
+                    aria-label="Dismiss this message"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Main Content Area */}
           <div className="group-main-content">
             {activeTab === 'overview' && (
               <section className="tab-content">
                 <h2>Group Overview</h2>
+
+                {/* Everything that used to live in the page header. It sits in
+                    the Overview tab only — the other tabs stay focused on
+                    their own content. */}
+                <div className="group-info-card">
+                  <div className="group-info-heading">
+                    <h3 className="group-info-name">{group.name}</h3>
+                    <span className={`status-badge ${group.status}`}>{group.status}</span>
+                  </div>
+
+                  {group.description && (
+                    <p className="group-info-description">{group.description}</p>
+                  )}
+
+                  <div className="group-info-meta">
+                    <span className="round-info">Round {group.currentRound}/{group.settings.totalRounds}</span>
+                    <span className="player-count">
+                      {group.players.length} {group.players.length === 1 ? 'player' : 'players'}
+                    </span>
+                    {timeRemaining !== null && timeRemaining > 0 && (
+                      <span className="countdown-timer">
+                        <span className="timer-icon" aria-hidden="true">⏱️</span>
+                        <span className="timer-text">
+                          {Math.floor(timeRemaining / (1000 * 60 * 60))}h {Math.floor((timeRemaining % (1000 * 60 * 60)) / (1000 * 60))}m {Math.floor((timeRemaining % (1000 * 60)) / 1000)}s
+                        </span>
+                      </span>
+                    )}
+                  </div>
+
+                  {canInvite && (
+                    <div className="group-info-actions">
+                      <button
+                        className="action-button"
+                        onClick={handleInvitePlayer}
+                        aria-label="Invite players to group"
+                      >
+                        Invite Players
+                      </button>
+                    </div>
+                  )}
+                </div>
                 
-                {group.status === 'setup' && (
-                  /* Setup State - Host can invite players */
+                {group.status === 'setup' && isHost && (
+                  /* Setup State - host prepares the group before round 1.
+                     Host-only: it carries Start Group, which the server
+                     refuses for anyone else, and it used to render alongside
+                     the non-host "Waiting for Host" panel. The invite action
+                     now lives in the Group Info card above. */
                   <div className="setup-state">
                     <div className="setup-icon" aria-hidden="true">🎯</div>
                     <h3>Group Setup</h3>
                     <p>Invite players to join your group before starting the first round.</p>
-                    
+
                     <div className="setup-actions">
-                      <button 
-                        className="setup-button primary"
-                        onClick={handleInvitePlayer}
-                      >
-                        Invite Players
-                      </button>
-                      <button 
+                      <button
                         className="setup-button secondary"
                         onClick={handleStartGroup}
-                        disabled={group.players.length < 1}
+                        disabled={!canStartRound}
                       >
                         Start Group
                       </button>
                     </div>
-                    
+
                     <div className="setup-info">
                       <p>Players joined: {group.players.length}</p>
-                      <p className="setup-hint">Group can start with 1 player for testing</p>
+                      {canStartRound ? (
+                        <p className="setup-hint">Ready to start.</p>
+                      ) : (
+                        <p className="setup-hint">
+                          You need at least {MIN_PLAYERS_TO_START} players to start — one to
+                          judge and one to submit. Invite someone to join.
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
 
-                {group.status === 'setup' && !group.players.find(p => p.id === user.id)?.isHost && (
+                {group.status === 'setup' && !isHost && (
                   /* Waiting State - Non-host waiting for group to start */
                   <div className="waiting-state">
                     <div className="waiting-icon" aria-hidden="true">⏳</div>
@@ -540,10 +673,10 @@ function GroupView() {
                         </span>
                         <span className="round-leader-badge">
                           {isRoundLeader
-                            ? 'You are the Round Leader'
+                            ? 'You are the Judge'
                             : group.currentTheme.czarUsername
-                              ? `Round Leader: ${group.currentTheme.czarUsername}`
-                              : 'Round Leader: Anonymous'}
+                              ? `Judge: ${group.currentTheme.czarUsername}`
+                              : 'Judge: Anonymous'}
                         </span>
                       </div>
                     </div>
@@ -580,7 +713,7 @@ function GroupView() {
                     <div className="no-theme-icon" aria-hidden="true">🎵</div>
                     <h3>No Active Round</h3>
                     <p>Waiting for the host to start a new round.</p>
-                    {group.players.find(p => p.id === user.id)?.isHost && (
+                    {isHost && (
                       <button 
                         className="theme-action-button"
                         onClick={handleStartRound}
@@ -638,6 +771,18 @@ function GroupView() {
               <section className="tab-content">
                 <div className="round-header">
                   <h2>Round {group.currentRound}</h2>
+
+                  {/* The viewer's own role, from their own private
+                      isRoundLeader flag — the server sends that only to the
+                      socket it belongs to, so this never discloses anyone
+                      else's role. Shown during submission and voting, the
+                      phases where knowing your role changes what you do. */}
+                  {(group.currentTheme.status === 'submission' || group.currentTheme.status === 'voting') && (
+                    <span className={`role-badge ${isRoundLeader ? 'role-judge' : 'role-contestant'}`}>
+                      You are a: {isRoundLeader ? 'Judge' : 'Contestant'}
+                    </span>
+                  )}
+
                   {group.currentTheme.status === 'submission' && timeRemaining !== null && timeRemaining > 0 && (
                     <div className="round-countdown">
                       <span className="countdown-icon">⏱️</span>
@@ -655,10 +800,10 @@ function GroupView() {
                       <h3>Current Theme</h3>
                       <span className="round-leader-badge">
                         {isRoundLeader
-                          ? 'You are the Round Leader'
+                          ? 'You are the Judge'
                           : group.currentTheme.czarUsername
-                            ? `Round Leader: ${group.currentTheme.czarUsername}`
-                            : 'Round Leader: Anonymous'}
+                            ? `Judge: ${group.currentTheme.czarUsername}`
+                            : 'Judge: Anonymous'}
                       </span>
                     </div>
                     <div className="round-info-body">
@@ -679,71 +824,160 @@ function GroupView() {
                     </div>
                   </div>
 
-                  {/* Submission phase */}
-                  {group.currentTheme.status === 'submission' && (
-                    isRoundLeader ? (
-                      <div className="user-submission-card">
-                        <h3>You're the Round Leader</h3>
-                        <p className="no-submission">Wait for the other players to submit their videos.</p>
-                        <p className="submissions-count">{group.currentTheme.submissionCount ?? 0} submission(s) so far</p>
+                  {/* ---- Phase 0: the Round Leader picks a topic ---- */}
+                  {group.currentTheme.status === 'topic_selection' && (
+                    <div className="round-phase round-phase-active">
+                      <div className="round-phase-header">
+                        <span className="round-phase-step">Getting started</span>
+                        <h3>Topic</h3>
                       </div>
-                    ) : (
-                      <div className="user-submission-card">
-                        <h3>Your Submission</h3>
-                        {userSubmission ? (
-                          <div className="user-submission-content">
-                            <div className="youtube-selection">
-                              <img
-                                className="youtube-result-thumb"
-                                src={userSubmission.thumbnail}
-                                alt=""
-                                width="120"
-                                height="68"
-                              />
-                              <span className="youtube-result-meta">
-                                <span className="youtube-result-title">{userSubmission.title}</span>
-                                <span className="youtube-result-channel">{userSubmission.channelTitle}</span>
-                              </span>
-                            </div>
-                            <p className="submissions-count">Submitted — waiting for the rest of the group ({group.currentTheme.submissionCount ?? 0} so far)</p>
-                          </div>
-                        ) : (
-                          <div className="no-submission-content">
-                            <p>You haven't submitted a video for this round yet.</p>
-                            <button
-                              className="submit-button"
-                              onClick={() => setShowSubmitModal(true)}
-                            >
-                              Submit Video
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    )
+
+                      {isRoundLeader ? (
+                        <>
+                          <p className="submissions-count">
+                            You're the Judge. Pick a topic to start the round — the
+                            submission timer begins once you choose.
+                          </p>
+                          <TopicPicker groupId={groupId} onSelect={handleSelectTopic} />
+                        </>
+                      ) : (
+                        <p className="no-submission">
+                          Waiting for the Judge to choose this round's topic.
+                        </p>
+                      )}
+
+                      {isHost && (
+                        <div className="round-host-actions">
+                          <button
+                            className="action-button"
+                            onClick={() => setShowPlayerSelection(true)}
+                          >
+                            Choose a different Judge
+                          </button>
+                          <p className="form-hint">
+                            Only the Judge can pick the topic, and this phase has no
+                            timer. Hand the role to someone else if they can't.
+                          </p>
+                        </div>
+                      )}
+                    </div>
                   )}
 
-                  {/* Voting phase */}
+                  {/* ---- Phase 1: submission ---- */}
+                  {group.currentTheme.status === 'submission' && (
+                    <div className="round-phase round-phase-active">
+                      <div className="round-phase-header">
+                        <span className="round-phase-step">Phase 1 of 3</span>
+                        <h3>Submissions</h3>
+                      </div>
+
+                      {isRoundLeader ? (
+                        <div className="user-submission-card">
+                          <p className="no-submission">
+                            You're the Judge — wait for the other players to submit their videos.
+                          </p>
+                          <p className="submissions-count">
+                            {group.currentTheme.submissionCount ?? 0} of {expectedSubmissions} submitted
+                          </p>
+                        </div>
+                      ) : userSubmission ? (
+                        /* Deliberately shaped like the voting section that
+                           replaces it, so the layout doesn't jump when the
+                           phase flips. */
+                        <div className="submission-confirmation">
+                          <p className="submission-confirmed-label">✓ Your submission is in</p>
+                          <div className="youtube-selection">
+                            <img
+                              className="youtube-result-thumb"
+                              src={userSubmission.thumbnail}
+                              alt=""
+                              width="120"
+                              height="68"
+                            />
+                            <span className="youtube-result-meta">
+                              <span className="youtube-result-title">{userSubmission.title}</span>
+                              <span className="youtube-result-channel">{userSubmission.channelTitle}</span>
+                            </span>
+                          </div>
+                          <p className="submissions-count">
+                            Waiting for the rest of the group — {group.currentTheme.submissionCount ?? 0} of {expectedSubmissions} submitted.
+                            Voting opens once everyone has submitted, or when the timer runs out.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="no-submission-content">
+                          <p>You haven't submitted a video for this round yet.</p>
+                          <button
+                            className="submit-button"
+                            onClick={() => setShowSubmitModal(true)}
+                          >
+                            Submit Video
+                          </button>
+                        </div>
+                      )}
+                    {isHost && (group.currentTheme.submissionCount ?? 0) > 0 && (
+                      <div className="round-host-actions">
+                        <button
+                          className="action-button"
+                          onClick={handleCloseSubmissions}
+                        >
+                          Close submissions now
+                        </button>
+                        <p className="form-hint">
+                          Opens voting with the {group.currentTheme.submissionCount ?? 0} video
+                          {(group.currentTheme.submissionCount ?? 0) === 1 ? '' : 's'} already in,
+                          instead of waiting for the timer.
+                        </p>
+                      </div>
+                    )}
+
+                    </div>
+                  )}
+
+                  {/* ---- Phase 2: voting ---- */}
                   {group.currentTheme.status === 'voting' && (
-                    <div className="submissions-section">
-                      <h3>Vote</h3>
-                      <p className="submissions-count">Submissions are anonymous until results are revealed.</p>
+                    <div className="round-phase round-phase-active">
+                      <div className="round-phase-header">
+                        <span className="round-phase-step">Phase 2 of 3</span>
+                        <h3>Voting</h3>
+                      </div>
+                      <p className="submissions-count">
+                        Everyone has submitted. Submissions stay anonymous until results are revealed.
+                      </p>
 
                       <div className="submissions-list">
-                        {(group.currentTheme.submissions || []).map(submission => (
-                          <button
-                            key={submission.id}
-                            type="button"
-                            className={`submission-item ${!userVote ? 'selectable' : ''} ${selectedSubmissionId === submission.id ? 'selected' : ''}`}
-                            onClick={() => setSelectedSubmissionId(submission.id)}
-                            disabled={!!userVote}
-                            aria-pressed={selectedSubmissionId === submission.id}
-                          >
-                            <div className="submission-song">
-                              <span className="song-title">{submission.title}</span>
-                              <span className="song-artist">{submission.channelTitle}</span>
+                        {(group.currentTheme.submissions || []).map(submission => {
+                          const isOwn = submission.id === ownSubmissionId
+                          const submissionComments = votingComments.filter(c => c.submissionId === submission.id)
+                          return (
+                            <div key={submission.id} className="submission-entry">
+                              <button
+                                type="button"
+                                className={`submission-item ${!userVote && !isOwn ? 'selectable' : ''} ${selectedSubmissionId === submission.id ? 'selected' : ''} ${isOwn ? 'own-submission' : ''}`}
+                                onClick={() => setSelectedSubmissionId(submission.id)}
+                                disabled={!!userVote || isOwn}
+                                aria-pressed={selectedSubmissionId === submission.id}
+                              >
+                                <div className="submission-song">
+                                  <span className="song-title">{submission.title}</span>
+                                  <span className="song-artist">{submission.channelTitle}</span>
+                                  {isOwn && <span className="own-submission-badge">Your submission — you can't vote for it</span>}
+                                </div>
+                              </button>
+
+                              {group.settings.allowVotingComments && submissionComments.length > 0 && (
+                                <ul className="vote-comments" aria-label={`Comments on ${submission.title}`}>
+                                  {submissionComments.map((c, i) => (
+                                    <li key={i} className="vote-comment">
+                                      <span className="vote-comment-author">Anonymous</span>
+                                      <span className="vote-comment-text">{c.text}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
-                          </button>
-                        ))}
+                          )
+                        })}
                       </div>
 
                       {userVote ? (
@@ -758,6 +992,21 @@ function GroupView() {
                               ))}
                             </select>
                           </label>
+
+                          {group.settings.allowVotingComments && (
+                            <div className="form-group vote-comment-field">
+                              <label htmlFor="vote-comment">Comment (optional)</label>
+                              <input
+                                id="vote-comment"
+                                type="text"
+                                value={voteComment}
+                                onChange={(e) => setVoteComment(e.target.value)}
+                                maxLength={280}
+                                placeholder="Say why — shown anonymously until the reveal"
+                              />
+                            </div>
+                          )}
+
                           <button className="theme-action-button" onClick={() => handleCastVote(false)}>
                             Cast Vote
                           </button>
@@ -768,34 +1017,60 @@ function GroupView() {
                           )}
                           {isRoundLeader && (
                             <button className="btn btn-secondary" onClick={handleCzarSelectWinner}>
-                              Select as Winner (Round Leader)
+                              Select as Winner (Judge)
                             </button>
                           )}
                         </div>
                       ) : (
                         <p className="submissions-count">Select a submission above to vote.</p>
                       )}
+
+                      <RoundVideoList videos={group.currentTheme.submissions} />
                     </div>
                   )}
 
-                  {/* Reveal phase */}
+                  {/* ---- Phase 3: results ---- */}
                   {group.currentTheme.status === 'reveal' && (
-                    <div className="submissions-section">
-                      <h3>Results</h3>
-                      <p className="round-leader-badge">Round Leader was: {group.currentTheme.czarUsername || 'Unknown'}</p>
+                    <div className="round-phase round-phase-final">
+                      <div className="round-phase-header">
+                        <span className="round-phase-step">Phase 3 of 3</span>
+                        <h3>Results</h3>
+                      </div>
+                      <p className="round-leader-badge">Judge was: {group.currentTheme.czarUsername || 'Unknown'}</p>
 
                       <div className="submissions-list">
-                        {(group.currentTheme.submissions || []).map(submission => (
-                          <div key={submission.id} className="submission-item">
-                            <div className="submission-song">
-                              <span className="song-title">{submission.title}</span>
-                              <span className="song-artist">{submission.channelTitle}</span>
-                              {submission.wonBy && <span className="host-badge">🏆 Winner</span>}
+                        {(group.currentTheme.submissions || []).map(submission => {
+                          const revealed = revealedComments.filter(c => c.submissionId === submission.id)
+                          return (
+                            <div key={submission.id} className="submission-item">
+                              <div className="submission-song">
+                                <span className="song-title">{submission.title}</span>
+                                <span className="song-artist">{submission.channelTitle}</span>
+                                {submission.playerUserId && (
+                                  <span className="song-submitter">
+                                    Submitted by {playerName(submission.playerUserId)}
+                                  </span>
+                                )}
+                                {submission.wonBy && <span className="host-badge">🏆 Winner</span>}
+                              </div>
+                              <YouTubeEmbed videoId={submission.videoId} title={submission.title} />
+
+                              {revealed.length > 0 && (
+                                <ul className="vote-comments" aria-label={`Comments on ${submission.title}`}>
+                                  {revealed.map((c, i) => (
+                                    <li key={i} className="vote-comment">
+                                      <span className="vote-comment-author">{playerName(c.voterUserId)}</span>
+                                      <span className="vote-comment-text">{c.text}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
-                            <YouTubeEmbed videoId={submission.videoId} title={submission.title} />
-                          </div>
-                        ))}
+                          )
+                        })}
                       </div>
+
+                      <RoundVideoList videos={group.currentTheme.submissions} />
 
                       <div className="leaderboard-card">
                         <h3>Scores</h3>
@@ -813,10 +1088,22 @@ function GroupView() {
                         </div>
                       </div>
 
-                      {group.players.find(p => p.id === user.id)?.isHost && (
-                        <button className="setup-button primary" onClick={handleStartRound}>
-                          Start Next Round
-                        </button>
+                      {isHost && (
+                        <>
+                          <button
+                            className="setup-button primary"
+                            onClick={handleStartRound}
+                            disabled={!canStartRound}
+                          >
+                            Start Next Round
+                          </button>
+                          {!canStartRound && (
+                            <p className="setup-hint">
+                              You need at least {MIN_PLAYERS_TO_START} players in the group to
+                              start another round.
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                   )}
@@ -872,11 +1159,6 @@ function GroupView() {
                   ))}
                 </div>
 
-                <div className="participants-footer">
-                  <button className="invite-button" onClick={handleInvitePlayer}>
-                    Invite More Players
-                  </button>
-                </div>
               </section>
             )}
 
@@ -919,6 +1201,10 @@ function GroupView() {
                           <span className="song-label">Winning Song:</span>
                           <span className="song-title">{theme.song}</span>
                         </div>
+
+                        {/* Rounds completed before videos were recorded in
+                            history simply have nothing to list. */}
+                        <RoundVideoList videos={theme.videos} heading="Videos from this round" />
                       </div>
                     </article>
                   ))}
@@ -938,7 +1224,7 @@ function GroupView() {
               <section className="tab-content">
                 <div className="rules-header">
                   <h2>Group Rules</h2>
-                  {group.players.find(p => p.id === user.id)?.isHost && !isEditingRules && (
+                  {isHost && !isEditingRules && (
                     <button 
                       className="edit-rules-button"
                       onClick={handleEditRules}
@@ -974,23 +1260,29 @@ function GroupView() {
                           max="50"
                         />
                       </div>
-                      <div className="form-row">
-                        <label htmlFor="rules-min-players">Min Players to Start:</label>
-                        <input
-                          id="rules-min-players"
-                          type="number"
-                          value={editedSettings.minPlayers}
-                          onChange={(e) => setEditedSettings(prev => ({ ...prev, minPlayers: parseInt(e.target.value) }))}
-                          min="1"
-                          max="10"
-                        />
+                      <div className="form-row checkbox">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={editedSettings.allowMemberInvites === true}
+                            onChange={(e) => setEditedSettings(prev => ({ ...prev, allowMemberInvites: e.target.checked }))}
+                          />
+                          Allow members to invite others
+                        </label>
                       </div>
+                      {/* Worded around sharing, not access: the setting decides
+                          who is shown the invite link, and anyone holding a
+                          link can join regardless. */}
+                      <p className="form-hint">
+                        When off, only the host can share the invite link. This controls who can
+                        share an invite — not who can join, since anyone with the link can join.
+                      </p>
                     </div>
 
                     <div className="rules-section">
-                      <h3>Round Leader Rules</h3>
+                      <h3>Judge Rules</h3>
                       <div className="form-row">
-                        <label htmlFor="rules-czar-points">Points for Leader Pick:</label>
+                        <label htmlFor="rules-czar-points">Points for Judge's Pick:</label>
                         <input
                           id="rules-czar-points"
                           type="number"
@@ -1007,7 +1299,7 @@ function GroupView() {
                             checked={editedSettings.anonymousCzar}
                             onChange={(e) => setEditedSettings(prev => ({ ...prev, anonymousCzar: e.target.checked }))}
                           />
-                          Anonymous Leader
+                          Anonymous Judge
                         </label>
                       </div>
                       <div className="form-row checkbox">
@@ -1017,7 +1309,7 @@ function GroupView() {
                             checked={editedSettings.allowSkipCzar}
                             onChange={(e) => setEditedSettings(prev => ({ ...prev, allowSkipCzar: e.target.checked }))}
                           />
-                          Allow Skip Leader
+                          Allow Skip Judge
                         </label>
                       </div>
                     </div>
@@ -1035,6 +1327,35 @@ function GroupView() {
                           max="10"
                         />
                       </div>
+                      <div className="form-row checkbox">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={editedSettings.allowVotingComments === true}
+                            onChange={(e) => setEditedSettings(prev => ({
+                              ...prev,
+                              allowVotingComments: e.target.checked,
+                              // Turning the parent off takes the dependent
+                              // setting with it, so the pair can't be left in
+                              // a state the UI never shows.
+                              showCommentsLive: e.target.checked ? prev.showCommentsLive : false
+                            }))}
+                          />
+                          Allow comments during voting
+                        </label>
+                      </div>
+                      {editedSettings.allowVotingComments === true && (
+                        <div className="form-row checkbox">
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={editedSettings.showCommentsLive === true}
+                              onChange={(e) => setEditedSettings(prev => ({ ...prev, showCommentsLive: e.target.checked }))}
+                            />
+                            Show comments live during voting
+                          </label>
+                        </div>
+                      )}
                       <div className="form-row checkbox">
                         <label>
                           <input 
@@ -1163,9 +1484,13 @@ function GroupView() {
                           value={editedSettings.topicSelection}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, topicSelection: e.target.value }))}
                         >
-                          <option value="czar">Round Leader Chooses</option>
+                          <option value="czar">Judge Chooses</option>
+                          {/* Unimplemented alternatives, preserved as design
+                              intent rather than deleted — see CreateGroup.jsx
+                              for what each would need.
                           <option value="random">Random Selection</option>
                           <option value="vote">Player Vote</option>
+                          */}
                         </select>
                       </div>
                       <div className="form-row checkbox">
@@ -1177,16 +1502,6 @@ function GroupView() {
                           />
                           Allow Custom Topics
                         </label>
-                      </div>
-                      <div className="form-row textarea-row">
-                        <label htmlFor="rules-preset-topics">Preset Topics (one per line):</label>
-                        <textarea
-                          id="rules-preset-topics"
-                          value={editedSettings.presetTopics && editedSettings.presetTopics.length > 0 ? editedSettings.presetTopics.join('\n') : ''}
-                          onChange={(e) => setEditedSettings(prev => ({ ...prev, presetTopics: e.target.value.split('\n').filter(t => t.trim()) }))}
-                          rows="4"
-                          placeholder="Enter preset topics, one per line"
-                        />
                       </div>
                     </div>
 
@@ -1212,16 +1527,16 @@ function GroupView() {
                       <ul className="rules-list">
                         <li><strong>Total Rounds:</strong> {group.settings.totalRounds}</li>
                         <li><strong>Max Players:</strong> {group.settings.maxPlayers}</li>
-                        <li><strong>Min Players to Start:</strong> {group.settings.minPlayers}</li>
+                        <li><strong>Members Can Share Invites:</strong> {group.settings.allowMemberInvites ? 'Yes' : 'No'}</li>
                       </ul>
                     </div>
 
                     <div className="rules-section">
-                      <h3>Round Leader Rules</h3>
+                      <h3>Judge Rules</h3>
                       <ul className="rules-list">
-                        <li><strong>Points for Leader Pick:</strong> {group.settings.czarPoints}</li>
-                        <li><strong>Anonymous Leader:</strong> {group.settings.anonymousCzar ? 'Yes' : 'No'}</li>
-                        <li><strong>Allow Skip Leader:</strong> {group.settings.allowSkipCzar ? 'Yes' : 'No'}</li>
+                        <li><strong>Points for Judge's Pick:</strong> {group.settings.czarPoints}</li>
+                        <li><strong>Anonymous Judge:</strong> {group.settings.anonymousCzar ? 'Yes' : 'No'}</li>
+                        <li><strong>Allow Skip Judge:</strong> {group.settings.allowSkipCzar ? 'Yes' : 'No'}</li>
                       </ul>
                     </div>
 
@@ -1230,6 +1545,10 @@ function GroupView() {
                       <ul className="rules-list">
                         <li><strong>Max Jury Points:</strong> {group.settings.maxJuryPoints}</li>
                         <li><strong>Allow Downvotes:</strong> {group.settings.allowDownvotes ? 'Yes' : 'No'}</li>
+                        <li><strong>Comments During Voting:</strong> {group.settings.allowVotingComments ? 'Yes' : 'No'}</li>
+                        {group.settings.allowVotingComments && (
+                          <li><strong>Show Comments Live:</strong> {group.settings.showCommentsLive ? 'Yes' : 'No'}</li>
+                        )}
                         <li><strong>Downvote Cost:</strong> {group.settings.downvoteCost} points</li>
                       </ul>
                     </div>
@@ -1263,12 +1582,10 @@ function GroupView() {
                     <div className="rules-section">
                       <h3>Topic Settings</h3>
                       <ul className="rules-list">
-                        <li><strong>Topic Selection:</strong> {group.settings.topicSelection === 'czar' ? 'Round Leader Chooses' : group.settings.topicSelection === 'random' ? 'Random Selection' : 'Player Vote'}</li>
+                        {/* Only 'czar' is selectable, but an older group could
+                            still carry another value, so this doesn't assume. */}
+                        <li><strong>Topic Selection:</strong> {group.settings.topicSelection === 'czar' ? 'Judge Chooses' : group.settings.topicSelection}</li>
                         <li><strong>Allow Custom Topics:</strong> {group.settings.allowCustomTopics ? 'Yes' : 'No'}</li>
-                        <li><strong>Preset Topics:</strong> {group.settings.presetTopics?.length || 0} topics available</li>
-                        {group.settings.presetTopics && group.settings.presetTopics.length > 0 && (
-                          <li><strong>Topics:</strong> {group.settings.presetTopics.join(', ')}</li>
-                        )}
                       </ul>
                     </div>
                   </div>
@@ -1315,7 +1632,7 @@ function GroupView() {
             </nav>
 
             <div className="sidebar-footer">
-              {group.players.find(p => p.id === user.id)?.isHost ? (
+              {isHost ? (
                 <button 
                   className="leave-button delete"
                   onClick={() => {
@@ -1416,7 +1733,7 @@ function GroupView() {
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 id="round-leader-modal-title">Select Round Leader</h2>
+              <h2 id="round-leader-modal-title">Select Judge</h2>
               <button 
                 className="close-button"
                 onClick={() => setShowRoundLeaderModal(false)}
@@ -1427,7 +1744,11 @@ function GroupView() {
             </div>
             
             <div className="modal-body">
-              <p>Choose how to select the Round Leader for this round:</p>
+              <p>
+                {group.status === 'setup'
+                  ? 'Choose how to select the Judge for the first round:'
+                  : 'Choose how to select the Judge for this round:'}
+              </p>
               
               <div className="leader-selection-options">
                 <button 
@@ -1437,7 +1758,7 @@ function GroupView() {
                   <div className="option-icon">🎲</div>
                   <div className="option-content">
                     <h3>Randomly Assign</h3>
-                    <p>Let the system randomly pick a Round Leader from the group players</p>
+                    <p>Let the system randomly pick a Judge from the group players</p>
                   </div>
                 </button>
                 
@@ -1447,8 +1768,8 @@ function GroupView() {
                 >
                   <div className="option-icon">👤</div>
                   <div className="option-content">
-                    <h3>Pick Round Leader</h3>
-                    <p>Manually select a specific player to be the Round Leader</p>
+                    <h3>Pick Judge</h3>
+                    <p>Manually select a specific player to be the Judge</p>
                   </div>
                 </button>
               </div>
@@ -1477,7 +1798,9 @@ function GroupView() {
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2 id="player-selection-modal-title">Pick Round Leader</h2>
+              <h2 id="player-selection-modal-title">
+                {isReplacingJudge ? 'Choose a different Judge' : 'Pick Judge'}
+              </h2>
               <button 
                 className="close-button"
                 onClick={() => setShowPlayerSelection(false)}
@@ -1488,7 +1811,11 @@ function GroupView() {
             </div>
             
             <div className="modal-body">
-              <p>Select a player to be the Round Leader for this round:</p>
+              <p>
+                {isReplacingJudge
+                  ? 'Hand this round’s Judge role to someone else. The topic has not been chosen yet, so nothing is lost.'
+                  : 'Select a player to be the Judge for this round:'}
+              </p>
               <div className="player-selection-list">
                 {group.players.map(player => (
                   <button 

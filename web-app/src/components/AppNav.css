@@ -1,0 +1,116 @@
+/* The shared application header, used by Dashboard and GroupView. Moved out
+   of Dashboard.css when GroupView's one-off header was replaced with this. */
+.app-header {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border-subtle);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  width: 100%;
+}
+
+.header-content {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.logo h1 {
+  font-size: var(--text-subheading);
+  color: var(--color-text-primary);
+  margin: 0;
+}
+
+.header-nav {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.nav-button {
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-medium);
+  font-size: var(--text-body);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.nav-button:hover {
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+.nav-button.active {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.user-section {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+/* The header now shows the avatar alone — it is the link to the account
+   page, so it is styled as an interactive control, not a static badge. */
+.user-avatar-button {
+  background: none;
+  border: none;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  line-height: 0;
+}
+
+.user-avatar-button:hover .user-avatar,
+.user-avatar-button:focus-visible .user-avatar {
+  border-color: var(--color-accent);
+  transform: scale(1.05);
+}
+
+.user-avatar {
+  width: 40px;
+  height: 40px;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border: 2px solid transparent;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.25rem;
+  transition: border-color var(--transition-fast), transform var(--transition-fast);
+}
+
+.logout-button:hover {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+}
+
+
+/* Responsive: the nav drops to its own centred row before the header would
+   have to squeeze the logo and the account controls. */
+@media (max-width: 1024px) {
+  .header-content {
+    flex-wrap: wrap;
+  }
+
+  .header-nav {
+    order: 3;
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 768px) {
+  .header-content {
+    padding: var(--space-3);
+  }
+}

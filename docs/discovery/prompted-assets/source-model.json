@@ -1,0 +1,741 @@
+{
+ "schemaVersion": "1.0.0",
+ "subject": {
+  "name": "Prompted",
+  "description": "A multiplayer music game in which a Judge sets a prompt, other players answer it with one YouTube video each, everyone votes, and a winner is scored. This model records what the project's own documents claim, reconciled against what the code actually does."
+ },
+ "corpusType": "mixed",
+ "coverage": {
+  "reviewed": [
+   "GAME_DESIGN.md",
+   "README.md",
+   "server/.env.example",
+   "web-app/.env.example",
+   "web-app/README.md",
+   ".gitignore",
+   "web-app/.gitignore",
+   "web-app/.oxlintrc.json",
+   ".claude/settings.json",
+   "server/ (all 9 modules)",
+   "web-app/src/ (all pages, components, hooks, contexts)",
+   "web-app/e2e/ (all 13 spec and helper files)",
+   "web-app/playwright.config.js"
+  ],
+  "partial": [],
+  "unreadable": [],
+  "excluded": [
+   "web-app/test-results/ and web-app/playwright-report/ - 1,661 generated Playwright trace artifacts",
+   "server/.env and web-app/.env - confirmed present, deliberately never opened, no value read or quoted",
+   "server/prompted.db and its WAL files - live data, not source"
+  ]
+ },
+ "actors": [
+  {
+   "name": "Player",
+   "description": "A signed-in person who joins groups, answers prompts and votes.",
+   "documented": true,
+   "implemented": true
+  },
+  {
+   "name": "Host",
+   "description": "The group's creator. Starts rounds and edits rules. Documented and implemented, but the documents do not mention that the role can never be transferred.",
+   "documented": true,
+   "implemented": true
+  },
+  {
+   "name": "Judge",
+   "description": "One player per round who sets the prompt and may name a winner outright. The documents call this the Card Czar. The code calls it czar internally, Judge in player-facing text, and Round Leader in comments.",
+   "documented": true,
+   "implemented": true
+  },
+  {
+   "name": "Jury",
+   "description": "The documents' name for every non-Judge player. The code has no such concept as a distinct role; it simply excludes the Judge from submitting.",
+   "documented": true,
+   "implemented": false
+  }
+ ],
+ "workflows": [
+  {
+   "name": "Documented game flow",
+   "steps": [
+    "Lobby creation",
+    "Topic selection by the Card Czar",
+    "Song submission",
+    "Voting by all players including the Czar",
+    "Reveal",
+    "Scoring"
+   ],
+   "source": {
+    "path": "GAME_DESIGN.md",
+    "locator": "Game Flow",
+    "note": "Matches the implemented phase order. The music source and the entity names do not match."
+   },
+   "state": "partially superseded"
+  },
+  {
+   "name": "Implemented round flow",
+   "steps": [
+    "Host starts and the Judge is chosen",
+    "topic_selection",
+    "submission",
+    "voting",
+    "reveal"
+   ],
+   "source": {
+    "path": "server/server.js",
+    "locator": "lines 244-480",
+    "note": "The authoritative lifecycle."
+   },
+   "state": "current"
+  }
+ ],
+ "businessRules": [
+  {
+   "rule": "A round needs at least two group members, counted by membership and never by who is currently connected.",
+   "source": {
+    "path": "server/server.js",
+    "locator": "lines 1042-1046",
+    "note": "Comment records the reasoning explicitly."
+   },
+   "documented": false
+  },
+  {
+   "rule": "The Judge may not submit a video.",
+   "source": {
+    "path": "server/server.js",
+    "locator": "lines 901-904",
+    "note": "Consistent with the documents, which say only the jury submits."
+   },
+   "documented": true
+  },
+  {
+   "rule": "The Judge may vote, alongside naming a winner outright.",
+   "source": {
+    "path": "server/server.js",
+    "locator": "line 958",
+    "note": "Handler comment states this is deliberate. Both documents agree that all players including the Czar vote."
+   },
+   "documented": true
+  },
+  {
+   "rule": "Nobody may vote for their own submission, enforced on the server rather than only in the interface.",
+   "source": {
+    "path": "server/server.js",
+    "locator": "lines 1243-1246",
+    "note": "Proven by a hand-crafted socket payload in the test suite."
+   },
+   "documented": false
+  },
+  {
+   "rule": "A winner is resolved by public override first, then the Judge's selection, then the highest tally.",
+   "source": {
+    "path": "server/server.js",
+    "locator": "lines 308-329",
+    "note": "The documents describe override and Czar selection but not the precedence between them."
+   },
+   "documented": true
+  },
+  {
+   "rule": "A public topic is visible only to people you share a group with, never app-wide.",
+   "source": {
+    "path": "server/server.js",
+    "locator": "lines 246-263",
+    "note": "The documents describe public topics as available to all games, which is the opposite."
+   },
+   "documented": false
+  }
+ ],
+ "operatingContext": [
+  {
+   "item": "The server refuses to boot if AUTH_TEST_MODE is set while NODE_ENV is production.",
+   "source": {
+    "path": "server/config.js",
+    "locator": "lines 12-16",
+    "note": ""
+   }
+  },
+  {
+   "item": "Outside production the server boots in a degraded mode with loud warnings when credentials are missing, so the suite and a fresh clone both work before any secret exists.",
+   "source": {
+    "path": "server/config.js",
+    "locator": "lines 39-63",
+    "note": ""
+   }
+  },
+  {
+   "item": "A YouTube search costs 100 of 10,000 daily quota units, which is why results are cached and the test suite runs on fixtures.",
+   "source": {
+    "path": "server/youtube.js",
+    "locator": "lines 6-10",
+    "note": ""
+   }
+  }
+ ],
+ "concepts": {
+  "product": [
+   {
+    "term": "Group",
+    "definition": "A standing set of players who play repeated rounds together. The id doubles as the invite code.",
+    "documentedAs": "Game, with a separate join code and a lobby browser",
+    "state": "renamed"
+   },
+   {
+    "term": "Round",
+    "definition": "One prompt, its submissions, its votes and its result. Called currentTheme in the code.",
+    "documentedAs": "Round",
+    "state": "current"
+   },
+   {
+    "term": "Topic",
+    "definition": "A prompt, owned by the player who wrote it.",
+    "documentedAs": "Topic",
+    "state": "current"
+   },
+   {
+    "term": "Judge",
+    "definition": "The player who sets the prompt and may pick the winner.",
+    "documentedAs": "Card Czar",
+    "state": "renamed, but inconsistently in the code itself"
+   }
+  ],
+  "data": [
+   {
+    "term": "users table",
+    "definition": "Display name and emoji avatar keyed by the Google subject id.",
+    "documentedAs": "Users table with spotify_id and total_points in PostgreSQL",
+    "state": "superseded"
+   },
+   {
+    "term": "groups table",
+    "definition": "One JSON blob per group, holding settings, players, current round and history.",
+    "documentedAs": "Separate Games, Players, Rounds, Submissions and Votes tables",
+    "state": "superseded"
+   },
+   {
+    "term": "topics table",
+    "definition": "One JSON blob per topic.",
+    "documentedAs": "Topics table",
+    "state": "current in name only"
+   }
+  ],
+  "system": [
+   {
+    "term": "YouTube Data API v3",
+    "definition": "The video source.",
+    "documentedAs": "Spotify Web API",
+    "state": "superseded"
+   },
+   {
+    "term": "better-sqlite3 in WAL mode",
+    "definition": "Persistence.",
+    "documentedAs": "PostgreSQL",
+    "state": "superseded"
+   },
+   {
+    "term": "Google Identity Services",
+    "definition": "Identity.",
+    "documentedAs": "Login/Register with Spotify",
+    "state": "superseded"
+   },
+   {
+    "term": "socket.io",
+    "definition": "The only application interface.",
+    "documentedAs": "socket.io",
+    "state": "current, but nearly every event name differs"
+   }
+  ],
+  "design": [
+   {
+    "term": "Anonymous judging",
+    "definition": "The Judge's identity is withheld from the payload, not merely hidden in the interface.",
+    "documentedAs": "Anonymous Card Czar",
+    "state": "current, and stronger than documented"
+   },
+   {
+    "term": "Judge Selects",
+    "definition": "The only implemented topic-selection mode. Three others are commented out with their design intent preserved.",
+    "documentedAs": "Not described",
+    "state": "current"
+   }
+  ]
+ },
+ "decisions": [
+  {
+   "decision": "Use YouTube rather than Spotify as the music source.",
+   "state": "settled",
+   "evidence": [
+    {
+     "path": "server/youtube.js",
+     "locator": "whole file",
+     "note": "A complete integration with quota handling."
+    },
+    {
+     "path": "server/.env.example",
+     "locator": "lines 11-16",
+     "note": "Configured as the operative source."
+    }
+   ],
+   "note": "Settled in the code. No document records the change or the reason."
+  },
+  {
+   "decision": "Persist to SQLite rather than PostgreSQL.",
+   "state": "settled",
+   "evidence": [
+    {
+     "path": "server/db.js",
+     "locator": "line 2",
+     "note": ""
+    }
+   ],
+   "note": "The documents' goal of durable state was met; the named mechanism was not."
+  },
+  {
+   "decision": "Only Judge Selects ships as a topic-selection mode.",
+   "state": "settled",
+   "evidence": [
+    {
+     "path": "web-app/src/pages/CreateGroup.jsx",
+     "locator": "lines 515-532",
+     "note": "The three alternatives are commented out with the mechanics each would need."
+    }
+   ],
+   "note": "The clearest recorded decision in the codebase. It states what is deferred and why, rather than deleting the idea."
+  },
+  {
+   "decision": "Gate a round on membership rather than on who is connected, and enforce the submission deadline on interaction rather than by a timer.",
+   "state": "settled",
+   "evidence": [
+    {
+     "path": "server/server.js",
+     "locator": "lines 1037-1047",
+     "note": "Membership gate and its recorded reasoning."
+    },
+    {
+     "path": "server/server.js",
+     "locator": "lines 198-238",
+     "note": "advanceIfExpired: the interaction-driven deadline seam that resolves the prior stall."
+    },
+    {
+     "path": "docs/design/round-stall-change-design.md",
+     "locator": "lines 107-111",
+     "note": "The design record choosing the no-scheduler seam and rejecting the timer alternative."
+    }
+   ],
+   "note": "The membership gate is deliberate and documented in a comment. It no longer creates a permanent stall: advanceIfExpired re-arms or advances the round when the deadline passes at an interaction moment."
+  },
+  {
+   "decision": "Scope a public topic to groupmates rather than the whole app.",
+   "state": "settled",
+   "evidence": [
+    {
+     "path": "server/server.js",
+     "locator": "lines 246-263",
+     "note": ""
+    },
+    {
+     "path": "web-app/e2e/topics.spec.js",
+     "locator": "lines 132-228",
+     "note": "Pinned by test."
+    }
+   ],
+   "note": "Directly contradicts the documents, and is the better privacy model."
+  },
+  {
+   "decision": "Ship a React Native mobile application.",
+   "state": "unclear",
+   "evidence": [
+    {
+     "path": "README.md",
+     "locator": "lines 30-34, 108-115",
+     "note": "Described with a concrete file layout and install steps."
+    },
+    {
+     "path": ".",
+     "locator": "repository root",
+     "note": "No such directory exists."
+    }
+   ],
+   "note": "Cannot tell from the sources whether this was abandoned or never started."
+  },
+  {
+   "decision": "Provide a skip-Judge rotation.",
+   "state": "unclear",
+   "evidence": [
+    {
+     "path": "GAME_DESIGN.md",
+     "locator": "Key Features",
+     "note": ""
+    },
+    {
+     "path": "server/server.js",
+     "locator": "whole file",
+     "note": "No implementation."
+    }
+   ],
+   "note": "A setting for it is still collected by the wizard, which suggests a placeholder rather than a removal."
+  }
+ ],
+ "claims": [
+  {
+   "claim": "Players submit Spotify songs.",
+   "support": "source-stated",
+   "state": "superseded",
+   "evidence": [
+    {
+     "path": "README.md",
+     "locator": "line 69",
+     "note": ""
+    },
+    {
+     "path": "server/youtube.js",
+     "locator": "whole file",
+     "note": "The implementation uses YouTube."
+    }
+   ]
+  },
+  {
+   "claim": "The backend keeps game state in memory and there are no persistent user accounts.",
+   "support": "source-stated",
+   "state": "superseded",
+   "evidence": [
+    {
+     "path": "README.md",
+     "locator": "lines 160-163",
+     "note": ""
+    },
+    {
+     "path": "server/db.js",
+     "locator": "whole file",
+     "note": "SQLite-backed persistence."
+    },
+    {
+     "path": "server/profiles.js",
+     "locator": "whole file",
+     "note": "Stored profiles."
+    }
+   ]
+  },
+  {
+   "claim": "The database is PostgreSQL.",
+   "support": "source-stated",
+   "state": "superseded",
+   "evidence": [
+    {
+     "path": "GAME_DESIGN.md",
+     "locator": "Tech Stack",
+     "note": ""
+    },
+    {
+     "path": "server/package.json",
+     "locator": "dependencies",
+     "note": "better-sqlite3, and no postgres driver."
+    }
+   ]
+  },
+  {
+   "claim": "A React Native and Expo application exists under src/.",
+   "support": "source-stated",
+   "state": "superseded",
+   "evidence": [
+    {
+     "path": "README.md",
+     "locator": "lines 108-115",
+     "note": ""
+    },
+    {
+     "path": ".",
+     "locator": "repository root",
+     "note": "Only server/ and web-app/ exist."
+    }
+   ]
+  },
+  {
+   "claim": "All players including the Card Czar vote on submissions.",
+   "support": "corroborated",
+   "state": "current",
+   "evidence": [
+    {
+     "path": "GAME_DESIGN.md",
+     "locator": "Game Flow",
+     "note": ""
+    },
+    {
+     "path": "README.md",
+     "locator": "line 70",
+     "note": ""
+    },
+    {
+     "path": "server/server.js",
+     "locator": "line 958",
+     "note": "cast_vote has no Judge exclusion and its comment says so deliberately."
+    }
+   ]
+  },
+  {
+   "claim": "The Card Czar's identity is hidden until the round ends.",
+   "support": "corroborated",
+   "state": "current",
+   "evidence": [
+    {
+     "path": "README.md",
+     "locator": "line 78",
+     "note": ""
+    },
+    {
+     "path": "server/server.js",
+     "locator": "lines 286-330",
+     "note": "Enforced by withholding the id from the payload."
+    },
+    {
+     "path": "web-app/e2e/game-loop.spec.js",
+     "locator": "lines 124-143",
+     "note": "Proven against raw websocket frames."
+    }
+   ]
+  },
+  {
+   "claim": "Scoring defaults are five points for the Czar's pick and up to three for a jury vote, with a downvote costing one.",
+   "support": "corroborated",
+   "state": "current",
+   "evidence": [
+    {
+     "path": "README.md",
+     "locator": "lines 83-85",
+     "note": ""
+    },
+    {
+     "path": "server/server.js",
+     "locator": "lines 335, 344, 999",
+     "note": "All three defaults match exactly."
+    }
+   ]
+  },
+  {
+   "claim": "A seventy percent public vote can override the Czar's choice.",
+   "support": "corroborated",
+   "state": "current",
+   "evidence": [
+    {
+     "path": "README.md",
+     "locator": "line 86",
+     "note": ""
+    },
+    {
+     "path": "server/server.js",
+     "locator": "lines 308-315",
+     "note": "The threshold is also validated to 51-100, which the documents do not mention."
+    }
+   ]
+  },
+  {
+   "claim": "Public topics are available to all games.",
+   "support": "source-stated",
+   "state": "superseded",
+   "evidence": [
+    {
+     "path": "README.md",
+     "locator": "lines 89-90",
+     "note": ""
+    },
+    {
+     "path": "server/server.js",
+     "locator": "lines 246-263",
+     "note": "Deliberately scoped to shared groups instead."
+    }
+   ]
+  },
+  {
+   "claim": "Players can skip being Card Czar.",
+   "support": "source-stated",
+   "state": "unknown",
+   "evidence": [
+    {
+     "path": "GAME_DESIGN.md",
+     "locator": "Key Features",
+     "note": ""
+    },
+    {
+     "path": "server/server.js",
+     "locator": "whole file",
+     "note": "No implementation found."
+    }
+   ]
+  },
+  {
+   "claim": "The environment examples describe the operative configuration.",
+   "support": "corroborated",
+   "state": "current",
+   "evidence": [
+    {
+     "path": "server/.env.example",
+     "locator": "whole file",
+     "note": ""
+    },
+    {
+     "path": "server/config.js",
+     "locator": "whole file",
+     "note": "Every variable matches."
+    }
+   ]
+  }
+ ],
+ "conflicts": [
+  {
+   "description": "Both narrative documents describe a different music source, a different database, a different identity provider, a different entity vocabulary and an application that does not exist. The environment examples, by contrast, are accurate.",
+   "significance": "Anyone onboarding from README.md or GAME_DESIGN.md would build the wrong thing. Because the env examples are correct, the problem is specific to the two hand-written documents rather than to the project's documentation as a whole.",
+   "evidence": [
+    {
+     "path": "README.md",
+     "locator": "whole file",
+     "note": ""
+    },
+    {
+     "path": "GAME_DESIGN.md",
+     "locator": "whole file",
+     "note": ""
+    },
+    {
+     "path": "server/.env.example",
+     "locator": "whole file",
+     "note": "Accurate."
+    }
+   ]
+  },
+  {
+   "description": "README.md contradicts itself about Spotify, describing it as the current submission mechanism and, in two other sections, as an unbuilt future enhancement.",
+   "significance": "The document was already internally inconsistent before the implementation diverged from it, so its present tense cannot be trusted anywhere.",
+   "evidence": [
+    {
+     "path": "README.md",
+     "locator": "line 69",
+     "note": "Present tense."
+    },
+    {
+     "path": "README.md",
+     "locator": "lines 139-140",
+     "note": "Future Enhancements."
+    },
+    {
+     "path": "README.md",
+     "locator": "lines 162-163",
+     "note": "Current Limitations."
+    }
+   ]
+  },
+  {
+   "description": "One role carries three names. Player-facing text says Judge, internal identifiers say czar, comments say Round Leader, and both documents say Card Czar.",
+   "significance": "This is not simply stale documentation: the implementation has not settled either. Every conversation and every code search about the role is ambiguous.",
+   "evidence": [
+    {
+     "path": "server/server.js",
+     "locator": "lines 507, 902, 1061",
+     "note": "Judge in player-facing text."
+    },
+    {
+     "path": "server/server.js",
+     "locator": "lines 181, 191",
+     "note": "czarId and Round Leader together."
+    },
+    {
+     "path": "GAME_DESIGN.md",
+     "locator": "Roles",
+     "note": "Card Czar only."
+    }
+   ]
+  },
+  {
+   "description": "The documents describe public topics as available across all games; the implementation deliberately restricts them to groups you share.",
+   "significance": "The implementation is the better privacy model and is pinned by tests, so the document is what should change. Worth recording because it is a design improvement, not a drift.",
+   "evidence": [
+    {
+     "path": "README.md",
+     "locator": "lines 89-90",
+     "note": ""
+    },
+    {
+     "path": "server/server.js",
+     "locator": "lines 246-263",
+     "note": ""
+    },
+    {
+     "path": "web-app/e2e/topics.spec.js",
+     "locator": "lines 132-228",
+     "note": ""
+    }
+   ]
+  },
+  {
+   "description": "The Create Group wizard collects 21 settings. The server reads nine. Nine more change nothing anywhere, and one is enforced only in the client.",
+   "significance": "A host can set a player cap, a round count, a voting time limit, chat, song previews, skip-Judge, custom topics and voter identity, and none take effect. Nothing in the interface distinguishes these from the settings that work.",
+   "evidence": [
+    {
+     "path": "web-app/src/pages/CreateGroup.jsx",
+     "locator": "lines 104-131",
+     "note": "21 keys sent."
+    },
+    {
+     "path": "server/server.js",
+     "locator": "whole file",
+     "note": "Nine keys read."
+    },
+    {
+     "path": "web-app/src/pages/GroupView.jsx",
+     "locator": "line 909",
+     "note": "allowDownvotes is client-only."
+    }
+   ]
+  },
+  {
+   "description": "Leave Group and Delete Group confirm with the user and then only navigate away.",
+   "significance": "The interface promises an irreversible action and delivers nothing. Neither a client event nor a server handler exists for either.",
+   "evidence": [
+    {
+     "path": "web-app/src/pages/GroupView.jsx",
+     "locator": "lines 335-339",
+     "note": ""
+    },
+    {
+     "path": "web-app/src",
+     "locator": "all socket emits",
+     "note": "15 events, none for leave or delete."
+    }
+   ]
+  },
+  {
+   "description": "The submission deadline is now enforced, but only when someone interacts with the group, and there is no deadline on the voting phase.",
+   "significance": "advanceIfExpired evaluates the deadline at natural moments (join, group read, submit, start, and a client countdown nudge). A quiet group whose deadline passes simply does not advance until someone pings it, and a round can still hang in voting because votingTime is never read and close_submissions only works during submission.",
+   "evidence": [
+    {
+     "path": "server/server.js",
+     "locator": "line 530",
+     "note": "Deadline computed."
+    },
+    {
+     "path": "server/server.js",
+     "locator": "lines 949-952",
+     "note": "The only exit from the submission phase."
+    },
+    {
+     "path": "server/server.js",
+     "locator": "whole file",
+     "note": "No timer of any kind."
+    }
+   ]
+  }
+ ],
+ "gaps": [
+  "No document explains why Spotify became YouTube, or PostgreSQL became SQLite. Both are settled in code and unrecorded in prose.",
+  "No document describes the phase model, the information-hiding rules, or the authorization model, which are the most carefully built parts of the system.",
+  "Nothing states whether a group is meant to end after totalRounds or run indefinitely as a standing league.",
+  "Nothing records whether the nine inert settings are unfinished work or leftovers.",
+  "Repository history is too shallow to date most decisions; where a decision is not captured in a code comment, it usually cannot be recovered."
+ ],
+ "unresolvedQuestions": [
+  "Should the Judge both vote and hold an outright winner pick? The code and the documents agree that they may, but nothing records whether the combination was weighed.",
+  "Is a downvote meant to cost the voter points as well as dock the target submission? Both happen today.",
+  "Was the skip-Judge rotation dropped deliberately, or never built? Its setting is still collected.",
+  "What should the role finally be called?",
+  "Does the documented React Native application exist anywhere outside this repository?"
+ ]
+}

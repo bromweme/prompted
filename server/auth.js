@@ -72,7 +72,10 @@ function verifyTestIdentity(testUser) {
     userId: testUser.userId,
     name: typeof testUser.name === 'string' && testUser.name ? testUser.name : 'Test Player',
     email: typeof testUser.email === 'string' ? testUser.email : null,
-    picture: null
+    picture: null,
+    // Lets a test start as a player who has already done first-time setup.
+    // Ignored unless the profile is being created for the first time.
+    initialAvatar: typeof testUser.avatar === 'string' ? testUser.avatar : null
   };
 }
 
@@ -124,6 +127,7 @@ function createAuthMiddleware() {
       socket.data.username = identity.name;
       socket.data.email = identity.email;
       socket.data.picture = identity.picture;
+      socket.data.initialAvatar = identity.initialAvatar || null;
       // Handed back to the client on connect so it can store a fresh token and
       // stop replaying a short-lived Google credential.
       socket.data.sessionToken = createSessionToken(identity);

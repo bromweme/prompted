@@ -5,6 +5,7 @@ const cors = require('cors');
 const config = require('./config');
 const { createAuthMiddleware } = require('./auth');
 const { searchVideos, isValidVideoId } = require('./youtube');
+const { getOrCreateProfile, updateProfile, AVATAR_CHOICES } = require('./profiles');
 const { PersistentStore } = require('./db');
 
 // The only origins the app is actually served from. Socket.io matches these
@@ -56,6 +57,7 @@ const LIMITS = {
   channelTitle: 200,
   thumbnailUrl: 500,
   searchQuery: 120,
+  voteComment: 280,
   topicText: 300
 };
 
@@ -71,6 +73,15 @@ function cleanText(value, maxLength) {
 
 function cleanId(value) {
   return cleanText(value, LIMITS.id);
+}
+
+// Date.now() alone is not unique: two submissions landing in the same
+// millisecond produced identical ids, which made votes for them ambiguous and
+// silently collapsed the pair into one entry in the score tally.
+let idCounter = 0;
+function uniqueId(prefix) {
+  idCounter = (idCounter + 1) % Number.MAX_SAFE_INTEGER;
+  return `${prefix}${Date.now()}_${idCounter}`;
 }
 
 // Wraps a socket handler so a malformed payload can only fail that one event.
@@ -122,6 +133,10 @@ function withRateLimit(socket, eventName, takeToken, handler) {
   };
 }
 
+// A round is a Judge plus contestants, so two connected players is the real
+// floor. Enforced here as well as in the UI, like every other rule in this app.
+const MIN_PLAYERS_TO_START = 2;
+
 // overrideThreshold is always a whole percentage (e.g. 70) in settings objects
 // and over the wire; it's only ever converted to a 0-1 fraction at the point
 // it's compared against a vote ratio (see calculateGroupResults).
@@ -129,34 +144,133 @@ function isValidOverrideThreshold(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 51 && value <= 100;
 }
 
+// The submission window, in hours. The wizard offers 1-168 through an HTML
+// min/max, which is not validation at all: nothing stopped a crafted payload
+// setting any number, and the deadline is now acted on rather than merely
+// displayed, so an absurd window has real consequences.
+//
+// The floor drops to one second under AUTH_TEST_MODE so the suite can drive a
+// genuine expiry instead of asserting around it. That flag already refuses to
+// coexist with NODE_ENV=production (the server exits at boot; see config.js),
+// so this cannot widen the range on a deployed server.
+const MAX_SUBMISSION_HOURS = 168;
+const MIN_SUBMISSION_HOURS = config.authTestMode ? 1 / 3600 : 1;
+
+function isValidSubmissionTime(value) {
+  return typeof value === 'number' && Number.isFinite(value)
+    && value >= MIN_SUBMISSION_HOURS && value <= MAX_SUBMISSION_HOURS;
+}
+
+// How many times a round with no submissions at all re-arms itself before it
+// gives up and waits for the host. Without a cap an abandoned group would
+// restart its round every window forever, notifying a host who has stopped
+// playing. After this many attempts the round stays open and only the host
+// can move it.
+const MAX_AUTO_REARMS = 3;
+
+// Queues a durable message for the group's host. Notices persist on the group
+// until the host acknowledges one, so a restart that happened while they were
+// offline is still waiting when they come back rather than vanishing into a
+// broadcast nobody received.
+function addHostNotice(group, kind, message) {
+  group.hostNotices = [...(group.hostNotices || []), {
+    id: uniqueId('notice'),
+    kind,
+    message,
+    createdAt: new Date().toISOString()
+  }];
+}
+
+/**
+ * Acts on an expired submission deadline. Returns true when it changed the
+ * group, so callers know to persist and broadcast.
+ *
+ * This is called wherever a round is already being handled rather than from a
+ * timer. `deadline` is an absolute instant that already persists inside the
+ * group, so evaluating it on read is correct across a server restart and needs
+ * no scheduler — the server has none, and a 24-hour default is the wrong scale
+ * for setTimeout anyway. See docs/design/round-stall-change-design.md.
+ *
+ * Idempotent: it only acts while the round is in its submission phase with a
+ * genuinely past deadline, and every branch either leaves that phase or moves
+ * the deadline forward.
+ */
+function advanceIfExpired(group) {
+  const theme = group && group.currentTheme;
+  if (!theme || theme.status !== 'submission' || !theme.deadline) return false;
+
+  // Already given up on this round. The deadline stays in the past, so without
+  // this guard every later call would queue the host another notice.
+  if (theme.rearmExhausted) return false;
+
+  const deadline = Date.parse(theme.deadline);
+  if (!Number.isFinite(deadline) || Date.now() < deadline) return false;
+
+  // Something arrived: play the round with what turned up. A player who never
+  // submitted simply misses this round rather than holding everyone else.
+  if (theme.submissions.length > 0) {
+    theme.status = 'voting';
+    console.log('Submission deadline passed for group:', group.id, '- opening voting with',
+      theme.submissions.length, 'submission(s)');
+    return true;
+  }
+
+  // Nobody submitted. Restart the SAME round: the Judge and the topic are
+  // deliberately kept, currentRound is not incremented, and no history entry
+  // is written, because this is another attempt at one round rather than a
+  // new one.
+  const attempts = (theme.autoRearmCount || 0) + 1;
+  if (attempts > MAX_AUTO_REARMS) {
+    theme.rearmExhausted = true;
+    addHostNotice(group, 'round_stalled',
+      `Nobody submitted a video after ${MAX_AUTO_REARMS} attempts, so "${theme.title}" is waiting for you. Start it again when the group is ready.`);
+    console.log('Auto re-arm limit reached for group:', group.id);
+    return true;
+  }
+
+  const submissionHours = group.settings.submissionTime || 24;
+  theme.deadline = new Date(Date.now() + submissionHours * 60 * 60 * 1000).toISOString();
+  theme.autoRearmCount = attempts;
+  addHostNotice(group, 'round_restarted',
+    `Nobody submitted a video in time, so "${theme.title}" has restarted with the same Judge and topic. Attempt ${attempts} of ${MAX_AUTO_REARMS}.`);
+  console.log('Round re-armed for group:', group.id, '- attempt', attempts);
+  return true;
+}
+
 // Begins a round on an already-persisted group: assigns a Round Leader
 // (randomly among connected players, unless forcedCzarUserId names a
 // connected player) and creates a fresh currentTheme. Caller is responsible
 // for persisting the group afterward and broadcasting the result.
 function beginRound(group, forcedCzarUserId) {
+  // Prefer someone who is online, but never fail to start: rounds are not
+  // gated on presence, so a group where only the host is connected must still
+  // be able to begin.
   const connectedPlayers = group.players.filter(p => p.connected !== false);
+  const pool = connectedPlayers.length > 0 ? connectedPlayers : group.players;
 
   let roundLeader = forcedCzarUserId
-    ? connectedPlayers.find(p => p.userId === forcedCzarUserId)
+    ? group.players.find(p => p.userId === forcedCzarUserId)
     : null;
   if (!roundLeader) {
-    roundLeader = connectedPlayers[Math.floor(Math.random() * connectedPlayers.length)];
+    roundLeader = pool[Math.floor(Math.random() * pool.length)];
   }
-
-  const presetTopics = group.settings.presetTopics || [];
-  const topicText = presetTopics.length > 0
-    ? presetTopics[Math.floor(Math.random() * presetTopics.length)]
-    : 'Round Challenge';
-  const submissionHours = group.settings.submissionTime || 24;
 
   group.status = 'active';
   group.currentRound = (group.currentRound || 0) + 1;
   group.currentTheme = {
-    id: `theme${Date.now()}`,
-    title: topicText,
+    id: uniqueId('theme'),
+    // Filled in by the Judge in the topic_selection phase. The round used to
+    // auto-pick from a per-group preset list and fall back to a placeholder,
+    // which meant a group with no topics silently played "Round Challenge".
+    // Topics now come from each player's own library instead.
+    title: null,
+    topicId: null,
     description: "This round's music challenge",
-    status: 'submission', // 'submission' -> 'voting' -> 'reveal'
-    deadline: new Date(Date.now() + submissionHours * 60 * 60 * 1000).toISOString(),
+    // 'topic_selection' -> 'submission' -> 'voting' -> 'reveal'
+    status: 'topic_selection',
+    // No deadline yet: the submission clock starts when the topic is chosen,
+    // so time spent choosing isn't taken out of the players' window.
+    deadline: null,
     czarId: roundLeader.userId, // stable id; stripped from broadcasts by publicizeTheme
     submissions: [],
     votes: [],
@@ -175,7 +289,7 @@ function publicizeTheme(theme, group) {
   const { czarId, ...rest } = theme;
   const publicTheme = { ...rest, submissionCount: theme.submissions.length };
 
-  if (theme.status === 'submission') {
+  if (theme.status === 'topic_selection' || theme.status === 'submission') {
     // Nothing about submissions or votes is visible yet, not even a breakdown.
     delete publicTheme.submissions;
     delete publicTheme.votes;
@@ -189,6 +303,19 @@ function publicizeTheme(theme, group) {
       channelTitle: s.channelTitle
     }));
     publicTheme.voteCount = theme.votes.length;
+    // Comments are always collected, but only surfaced mid-round when the
+    // host has opted in. Even then they carry no author — authorship appears
+    // at reveal, like votes and the Round Leader's identity. Ordered by
+    // submission, never by voter, so the order itself can't be used to work
+    // out who wrote what.
+    //
+    // With showCommentsLive off, the comments simply never leave the server
+    // until reveal; nothing is sent for the client to hide.
+    publicTheme.comments = group.settings.showCommentsLive === true
+      ? theme.votes
+        .filter(v => v.comment)
+        .map(v => ({ submissionId: v.submissionId, text: v.comment }))
+      : [];
     delete publicTheme.votes;
   }
   // status === 'reveal': the round is over, so full submissions (with
@@ -205,14 +332,60 @@ function publicizeTheme(theme, group) {
 // Sends each player their own private view of the group: everyone gets the
 // same publicized currentTheme, but only the actual Round Leader's socket
 // gets isRoundLeader: true (mirrors the old engine's private you_are_czar).
+// The topics a player may pick from inside a given group: everything they
+// own, plus the public topics of anyone else currently in that group. A
+// public topic is deliberately not visible group-wide across the whole app —
+// only to people you're actually playing with.
+function topicsForGroup(group, viewerUserId) {
+  const memberIds = new Set(group.players.map(p => p.userId));
+  const used = new Set(group.usedTopicIds || []);
+
+  return Array.from(topics.values())
+    .filter(t => t.creatorId === viewerUserId || (t.isPublic === true && memberIds.has(t.creatorId)))
+    .map(t => ({
+      id: t.id,
+      text: t.text,
+      isPublic: t.isPublic === true,
+      isOwn: t.creatorId === viewerUserId,
+      ownerName: (group.players.find(p => p.userId === t.creatorId) || {}).username || 'Someone',
+      // Usage is per group: a topic played here is marked, but stays freely
+      // available in every other group.
+      usedInGroup: used.has(t.id)
+    }))
+    .sort((a, b) => Number(a.usedInGroup) - Number(b.usedInGroup));
+}
+
+// Which submission in the current round belongs to this player, if any.
+// Sent only to that player's own socket, so it reveals nothing about anyone
+// else while still letting the client disable self-voting.
+function ownSubmissionId(group, playerUserId) {
+  const theme = group.currentTheme;
+  if (!theme || !Array.isArray(theme.submissions)) return null;
+  const own = theme.submissions.find(sub => sub.playerUserId === playerUserId);
+  return own ? own.id : null;
+}
+
 function broadcastGroup(group) {
   const publicGroup = { ...group, currentTheme: publicizeTheme(group.currentTheme, group) };
+  // Notices are the host's alone, so they are stripped from the shared object
+  // and attached per-player below.
+  delete publicGroup.hostNotices;
+
   group.players.forEach(player => {
     io.to(player.id).emit('group_updated', {
       group: publicGroup,
-      isRoundLeader: !!(group.currentTheme && player.userId === group.currentTheme.czarId)
+      isRoundLeader: !!(group.currentTheme && player.userId === group.currentTheme.czarId),
+      yourSubmissionId: ownSubmissionId(group, player.userId),
+      notices: noticesFor(group, player.userId)
     });
   });
+}
+
+// Only the host sees notices, and only ever their own group's. Returns a fresh
+// array so a caller cannot mutate the stored one.
+function noticesFor(group, viewerUserId) {
+  if (viewerUserId !== group.host) return [];
+  return [...(group.hostNotices || [])];
 }
 
 // Tallies votes, picks a winner (public override > Round Leader's pick >
@@ -290,7 +463,15 @@ function calculateGroupResults(group) {
     winningPoints: group.settings.czarPoints || 5,
     winner: winnerUsername,
     song: winner ? winner.title : null,
-    videoId: winner ? winner.videoId : null
+    videoId: winner ? winner.videoId : null,
+    // Every video from the round, so the history view can list them and
+    // build a watch-all link without needing the round to still be current.
+    videos: theme.submissions.map(sub => ({
+      videoId: sub.videoId,
+      title: sub.title,
+      thumbnail: sub.thumbnail,
+      channelTitle: sub.channelTitle
+    }))
   });
 
   groups.set(group.id, group);
@@ -307,22 +488,37 @@ io.use(createAuthMiddleware());
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id, 'as', socket.data.userId);
 
-  // The identity bound by the auth middleware. Handlers use these instead of
+  // The identity bound by the auth middleware. Handlers use this instead of
   // anything in an event payload, which is what makes the host and
   // round-leader checks actually enforceable rather than advisory.
   const userId = socket.data.userId;
-  const username = socket.data.username;
+
+  // Resolve the stored profile before registering any handler, so the name a
+  // player is known by in a group is the one they chose, not Google's.
+  // A brand-new profile has avatar: null, which is how the client knows to
+  // run first-time setup.
+  const profile = getOrCreateProfile(userId, socket.data.username, socket.data.initialAvatar);
+  socket.data.username = profile.displayName;
+  socket.data.avatar = profile.avatar;
+
+  // Sends the client its current identity. Also used after a profile edit, so
+  // the two paths can never drift apart.
+  const emitSession = () => {
+    socket.emit('session', {
+      sessionToken: socket.data.sessionToken,
+      avatarChoices: AVATAR_CHOICES,
+      user: {
+        id: userId,
+        name: socket.data.username,
+        avatar: socket.data.avatar,
+        email: socket.data.email,
+        picture: socket.data.picture
+      }
+    });
+  };
 
   // Hand the client a session token so its next reconnect skips Google.
-  socket.emit('session', {
-    sessionToken: socket.data.sessionToken,
-    user: {
-      id: userId,
-      name: username,
-      email: socket.data.email,
-      picture: socket.data.picture
-    }
-  });
+  emitSession();
 
   const takeToken = createRateLimiter();
 
@@ -349,7 +545,7 @@ io.on('connection', (socket) => {
     }
 
     const topic = {
-      id: Date.now().toString(),
+      id: uniqueId('topic_'),
       text: topicText,
       creatorId: userId,
       isPublic: isPublic === true,
@@ -360,16 +556,91 @@ io.on('connection', (socket) => {
     socket.emit('topic_submitted', { topic });
   });
 
-  // Get available topics (global bank browsed by the ThemeIdeas page). A topic
-  // is only ever returned if it's public or the requester created it —
-  // previously every topic went out in publicTopics regardless of isPublic,
-  // so everyone could read everyone else's private ideas.
+  // The requester's own personal library, as browsed by the topics page.
+  //
+  // Scoped strictly to topics this user created — public ones included, since
+  // "public" means "offer this to people I play with", not "publish it to the
+  // whole app". Someone else's topic reaches you only through
+  // get_group_topics, and only when you actually share a group with them.
+  // This previously returned every public topic in the app, which contradicted
+  // that model and leaked strangers' topics into the library view.
   on('get_topics', () => {
-    const all = Array.from(topics.values());
-    const privateTopics = all.filter(t => t.creatorId === userId && t.isPublic !== true);
-    const publicTopics = all.filter(t => t.isPublic === true);
+    const own = Array.from(topics.values()).filter(t => t.creatorId === userId);
+    const privateTopics = own.filter(t => t.isPublic !== true);
+    const publicTopics = own.filter(t => t.isPublic === true);
 
     socket.emit('topics_list', { privateTopics, publicTopics });
+  });
+
+  // The topics this player can choose from inside a group, each flagged with
+  // whether it has already been played here.
+  on('get_group_topics', ({ groupId }) => {
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+    if (!group.players.some(p => p.userId === userId)) {
+      socket.emit('error', { message: 'You are not a member of this group' });
+      return;
+    }
+
+    socket.emit('group_topics_list', { groupId: gid, topics: topicsForGroup(group, userId) });
+  });
+
+  // The Round Leader picks this round's topic, which starts the submission
+  // clock. Restricted to the Leader for the current round: the topic is the
+  // one piece of the round only they get to decide.
+  on('select_topic', ({ groupId, topicId }) => {
+    console.log('Select topic request:', { groupId, topicId, socketId: socket.id, userId });
+
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+
+    const theme = group.currentTheme;
+    if (!theme || theme.status !== 'topic_selection') {
+      socket.emit('error', { message: 'This round is not waiting for a topic' });
+      return;
+    }
+
+    if (userId !== theme.czarId) {
+      socket.emit('error', { message: 'Only the Judge can choose the topic' });
+      return;
+    }
+
+    const id = cleanId(topicId);
+    const topic = id && topics.get(id);
+    if (!topic) {
+      socket.emit('error', { message: 'That topic no longer exists' });
+      return;
+    }
+
+    // Only topics this player can actually see in this group are selectable,
+    // so a crafted id can't pull in someone else's private topic.
+    const visible = topicsForGroup(group, userId).some(t => t.id === id);
+    if (!visible) {
+      socket.emit('error', { message: 'That topic is not available in this group' });
+      return;
+    }
+
+    theme.topicId = id;
+    theme.title = topic.text;
+    theme.status = 'submission';
+    const submissionHours = group.settings.submissionTime || 24;
+    theme.deadline = new Date(Date.now() + submissionHours * 60 * 60 * 1000).toISOString();
+
+    // Marked used in this group only. Re-selecting an already-used topic is
+    // allowed (the UI marks it rather than blocking it), so this stays a set.
+    group.usedTopicIds = Array.from(new Set([...(group.usedTopicIds || []), id]));
+
+    groups.set(gid, group);
+    console.log('Topic selected for group:', gid, '->', topic.text);
+    broadcastGroup(group);
   });
 
   // Delete topic from bank (only the creator can delete their own topic)
@@ -380,6 +651,33 @@ io.on('connection', (socket) => {
       topics.delete(id);
       socket.emit('topic_deleted', { topicId: id });
     }
+  });
+
+  // Update the signed-in player's own profile. There is no target-user
+  // parameter by design: a socket can only ever edit the identity bound to it.
+  on('update_profile', ({ displayName, avatar }) => {
+    console.log('Update profile request:', { socketId: socket.id, userId, avatar });
+
+    const { profile: updated, error } = updateProfile(userId, { displayName, avatar }, LIMITS.username);
+    if (error) {
+      socket.emit('error', { message: error });
+      return;
+    }
+
+    socket.data.username = updated.displayName;
+    socket.data.avatar = updated.avatar;
+    emitSession();
+
+    // The display name is denormalised into every group's player list, so a
+    // rename has to be pushed out or other players keep seeing the old one.
+    groups.forEach((group, groupId) => {
+      const player = group.players.find(p => p.userId === userId);
+      if (player && player.username !== updated.displayName) {
+        player.username = updated.displayName;
+        groups.set(groupId, group);
+        broadcastGroup(group);
+      }
+    });
   });
 
   // Create group
@@ -407,11 +705,25 @@ io.on('connection', (socket) => {
     // The id is always generated here. Honouring a client-supplied one let
     // any client overwrite an existing group -- ids double as the invite
     // code, so a shared invite link was enough to seize someone's group.
-    const groupId = `GROUP${Date.now()}`;
+    //
+    // uniqueId rather than a bare timestamp: two groups created in the same
+    // millisecond would otherwise share an id, and groups.set() would
+    // silently overwrite the first one.
+    const groupId = uniqueId('GROUP');
 
     const settings = { ...(data.settings || {}) };
     if (settings.overrideThreshold !== undefined && !isValidOverrideThreshold(settings.overrideThreshold)) {
       settings.overrideThreshold = 70;
+    }
+    // Rejected rather than silently corrected, unlike overrideThreshold above:
+    // the submission window now decides when a round advances on its own, so a
+    // host who typed something impossible needs to know rather than discover it
+    // a day later.
+    if (settings.submissionTime !== undefined && !isValidSubmissionTime(settings.submissionTime)) {
+      socket.emit('error', {
+        message: `Submission time must be between 1 and ${MAX_SUBMISSION_HOURS} hours`
+      });
+      return;
     }
 
     const group = {
@@ -423,7 +735,7 @@ io.on('connection', (socket) => {
       players: [{
         id: socket.id,
         userId,
-        username,
+        username: socket.data.username,
         score: 0,
         isHost: true,
         connected: true
@@ -433,6 +745,9 @@ io.on('connection', (socket) => {
       currentRound: 0,
       currentTheme: null,
       history: [],
+      // Topic ids already played in this group. Scoped here rather than on the
+      // topic so the same topic can be reused freely in other groups.
+      usedTopicIds: [],
       createdAt: new Date().toISOString()
     };
 
@@ -474,28 +789,34 @@ io.on('connection', (socket) => {
     if (existingPlayer) {
       existingPlayer.id = socket.id;
       existingPlayer.connected = true;
-      existingPlayer.username = username;
+      existingPlayer.username = socket.data.username;
     } else {
       // Add new player to group
       group.players.push({
         id: socket.id,
         userId,
-        username,
+        username: socket.data.username,
         score: 0,
         isHost: false,
         connected: true
       });
     }
 
+    advanceIfExpired(group);
     groups.set(gid, group);
 
     // Tell the joiner directly (they navigate off this) and update everyone
     // else already viewing the group so the new player shows up live. The
     // joiner's own payload is publicized the same as any other broadcast —
     // the Round Leader's identity is never exposed via this event either.
+    const joinedGroup = { ...group, currentTheme: publicizeTheme(group.currentTheme, group) };
+    delete joinedGroup.hostNotices;
+
     socket.emit('group_joined', {
-      group: { ...group, currentTheme: publicizeTheme(group.currentTheme, group) },
-      isRoundLeader: !!(group.currentTheme && userId === group.currentTheme.czarId)
+      group: joinedGroup,
+      isRoundLeader: !!(group.currentTheme && userId === group.currentTheme.czarId),
+      yourSubmissionId: ownSubmissionId(group, userId),
+      notices: noticesFor(group, userId)
     });
     broadcastGroup(group);
   });
@@ -525,10 +846,126 @@ io.on('connection', (socket) => {
       groups.set(gid, group);
     }
 
+    // Opening a group is one of the natural moments a stale deadline gets
+    // noticed. Broadcast first so everyone already in the round sees the phase
+    // change, then answer this caller with the same up-to-date group.
+    if (advanceIfExpired(group)) {
+      groups.set(gid, group);
+      broadcastGroup(group);
+    }
+
+    const publicGroup = { ...group, currentTheme: publicizeTheme(group.currentTheme, group) };
+    delete publicGroup.hostNotices;
+
     socket.emit('group_details', {
-      group: { ...group, currentTheme: publicizeTheme(group.currentTheme, group) },
-      isRoundLeader: !!(group.currentTheme && userId === group.currentTheme.czarId)
+      group: publicGroup,
+      isRoundLeader: !!(group.currentTheme && userId === group.currentTheme.czarId),
+      yourSubmissionId: ownSubmissionId(group, userId),
+      notices: noticesFor(group, userId)
     });
+  });
+
+  // The client's countdown reached zero. This is only a nudge: the server
+  // re-checks its own clock in advanceIfExpired and does nothing unless the
+  // deadline has genuinely passed, so a skewed or dishonest client gains
+  // nothing by sending it early or often.
+  on('check_round_deadline', ({ groupId }) => {
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) return;
+    if (!group.players.some(p => p.userId === userId)) return;
+
+    if (advanceIfExpired(group)) {
+      groups.set(gid, group);
+      broadcastGroup(group);
+    }
+  });
+
+  // Host clears a notice once they have read it.
+  on('acknowledge_notice', ({ groupId, noticeId }) => {
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can dismiss these' });
+      return;
+    }
+
+    const id = cleanId(noticeId);
+    group.hostNotices = (group.hostNotices || []).filter(n => n.id !== id);
+    groups.set(gid, group);
+    broadcastGroup(group);
+  });
+
+  // Host ends the submission phase before the deadline. Useful when everyone
+  // present has submitted and the group would rather not wait out the window
+  // for someone who is not coming.
+  on('close_submissions', ({ groupId }) => {
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can close submissions' });
+      return;
+    }
+
+    const theme = group.currentTheme;
+    if (!theme || theme.status !== 'submission') {
+      socket.emit('error', { message: 'This round is not taking submissions right now' });
+      return;
+    }
+    // Voting needs something to vote on, and a round with no entries should be
+    // restarted rather than pushed into an empty voting phase.
+    if (theme.submissions.length === 0) {
+      socket.emit('error', { message: 'Nobody has submitted a video yet' });
+      return;
+    }
+
+    theme.status = 'voting';
+    groups.set(gid, group);
+    broadcastGroup(group);
+    console.log('Host closed submissions early for group:', gid);
+  });
+
+  // Host hands the Judge role to someone else while the round is still waiting
+  // for a topic. A Judge who is offline (a host can pick one deliberately)
+  // would otherwise hold the round open with no deadline to expire, because
+  // topic selection has no clock by design.
+  on('reassign_judge', ({ groupId, czarUserId }) => {
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can change the Judge' });
+      return;
+    }
+
+    const theme = group.currentTheme;
+    if (!theme || theme.status !== 'topic_selection') {
+      socket.emit('error', { message: 'The Judge can only be changed while the round is choosing a topic' });
+      return;
+    }
+
+    const nextId = cleanId(czarUserId);
+    const next = nextId && group.players.find(p => p.userId === nextId);
+    if (!next) {
+      socket.emit('error', { message: 'That player is not in this group' });
+      return;
+    }
+
+    theme.czarId = next.userId;
+    groups.set(gid, group);
+    broadcastGroup(group);
+    console.log('Judge reassigned for group:', gid);
   });
 
   // Update group settings
@@ -561,6 +998,13 @@ io.on('connection', (socket) => {
       return;
     }
 
+    if (settings.submissionTime !== undefined && !isValidSubmissionTime(settings.submissionTime)) {
+      socket.emit('error', {
+        message: `Submission time must be between 1 and ${MAX_SUBMISSION_HOURS} hours`
+      });
+      return;
+    }
+
     // Update group settings
     group.settings = { ...group.settings, ...settings };
     groups.set(gid, group);
@@ -570,7 +1014,7 @@ io.on('connection', (socket) => {
   });
 
   // Start group: transitions out of setup and creates the first round
-  on('start_group', ({ groupId }) => {
+  on('start_group', ({ groupId, czarUserId }) => {
     console.log('Start group request:', { groupId, socketId: socket.id, userId });
 
     const gid = cleanId(groupId);
@@ -590,13 +1034,22 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const connectedPlayers = group.players.filter(p => p.connected !== false);
-    if (connectedPlayers.length < 1) {
-      socket.emit('error', { message: 'Need at least one connected player to start' });
+    // A round needs a Judge plus at least one contestant, so the group must
+    // have at least two MEMBERS. Deliberately not "connected": who happens to
+    // be online right now is not the host's problem — an absent player can
+    // submit when they come back, and blocking the round on presence just
+    // strands the group.
+    if (group.players.length < MIN_PLAYERS_TO_START) {
+      socket.emit('error', {
+        message: `A round needs at least ${MIN_PLAYERS_TO_START} players in the group — one to judge and one to submit`
+      });
       return;
     }
 
-    const roundLeader = beginRound(group);
+    // The host may hand-pick round 1's Round Leader, exactly as they can for
+    // later rounds. An unknown id falls through to a random pick inside
+    // beginRound rather than failing the start.
+    const roundLeader = beginRound(group, cleanId(czarUserId));
     groups.set(gid, group);
     console.log('Group started, round 1 created:', gid, 'round leader:', roundLeader.username);
     broadcastGroup(group);
@@ -626,14 +1079,25 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (group.currentTheme && group.currentTheme.status !== 'reveal') {
+    // A round that gave up after MAX_AUTO_REARMS attempts is finished waiting,
+    // even though it never left its submission phase. Letting the host start
+    // over is the escape hatch the re-arm cap depends on — without it, capping
+    // the retries would strand the group instead of protecting it.
+    const stalled = !!(group.currentTheme && group.currentTheme.rearmExhausted);
+    if (group.currentTheme && group.currentTheme.status !== 'reveal' && !stalled) {
       socket.emit('error', { message: 'Current round is still in progress' });
       return;
     }
 
-    const connectedPlayers = group.players.filter(p => p.connected !== false);
-    if (connectedPlayers.length < 1) {
-      socket.emit('error', { message: 'Need at least one connected player to start' });
+    // A round needs a Judge plus at least one contestant, so the group must
+    // have at least two MEMBERS. Deliberately not "connected": who happens to
+    // be online right now is not the host's problem — an absent player can
+    // submit when they come back, and blocking the round on presence just
+    // strands the group.
+    if (group.players.length < MIN_PLAYERS_TO_START) {
+      socket.emit('error', {
+        message: `A round needs at least ${MIN_PLAYERS_TO_START} players in the group — one to judge and one to submit`
+      });
       return;
     }
 
@@ -682,7 +1146,7 @@ io.on('connection', (socket) => {
     }
 
     if (userId === theme.czarId) {
-      socket.emit('error', { message: 'The Round Leader cannot submit a video' });
+      socket.emit('error', { message: 'The Judge cannot submit a video' });
       return;
     }
 
@@ -721,7 +1185,7 @@ io.on('connection', (socket) => {
     }
 
     theme.submissions.push({
-      id: `sub_${Date.now()}`,
+      id: uniqueId('sub_'),
       playerUserId: userId,
       videoId,
       title: videoTitle,
@@ -732,6 +1196,11 @@ io.on('connection', (socket) => {
     const eligiblePlayers = group.players.filter(p => p.connected !== false && p.userId !== theme.czarId);
     if (eligiblePlayers.length > 0 && theme.submissions.length >= eligiblePlayers.length) {
       theme.status = 'voting';
+    } else {
+      // Everyone present has not finished, but the window may have closed
+      // while this submission was in flight. Checked after the push so this
+      // entry counts towards the round rather than being stranded by it.
+      advanceIfExpired(group);
     }
 
     groups.set(gid, group);
@@ -739,7 +1208,7 @@ io.on('connection', (socket) => {
   });
 
   // Cast a vote on a submission (any connected player, including the Round Leader)
-  on('cast_vote', ({ groupId, submissionId, points, isDownvote }) => {
+  on('cast_vote', ({ groupId, submissionId, points, isDownvote, comment }) => {
     console.log('Cast vote request:', { groupId, submissionId, socketId: socket.id, userId });
 
     const gid = cleanId(groupId);
@@ -761,8 +1230,18 @@ io.on('connection', (socket) => {
     }
 
     const subId = cleanId(submissionId);
-    if (!subId || !theme.submissions.some(sub => sub.id === subId)) {
+    const target = subId && theme.submissions.find(sub => sub.id === subId);
+    if (!target) {
       socket.emit('error', { message: 'That submission is not part of this round' });
+      return;
+    }
+
+    // You cannot vote for your own submission, upvote or downvote. Enforced
+    // here and not only in the UI: the client is told which submission is its
+    // own so it can grey it out, but nothing stops a crafted payload naming
+    // it anyway.
+    if (target.playerUserId === userId) {
+      socket.emit('error', { message: 'You cannot vote for your own submission' });
       return;
     }
 
@@ -781,17 +1260,32 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Comments are opt-in per group. When the setting is off the field is
+    // dropped rather than rejected, so a stale client can't be wedged out of
+    // voting entirely by sending one.
+    let voteComment = null;
+    if (group.settings.allowVotingComments === true) {
+      voteComment = cleanText(comment, LIMITS.voteComment);
+    }
+
     theme.votes.push({
       voterUserId: userId,
       submissionId: subId,
       points: isDownvote ? -(group.settings.downvoteCost || 1) : points,
-      isDownvote: !!isDownvote
+      isDownvote: !!isDownvote,
+      comment: voteComment
     });
 
     groups.set(gid, group);
 
-    const connectedPlayers = group.players.filter(p => p.connected !== false);
-    if (theme.votes.length >= connectedPlayers.length) {
+    // Only players who have something they're allowed to vote for count
+    // towards "everyone has voted". Without this, a player whose own
+    // submission is the only one on offer — the two-player case — would
+    // never be able to vote, and the round could never resolve.
+    const eligibleVoters = group.players.filter(p =>
+      p.connected !== false && theme.submissions.some(sub => sub.playerUserId !== p.userId)
+    );
+    if (theme.votes.length >= eligibleVoters.length) {
       calculateGroupResults(group);
     } else {
       broadcastGroup(group);
@@ -816,7 +1310,7 @@ io.on('connection', (socket) => {
     }
 
     if (userId !== theme.czarId) {
-      socket.emit('error', { message: 'Only the Round Leader can select a winner' });
+      socket.emit('error', { message: 'Only the Judge can select a winner' });
       return;
     }
 

@@ -1,0 +1,10 @@
+{
+  "enabledPlugins": {
+    "discovery@greg-asher-skills": true,
+    "design@greg-asher-skills": true,
+    "execution@greg-asher-skills": true,
+    "analysis@greg-asher-skills": true,
+    "planning@greg-asher-skills": true,
+    "productivity@greg-asher-skills": true
+  }
+}

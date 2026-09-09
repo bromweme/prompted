@@ -5,37 +5,47 @@
   flex-direction: column;
 }
 
-.group-header {
-  background: var(--color-surface);
-  border-bottom: 1px solid var(--color-border-subtle);
-  padding: var(--space-4);
-  width: 100%;
+/* The page header is now the shared AppNav (components/AppNav.css). What
+   used to sit in it — name, description, status, round and player counts,
+   and the invite action — lives in this card at the top of the Overview tab,
+   so it doesn't follow you into the other tabs. */
+.group-info-card {
+  background: var(--color-bg);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-bottom: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  /* Long group names and descriptions must not size the card past its grid
+     track on a narrow viewport. */
+  min-width: 0;
 }
 
-.header-content {
-  width: 100%;
+.group-info-heading {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  min-width: 0;
 }
 
-.group-info {
-  flex: 1;
+.group-info-name {
+  font-size: var(--text-subheading);
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
-.group-info h1 {
-  font-size: var(--text-heading);
-  margin: 0 0 var(--space-1) 0;
-}
-
-.group-description {
+.group-info-description {
   color: var(--color-text-secondary);
-  margin: 0 0 var(--space-2) 0;
+  margin: 0;
   font-size: var(--text-body);
+  overflow-wrap: anywhere;
 }
 
-.group-meta {
+.group-info-meta {
   display: flex;
   gap: var(--space-3);
   align-items: center;
@@ -48,20 +58,19 @@
   font-size: var(--text-caption);
 }
 
-.header-actions {
+.group-info-actions {
   display: flex;
   gap: var(--space-2);
-  align-items: center;
   flex-wrap: wrap;
 }
 
 .countdown-timer {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: var(--space-1);
   background: var(--color-accent-subtle);
   color: var(--color-accent);
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-full);
   font-weight: var(--weight-semibold);
   font-size: var(--text-caption);
@@ -200,7 +209,9 @@
 
 .round-leader-badge {
   background: var(--color-border-subtle);
-  color: var(--color-text-secondary);
+  /* Secondary text on this tint is ~3.5:1 — below the 4.5:1 WCAG AA
+     threshold for normal-size text, so this uses primary. */
+  color: var(--color-text-primary);
   padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-full);
   font-size: var(--text-caption);
@@ -486,11 +497,6 @@
   color: var(--color-text-primary);
 }
 
-.participants-footer {
-  text-align: center;
-  padding: var(--space-4) 0;
-}
-
 /* History List */
 .history-list {
   display: flex;
@@ -641,7 +647,9 @@
   gap: var(--space-2);
 }
 
-.form-row {
+/* Scoped: `.form-row` is a shared layout class, so an unscoped rule here
+   restyles every form in the app. */
+.group-view-page .form-row {
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -679,7 +687,7 @@
   flex: 1;
 }
 
-.form-actions {
+.group-view-page .form-actions {
   display: flex;
   gap: var(--space-3);
   justify-content: flex-end;
@@ -897,6 +905,14 @@
   background: var(--color-accent-subtle);
 }
 
+/* The accent tint lifts the background enough that secondary text drops to
+   ~4.3:1 against it, just under AA. */
+.submission-item.selected .song-artist,
+.submission-item.selected .song-submitter,
+.submission-item.selected .own-submission-badge {
+  color: var(--color-text-primary);
+}
+
 .voting-actions {
   display: flex;
   align-items: center;
@@ -1041,20 +1057,6 @@
 }
 
 @media (max-width: 768px) {
-  .group-header {
-    padding: var(--space-3);
-  }
-
-  .header-content {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: var(--space-2);
-  }
-
-  .header-actions {
-    width: 100%;
-  }
-
   .group-main {
     padding: var(--space-3);
   }
@@ -1111,4 +1113,201 @@
   .stats-grid {
     grid-template-columns: repeat(4, 1fr);
   }
+}
+
+/* ---- Round phases -------------------------------------------------------
+   Each phase reads as its own section rather than a continuation of the last,
+   so it is obvious when the round has moved on. */
+.round-phase {
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  background: var(--color-bg);
+  min-width: 0;
+}
+
+.round-phase-active {
+  border-left: 4px solid var(--color-accent);
+}
+
+.round-phase-final {
+  border-left: 4px solid var(--color-success, #2e7d32);
+}
+
+.round-phase-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.round-phase-header h3 {
+  margin: 0;
+  font-size: var(--text-subheading);
+}
+
+.round-phase-step {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  color: var(--color-text-secondary);
+}
+
+/* Sits where the voting list will appear, so the layout stays put when the
+   phase flips from submission to voting. */
+.submission-confirmation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.submission-confirmed-label {
+  margin: 0;
+  font-weight: var(--weight-semibold);
+  color: var(--color-success, #2e7d32);
+}
+
+.submission-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+/* Your own submission during voting: visible, clearly labelled, not choosable. */
+.submission-item.own-submission {
+  opacity: 0.75;
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+.own-submission-badge {
+  font-size: var(--text-caption);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+
+.song-submitter {
+  font-size: var(--text-caption);
+  color: var(--color-text-secondary);
+}
+
+.vote-comments {
+  list-style: none;
+  margin: 0 0 var(--space-2) 0;
+  padding: 0 0 0 var(--space-3);
+  border-left: 2px solid var(--color-border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.vote-comment {
+  display: flex;
+  gap: var(--space-2);
+  font-size: var(--text-caption);
+  min-width: 0;
+}
+
+.vote-comment-author {
+  color: var(--color-text-secondary);
+  font-weight: var(--weight-semibold);
+  flex: 0 0 auto;
+}
+
+.vote-comment-text {
+  color: var(--color-text-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.vote-comment-field {
+  flex: 1 1 220px;
+  min-width: 0;
+}
+
+/* The viewer's own role for this round. Built from the same tokens as the
+   other badges (.theme-status, .round-leader-badge) so it reads as part of
+   the same family. */
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-full);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+}
+
+.role-badge.role-judge {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.role-badge.role-contestant {
+  background: var(--color-border-subtle);
+  /* Primary rather than secondary: secondary on this tint falls below the
+     4.5:1 AA threshold (the same issue the voting scan caught earlier). */
+  color: var(--color-text-primary);
+}
+
+/* Host notices: durable messages that outlived the moment they happened, most
+   importantly a round that restarted while the host was offline. Scoped to the
+   page so this cannot bleed into the shared component styles — the mistake that
+   once made every primary button in the app invisible. */
+.group-view-page .host-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.group-view-page .host-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.75rem 1rem;
+  background: var(--color-bg);
+  /* --color-border is too faint against a white panel to satisfy WCAG 1.4.11,
+     which asks for 3:1 on a UI component boundary. */
+  border: 1px solid var(--color-text-secondary);
+  border-left: 4px solid var(--color-accent);
+  border-radius: var(--radius-md);
+}
+
+.group-view-page .host-notice-text {
+  margin: 0;
+  color: var(--color-text-primary);
+  font-size: 0.9rem;
+}
+
+.group-view-page .host-notice-dismiss {
+  flex-shrink: 0;
+  padding: 0.4rem 0.85rem;
+  background: var(--color-bg);
+  border: 1px solid var(--color-text-secondary);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.group-view-page .host-notice-dismiss:hover {
+  background: var(--color-text-secondary);
+  /* Re-asserted so the label does not stay dark on a dark fill. */
+  color: #ffffff;
+}
+
+.group-view-page .round-host-actions {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.group-view-page .round-host-actions .form-hint {
+  margin-top: 0.4rem;
 }

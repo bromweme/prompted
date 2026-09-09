@@ -2,6 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
+import AppNav from '../components/AppNav'
 import './CreateGroup.css'
 
 const STEPS = ['Basics', 'Game Rules', 'Override & Timing', 'Topics & Extras']
@@ -19,11 +20,18 @@ function CreateGroup() {
   const [groupName, setGroupName] = useState('')
   const [groupDescription, setGroupDescription] = useState('')
   const [isPrivate, setIsPrivate] = useState(false)
+  // Host-only invites by default: most hosts won't think to configure this,
+  // and opening it up later is a single toggle.
+  const [allowMemberInvites, setAllowMemberInvites] = useState(false)
+  // Off by default: a quiet round is the safer starting point, and a host who
+  // wants discussion can switch it on.
+  const [allowVotingComments, setAllowVotingComments] = useState(false)
+  // Dependent on the toggle above: with comments off there is nothing to show.
+  const [showCommentsLive, setShowCommentsLive] = useState(false)
 
   // Game Settings
   const [totalRounds, setTotalRounds] = useState(6)
   const [maxPlayers, setMaxPlayers] = useState(12)
-  const [minPlayers, setMinPlayers] = useState(2)
 
   // Card Czar Settings
   const [czarPoints, setCzarPoints] = useState(5)
@@ -45,9 +53,10 @@ function CreateGroup() {
   const [autoStart, setAutoStart] = useState(false)
 
   // Topic Settings
-  const [topicSelection, setTopicSelection] = useState('czar') // czar, random, vote
+  // 'czar' is the only implemented mode — see the select in the Topics step
+  // for the alternatives being held for later.
+  const [topicSelection, setTopicSelection] = useState('czar')
   const [allowCustomTopics, setAllowCustomTopics] = useState(true)
-  const [presetTopics, setPresetTopics] = useState('')
 
   // Features
   const [enableChat, setEnableChat] = useState(false)
@@ -99,7 +108,6 @@ function CreateGroup() {
       settings: {
         totalRounds,
         maxPlayers,
-        minPlayers,
         czarPoints,
         allowSkipCzar,
         anonymousCzar,
@@ -113,7 +121,9 @@ function CreateGroup() {
         autoStart,
         topicSelection,
         allowCustomTopics,
-        presetTopics: presetTopics ? presetTopics.split('\n').filter(t => t.trim()) : [],
+        allowMemberInvites,
+        allowVotingComments,
+        showCommentsLive: allowVotingComments ? showCommentsLive : false,
         enableChat,
         enableSongPreview,
         showVoterIdentity
@@ -145,20 +155,10 @@ function CreateGroup() {
     <div className="create-group-page">
       <a href="#main-content" className="skip-link">Skip to main content</a>
 
-      <header className="page-header">
-        <div className="header-content">
-          <button
-            className="back-button"
-            onClick={handleCancel}
-            aria-label="Go back to dashboard"
-          >
-            ← Back to Dashboard
-          </button>
-          <h1>Create New Group</h1>
-        </div>
-      </header>
+      <AppNav />
 
       <main id="main-content" className="create-group-main">
+        <h1 className="page-title">Create New Group</h1>
         <div
           className="wizard-progress"
           role="group"
@@ -231,6 +231,24 @@ function CreateGroup() {
                     <span>Private Group (invite only)</span>
                   </label>
                 </div>
+
+                <div className="form-group checkbox-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={allowMemberInvites}
+                      onChange={(e) => setAllowMemberInvites(e.target.checked)}
+                    />
+                    <span>Allow members to invite others</span>
+                  </label>
+                  {/* Deliberately worded around sharing, not access. The
+                      setting decides who is shown the invite link; anyone who
+                      already has the link can still join either way. */}
+                  <small className="form-hint">
+                    When off, only you can share the invite link. This controls who can
+                    share an invite — not who can join, since anyone with the link can join.
+                  </small>
+                </div>
               </section>
             </div>
           )}
@@ -238,7 +256,7 @@ function CreateGroup() {
           {step === 1 && (
             <div className="wizard-step">
               <h2 ref={stepHeadingRef} tabIndex={-1} className="wizard-step-title">Game Rules</h2>
-              <p className="wizard-step-description">Set the pace of a round and how the Card Czar and jury work.</p>
+              <p className="wizard-step-description">Set the pace of a round and how the Judge and jury work.</p>
 
               <section className="form-section">
                 <h3>Game Settings</h3>
@@ -274,27 +292,14 @@ function CreateGroup() {
                     </select>
                   </div>
 
-                  <div className="form-group">
-                    <label htmlFor="min-players">Minimum Players to Start</label>
-                    <select
-                      id="min-players"
-                      value={minPlayers}
-                      onChange={(e) => setMinPlayers(parseInt(e.target.value))}
-                    >
-                      <option value={2}>2 Players</option>
-                      <option value={3}>3 Players</option>
-                      <option value={4}>4 Players</option>
-                      <option value={5}>5 Players</option>
-                    </select>
-                  </div>
                 </div>
               </section>
 
               <section className="form-section">
-                <h3>Card Czar Settings</h3>
+                <h3>Judge Settings</h3>
                 <div className="form-row">
                   <div className="form-group">
-                    <label htmlFor="czar-points">Points for Czar's Pick</label>
+                    <label htmlFor="czar-points">Points for Judge's Pick</label>
                     <input
                       id="czar-points"
                       type="number"
@@ -303,7 +308,7 @@ function CreateGroup() {
                       min="1"
                       max="10"
                     />
-                    <small className="form-hint">Points awarded when Card Czar selects a winner</small>
+                    <small className="form-hint">Points awarded when the Judge selects a winner</small>
                   </div>
 
                   <div className="form-group checkbox-group">
@@ -313,9 +318,9 @@ function CreateGroup() {
                         checked={allowSkipCzar}
                         onChange={(e) => setAllowSkipCzar(e.target.checked)}
                       />
-                      <span>Allow Skip Card Czar</span>
+                      <span>Allow Skip Judge</span>
                     </label>
-                    <small className="form-hint">Players can skip being Card Czar</small>
+                    <small className="form-hint">Players can skip being Judge</small>
                   </div>
 
                   <div className="form-group checkbox-group">
@@ -325,9 +330,9 @@ function CreateGroup() {
                         checked={anonymousCzar}
                         onChange={(e) => setAnonymousCzar(e.target.checked)}
                       />
-                      <span>Anonymous Card Czar</span>
+                      <span>Anonymous Judge</span>
                     </label>
-                    <small className="form-hint">Czar identity hidden until round end</small>
+                    <small className="form-hint">Judge identity hidden until round end</small>
                   </div>
                 </div>
               </section>
@@ -373,6 +378,38 @@ function CreateGroup() {
                     </label>
                     <small className="form-hint">Players can downvote submissions</small>
                   </div>
+
+                  <div className="form-group checkbox-group">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={allowVotingComments}
+                        onChange={(e) => setAllowVotingComments(e.target.checked)}
+                      />
+                      <span>Allow comments during voting</span>
+                    </label>
+                    <small className="form-hint">
+                      Voters can leave a short note with their vote. Comments stay anonymous
+                      until the round is revealed.
+                    </small>
+                  </div>
+
+                  {allowVotingComments && (
+                    <div className="form-group checkbox-group">
+                      <label className="checkbox-label">
+                        <input
+                          type="checkbox"
+                          checked={showCommentsLive}
+                          onChange={(e) => setShowCommentsLive(e.target.checked)}
+                        />
+                        <span>Show comments live during voting</span>
+                      </label>
+                      <small className="form-hint">
+                        When off, comments are collected but stay hidden from other players
+                        until the reveal.
+                      </small>
+                    </div>
+                  )}
                 </div>
               </section>
             </div>
@@ -381,7 +418,7 @@ function CreateGroup() {
           {step === 2 && (
             <div className="wizard-step">
               <h2 ref={stepHeadingRef} tabIndex={-1} className="wizard-step-title">Override & Timing</h2>
-              <p className="wizard-step-description">Decide if the crowd can overrule the Czar, and how long each phase lasts.</p>
+              <p className="wizard-step-description">Decide if the crowd can overrule the Judge, and how long each phase lasts.</p>
 
               <section className="form-section">
                 <h3>Override Settings</h3>
@@ -395,7 +432,7 @@ function CreateGroup() {
                       />
                       <span>Allow Public Vote Override</span>
                     </label>
-                    <small className="form-hint">Public vote can override Czar's choice</small>
+                    <small className="form-hint">Public vote can override the Judge's choice</small>
                   </div>
 
                   <div className="form-group">
@@ -475,12 +512,28 @@ function CreateGroup() {
                       value={topicSelection}
                       onChange={(e) => setTopicSelection(e.target.value)}
                     >
-                      <option value="czar">Card Czar Selects</option>
+                      <option value="czar">Judge Selects</option>
+                      {/* Only "Judge Selects" is implemented: the Judge picks
+                          from their topic library at the start of each round.
+                          The options below are future ideas kept for their
+                          design intent, not rejected ones — offering them now
+                          would let a host choose something that silently does
+                          nothing. Each needs real mechanics before it comes
+                          back:
+                            random   - a pool to draw from, and a rule for
+                                       whose topics are eligible
+                            vote     - a whole voting sub-phase before
+                                       submissions open
+                            rotation - per-group ordering state so each
+                                       player's topics come up in turn
                       <option value="random">Random from Preset</option>
                       <option value="vote">Players Vote on Topic</option>
                       <option value="rotation">Topic Rotation</option>
+                      */}
                     </select>
-                    <small className="form-hint">How topics are selected each round</small>
+                    <small className="form-hint">
+                      The Judge picks from their topic library at the start of each round.
+                    </small>
                   </div>
 
                   <div className="form-group checkbox-group">
@@ -496,17 +549,6 @@ function CreateGroup() {
                   </div>
                 </div>
 
-                <div className="form-group">
-                  <label htmlFor="preset-topics">Preset Topics (one per line)</label>
-                  <textarea
-                    id="preset-topics"
-                    value={presetTopics}
-                    onChange={(e) => setPresetTopics(e.target.value)}
-                    placeholder="Songs that describe your mood today&#10;Best workout songs&#10;Songs that make you cry&#10;Guilty pleasures"
-                    rows={6}
-                  />
-                  <small className="form-hint">Add preset topics that players can choose from</small>
-                </div>
               </section>
 
               <section className="form-section">

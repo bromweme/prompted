@@ -173,6 +173,11 @@ a {
 .join-button:hover:not(:disabled) {
   background: var(--color-accent-hover);
   border-color: var(--color-accent-hover);
+  /* Re-asserted deliberately: the secondary hover rule matches bare
+     .action-button, which the .edit/.primary variants also carry, and its
+     :hover:not(:disabled) outranks this block's resting colour. Without this
+     the label turned accent-blue on accent-hover-blue (~1.2:1). */
+  color: #ffffff;
   transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
 }
@@ -189,8 +194,15 @@ a {
 .danger-button.secondary,
 .join-group-button,
 .view-round-button {
-  background: var(--color-surface);
-  border-color: var(--color-border);
+  /* Secondary buttons appear on BOTH ground colours: white panels
+     (.modal-content, .group-main-content, .group-card) and the page ground
+     (.setup-state and friends, --color-bg). A white fill vanished on the
+     former; a --color-bg fill alone would vanish on the latter. So the fill
+     lifts it off white panels, and the border — dark enough to read on
+     either (~4.5:1 on white, ~4.3:1 on --color-bg) — is what actually
+     guarantees the button is always visible. */
+  background: var(--color-bg);
+  border-color: var(--color-text-secondary);
   color: var(--color-text-secondary);
 }
 
@@ -224,6 +236,8 @@ a {
 .action-button.delete:hover:not(:disabled) {
   background: var(--color-danger-hover);
   border-color: var(--color-danger-hover);
+  /* As above — otherwise the label went accent-blue on dark red. */
+  color: #ffffff;
   transform: translateY(-1px);
   box-shadow: var(--shadow-sm);
 }
@@ -357,7 +371,10 @@ button:disabled {
 .form-row textarea {
   width: 100%;
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
+  /* --color-border is 1.51:1 on a white panel; WCAG 1.4.11 requires 3:1 for
+     the boundary of a user interface component, and a field you cannot see
+     the edge of is exactly that failure. */
+  border: 1px solid var(--color-text-secondary);
   border-radius: var(--radius-sm);
   font-family: inherit;
   font-size: var(--text-body);

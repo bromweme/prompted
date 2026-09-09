@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, seedTestUser } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, testRunId } from './helpers.js'
 
 // Guards the invite modal's copy-to-clipboard confirmation. Two traps make
 // this test easy to write wrongly, so both are handled explicitly below.
@@ -14,9 +14,9 @@ test('invite modal confirms a successful copy, then reverts', async ({ page, con
     await context.grantPermissions(['clipboard-write'])
   }
 
-  await seedTestUser(context, { id: `invite-${Date.now()}`, name: 'Invite Tester' })
+  await seedTestUser(context, { id: `invite-${testRunId()}`, name: 'Invite Tester' })
 
-  await createGroupThroughWizard(page, `Invite Link Group ${Date.now()}`)
+  await createGroupThroughWizard(page, `Invite Link Group ${testRunId()}`)
   await expect(page).toHaveURL(/\/group\/.+/)
 
   await page.getByRole('button', { name: 'Invite players to group' }).click()

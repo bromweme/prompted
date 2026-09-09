@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, seedTestUser, submitVideoThroughSearch } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, startRoundAsHost, testRunId } from './helpers.js'
 
 // This test drives the real, merged group game loop end to end over real
 // socket.io traffic (see server/server.js): create a group, join it as a
@@ -61,7 +61,7 @@ async function newPlayerContext(browser, { id, name }) {
 }
 
 test('two players play a full round: join, assign, submit, vote, resolve, next round', async ({ browser }) => {
-  const runId = Date.now()
+  const runId = testRunId()
   const player1 = await newPlayerContext(browser, { id: `e2e-host-${runId}`, name: 'Host Player' })
   const player2 = await newPlayerContext(browser, { id: `e2e-guest-${runId}`, name: 'Guest Player' })
 
@@ -93,10 +93,11 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
   })
 
   await test.step('host starts the group (round 1 begins, a Round Leader is assigned)', async () => {
-    await player1.page.getByRole('button', { name: 'Start Group' }).click()
+    await startRoundAsHost(player1.page)
 
-    await expect.poll(() => latestGroupUpdate(player1.events)?.group?.currentTheme?.status).toBe('submission')
-    await expect.poll(() => latestGroupUpdate(player2.events)?.group?.currentTheme?.status).toBe('submission')
+    // A round now opens waiting for the Leader to choose a topic.
+    await expect.poll(() => latestGroupUpdate(player1.events)?.group?.currentTheme?.status).toBe('topic_selection')
+    await expect.poll(() => latestGroupUpdate(player2.events)?.group?.currentTheme?.status).toBe('topic_selection')
   })
 
   const p1IsLeader = latestGroupUpdate(player1.events).isRoundLeader
@@ -108,6 +109,17 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
 
   const leader = p1IsLeader ? player1 : player2
   const nonLeader = p1IsLeader ? player2 : player1
+
+  await test.step('the Round Leader chooses a topic, which opens submissions', async () => {
+    await leader.page.getByRole('button', { name: 'Round', exact: true }).click()
+    await selectTopicAsJudge(leader.page)
+
+    await expect.poll(() => latestGroupUpdate(player1.events)?.group?.currentTheme?.status).toBe('submission')
+    await expect.poll(() => latestGroupUpdate(player2.events)?.group?.currentTheme?.status).toBe('submission')
+    // The submission clock only starts once the topic exists.
+    expect(latestGroupUpdate(player1.events).group.currentTheme.deadline).toBeTruthy()
+    expect(latestGroupUpdate(player1.events).group.currentTheme.title).toBeTruthy()
+  })
 
   await test.step('the Round Leader is never identifiable in a payload before reveal', () => {
     const allEvents = [...player1.events, ...player2.events]
@@ -143,7 +155,9 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
 
   await test.step('submissions are anonymous during voting', async () => {
     await leader.page.getByRole('button', { name: 'Round', exact: true }).click()
-    await expect(leader.page.getByText(submittedTitle)).toBeVisible()
+    // The title also appears in the round's video list, so scope to the
+    // voting list to keep this unambiguous.
+    await expect(leader.page.locator('.submissions-list').getByText(submittedTitle)).toBeVisible()
 
     // Submitter identity must not be present on the anonymized submission
     // (group.host legitimately carries the host's id elsewhere in the same
@@ -155,10 +169,10 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
   })
 
   await test.step('both players vote, including the Round Leader', async () => {
-    for (const player of [leader, nonLeader]) {
-      await player.page.getByText(submittedTitle).click()
-      await player.page.getByRole('button', { name: 'Cast Vote' }).click()
-    }
+    // Only the leader can vote here: the sole submission is the non-leader's
+    // own, and self-voting is blocked in the UI and on the server.
+    await leader.page.locator('.submissions-list').getByText(submittedTitle).click()
+    await leader.page.getByRole('button', { name: 'Cast Vote' }).click()
 
     await expect.poll(() => latestGroupUpdate(player1.events)?.group?.currentTheme?.status).toBe('reveal')
     await expect.poll(() => latestGroupUpdate(player2.events)?.group?.currentTheme?.status).toBe('reveal')
@@ -168,9 +182,10 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
     const result = latestGroupUpdate(player1.events).group
     const theme = result.currentTheme
 
-    // With both votes unanimously behind the only submission (2/2 = 100%
-    // meets the default 70% override threshold), this resolves as a public
-    // override rather than falling through to the popular-vote branch.
+    // The leader's vote is the only one possible — the sole submission
+    // belongs to the other player, who may not vote for their own — so 1/1 =
+    // 100% clears the default 70% override threshold and this resolves as a
+    // public override rather than falling through to the popular-vote branch.
     const winningSubmission = theme.submissions.find((s) => s.wonBy)
     expect(winningSubmission).toBeTruthy()
     expect(winningSubmission.title).toBe(submittedTitle)
@@ -183,12 +198,12 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
     expect(theme.czarUsername).toBe(expectedLeaderName)
 
     // Scoring: the submitter (non-leader) gets czarPoints (5, the create
-    // form's default) for winning, plus a jury bonus (their own vote's
-    // point value, default 1) for voting for the winning submission. The
-    // Round Leader only collects their own jury bonus (1).
+    // form's default) for winning. They earn no jury bonus this round because
+    // the only submission was their own and self-voting is not allowed. The
+    // Round Leader collects their own jury bonus (1) for backing the winner.
     const submitterName = p1IsLeader ? 'Guest Player' : 'Host Player'
     const scoreOf = (name) => result.players.find((p) => p.username === name).score
-    expect(scoreOf(submitterName)).toBe(6)
+    expect(scoreOf(submitterName)).toBe(5)
     expect(scoreOf(expectedLeaderName)).toBe(1)
 
     // History recorded the completed round.
@@ -215,11 +230,10 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
   await test.step('a second round can start cleanly afterward', async () => {
     // Player 1 created the group, so they're always the host regardless of
     // who was Round Leader for round 1.
-    await player1.page.getByRole('button', { name: 'Start Next Round' }).click()
-    await player1.page.getByRole('dialog').getByRole('button', { name: 'Randomly Assign' }).click()
+    await startRoundAsHost(player1.page)
 
     await expect.poll(() => latestGroupUpdate(player1.events)?.group?.currentRound).toBe(2)
-    await expect.poll(() => latestGroupUpdate(player1.events)?.group?.currentTheme?.status).toBe('submission')
+    await expect.poll(() => latestGroupUpdate(player1.events)?.group?.currentTheme?.status).toBe('topic_selection')
     await expect.poll(() => latestGroupUpdate(player2.events)?.group?.currentRound).toBe(2)
   })
 

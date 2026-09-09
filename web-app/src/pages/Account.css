@@ -135,34 +135,8 @@
   margin: 0 0 var(--space-2) 0;
 }
 
-.avatar-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: var(--space-1);
-}
-
-.avatar-option {
-  width: 46px;
-  height: 46px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: 50%;
-  font-size: 1.25rem;
-  cursor: pointer;
-  transition: border-color var(--transition-fast), transform var(--transition-fast);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.avatar-option:hover {
-  border-color: var(--color-accent);
-}
-
-.avatar-option.selected {
-  border-color: var(--color-accent);
-  background: var(--color-accent-subtle);
-}
+/* .avatar-grid / .avatar-option now live in components/AvatarPicker.css,
+   shared with the first-time profile setup modal. */
 
 .profile-details {
   display: flex;
@@ -467,4 +441,10 @@ input:checked + .slider:before {
   height: 110px;
   border-radius: 50%;
   object-fit: cover;
+}
+
+.save-error {
+  color: var(--color-danger, #c0392b);
+  font-size: var(--text-caption);
+  margin: 0;
 }

@@ -36,15 +36,15 @@ function Login() {
               <h2>Welcome to Prompted</h2>
               <p>
                 A Cards Against Humanity-style music game where players submit videos
-                based on prompts, with a Round Leader judging the submissions.
+                based on prompts, with a Judge picking the winner.
               </p>
             </div>
 
             <div className="features-section">
               <div className="feature-item">
                 <div className="feature-icon" aria-hidden="true">🎴</div>
-                <h3>Round Leader System</h3>
-                <p>Anonymous judge picks the winning video each round</p>
+                <h3>Judge System</h3>
+                <p>An anonymous Judge picks the winning video each round</p>
               </div>
               <div className="feature-item">
                 <div className="feature-icon" aria-hidden="true">📺</div>

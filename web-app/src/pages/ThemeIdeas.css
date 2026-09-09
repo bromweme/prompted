@@ -1,13 +1,13 @@
 .theme-ideas-page {
   min-height: 100vh;
-  background: var(--background-light);
+  background: var(--color-bg);
   display: flex;
   flex-direction: column;
 }
 
 .page-header {
   background: white;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--color-border);
   padding: 1.5rem 2rem;
 }
 
@@ -19,25 +19,18 @@
   gap: 2rem;
 }
 
-.back-button {
-  background: var(--background-light);
-  border: 1px solid var(--border-color);
-  padding: 0.5rem 1rem;
-  border-radius: 6px;
-  color: var(--text-secondary);
-  font-weight: 500;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.back-button:hover {
-  background: var(--border-color);
-  color: var(--text-primary);
-}
+/* Shared button classes (.back-button, .add-button, .action-button,
+   .cancel-button, .submit-button) are deliberately NOT restyled here.
+   This stylesheet is global once the page is imported, and it loads after
+   index.css, so any rule for a shared class silently overrides the whole app.
+   They previously did exactly that, using a retired token set — the undefined
+   var() made `background` invalid, so it fell back to transparent while
+   `color: white` stuck, and every primary button in the app went invisible.
+   Style buttons in index.css; keep only page-specific classes here. */
 
 .header-content h1 {
   font-size: 1.75rem;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   margin: 0;
   font-weight: 700;
 }
@@ -62,43 +55,23 @@
   justify-content: space-between;
   align-items: center;
   background: white;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 2rem;
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-sm);
 }
 
 .header-info h2 {
   font-size: 1.5rem;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   margin: 0 0 0.5rem 0;
   font-weight: 600;
 }
 
 .subtitle {
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   margin: 0;
   font-size: 0.95rem;
-}
-
-.add-button {
-  background: var(--primary-blue);
-  color: white;
-  border: none;
-  padding: 0.75rem 1.5rem;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.add-button:hover {
-  background: var(--primary-blue-dark);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
 }
 
 .button-icon {
@@ -109,10 +82,10 @@
 /* Ideas List */
 .ideas-list {
   background: white;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 2rem;
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-sm);
 }
 
 .empty-state {
@@ -127,24 +100,13 @@
 
 .empty-state h3 {
   font-size: 1.5rem;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   margin: 0 0 0.5rem 0;
 }
 
 .empty-state p {
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   margin: 0 0 1.5rem 0;
-}
-
-.add-button.empty {
-  background: var(--primary-blue);
-  color: white;
-  border: none;
-  padding: 0.75rem 2rem;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
 }
 
 .themes-grid {
@@ -154,8 +116,8 @@
 }
 
 .theme-card {
-  background: var(--background-light);
-  border: 1px solid var(--border-color);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   overflow: hidden;
   transition: transform 0.2s, box-shadow 0.2s, border-color 0.2s;
@@ -163,8 +125,8 @@
 
 .theme-card:hover {
   transform: translateY(-4px);
-  box-shadow: var(--card-shadow);
-  border-color: var(--primary-blue);
+  box-shadow: var(--shadow-sm);
+  border-color: var(--color-accent);
 }
 
 .theme-card-header {
@@ -173,11 +135,11 @@
   align-items: center;
   padding: 1rem 1.5rem;
   background: white;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .theme-date {
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-size: 0.85rem;
 }
 
@@ -204,40 +166,12 @@
   gap: 0.5rem;
 }
 
-.action-button {
-  padding: 0.4rem 0.75rem;
-  border-radius: 6px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-  border: none;
-}
-
-.action-button.edit {
-  background: var(--primary-blue);
-  color: white;
-}
-
-.action-button.edit:hover {
-  background: var(--primary-blue-dark);
-}
-
-.action-button.delete {
-  background: var(--error);
-  color: white;
-}
-
-.action-button.delete:hover {
-  background: #dc2626;
-}
-
 .theme-card-body {
   padding: 1.5rem;
 }
 
 .theme-text {
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   font-size: 1.1rem;
   line-height: 1.5;
   margin: 0;
@@ -247,15 +181,15 @@
 /* Quick Ideas Section */
 .quick-ideas-section {
   background: white;
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 2rem;
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-sm);
 }
 
 .quick-ideas-section h3 {
   font-size: 1.25rem;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   margin: 0 0 1.5rem 0;
   font-weight: 600;
 }
@@ -267,8 +201,8 @@
 }
 
 .quick-idea-card {
-  background: var(--background-light);
-  border: 2px dashed var(--border-color);
+  background: var(--color-bg);
+  border: 2px dashed var(--color-border);
   border-radius: 8px;
   padding: 1.5rem;
   text-align: center;
@@ -277,10 +211,10 @@
 }
 
 .quick-idea-card:hover {
-  border-color: var(--primary-blue);
+  border-color: var(--color-accent);
   border-style: solid;
   transform: translateY(-2px);
-  box-shadow: var(--card-shadow);
+  box-shadow: var(--shadow-sm);
 }
 
 .idea-icon {
@@ -291,7 +225,7 @@
 
 .quick-idea-card h4 {
   font-size: 0.95rem;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   margin: 0;
   font-weight: 600;
 }
@@ -311,14 +245,15 @@
   padding: 2rem;
 }
 
-.modal-content {
-  background: white;
+/* Scoped: index.css owns `.modal-content` for every modal in the app. */
+.theme-ideas-page .modal-content {
+  background: var(--color-surface);
   border-radius: 16px;
   max-width: 500px;
   width: 100%;
   max-height: 90vh;
   overflow-y: auto;
-  box-shadow: var(--card-shadow-lg);
+  box-shadow: var(--shadow-lg);
 }
 
 .modal-header {
@@ -326,12 +261,12 @@
   align-items: center;
   justify-content: space-between;
   padding: 1.5rem 2rem;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--color-border);
 }
 
 .modal-header h2 {
   font-size: 1.5rem;
-  color: var(--text-primary);
+  color: var(--color-text-primary);
   margin: 0;
   font-weight: 600;
 }
@@ -340,7 +275,7 @@
   background: none;
   border: none;
   font-size: 2rem;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   cursor: pointer;
   padding: 0;
   line-height: 1;
@@ -348,46 +283,23 @@
 }
 
 .close-button:hover {
-  color: var(--text-primary);
+  color: var(--color-text-primary);
 }
 
 .modal-body {
   padding: 2rem;
 }
 
-.form-group {
-  margin-bottom: 1.5rem;
-}
+/* .form-group / .form-label / .form-group textarea are shared form classes
+   styled in index.css. Restyling them here would apply app-wide, because this
+   stylesheet is global once the page is imported and loads after index.css —
+   this rule was overriding the Create Group wizard's textarea with a 1.51:1
+   border. Keep only page-specific classes in this file. */
 
-.form-group label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 600;
-  color: var(--text-primary);
-  font-size: 0.9rem;
-}
-
-.form-group textarea {
-  width: 100%;
-  padding: 0.75rem;
-  border: 2px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 1rem;
-  font-family: inherit;
-  transition: border-color 0.2s;
-  resize: vertical;
-  min-height: 80px;
-}
-
-.form-group textarea:focus {
-  outline: none;
-  border-color: var(--primary-blue);
-}
-
-.form-hint {
+.theme-ideas-page .form-hint {
   display: block;
   margin-top: 0.5rem;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   font-size: 0.8rem;
   line-height: 1.4;
 }
@@ -397,43 +309,6 @@
   gap: 1rem;
   justify-content: flex-end;
   margin-top: 2rem;
-}
-
-.cancel-button,
-.submit-button {
-  padding: 0.75rem 1.5rem;
-  border-radius: 8px;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.cancel-button {
-  background: var(--background-light);
-  border: 1px solid var(--border-color);
-  color: var(--text-secondary);
-}
-
-.cancel-button:hover {
-  background: var(--border-color);
-  color: var(--text-primary);
-}
-
-.submit-button {
-  background: var(--primary-blue);
-  border: none;
-  color: white;
-}
-
-.submit-button:hover:not(:disabled) {
-  background: var(--primary-blue-dark);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
-}
-
-.submit-button:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 
 /* Responsive Design */

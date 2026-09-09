@@ -21,8 +21,8 @@ export const useTopics = (gameId = 'global') => {
     socket.emit('get_topics', { gameId })
 
     socket.on('topics_list', ({ privateTopics, publicTopics }) => {
-      // The two lists are disjoint (private = your own non-public ones,
-      // public = everyone's public ones), so this can't double up your own.
+      // Both lists are the requester's own topics, split by whether they're
+      // shared — disjoint, so merging can't produce duplicates.
       const allTopics = [...privateTopics, ...publicTopics]
       setThemes(allTopics)
     })

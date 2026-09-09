@@ -1,0 +1,84 @@
+.topic-picker {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.topic-picker h4 {
+  margin: 0;
+  font-size: var(--text-body);
+}
+
+.topic-picker-empty {
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  margin: 0;
+}
+
+.topic-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.topic-option {
+  width: 100%;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--transition-fast), background-color var(--transition-fast);
+  min-width: 0;
+}
+
+.topic-option:hover {
+  border-color: var(--color-accent);
+}
+
+/* Used topics stay selectable — the mark is information, not a restriction,
+   because reusing a topic is the host's call. */
+.topic-option.used {
+  border-style: dashed;
+  background: var(--color-bg);
+}
+
+.topic-text {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-medium);
+  overflow-wrap: anywhere;
+}
+
+.topic-tags {
+  display: flex;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.topic-tag {
+  font-size: var(--text-caption);
+  color: var(--color-text-secondary);
+}
+
+.topic-tag-used {
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.topic-create {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+}

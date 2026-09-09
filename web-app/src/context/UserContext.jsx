@@ -43,8 +43,11 @@ export const UserProvider = ({ children }) => {
   // A fresh Google credential, held only long enough to be exchanged for a
   // session token on the next connection.
   const [googleIdToken, setGoogleIdToken] = useState(null)
-  const [testUser] = useState(readTestUser)
+  const [testUser, setTestUser] = useState(readTestUser)
   const [authError, setAuthError] = useState(null)
+  // The avatar set the server accepts, sent with every session payload. Kept
+  // server-side so the picker and the server's allowlist can't drift apart.
+  const [avatarChoices, setAvatarChoices] = useState([])
 
   // What the socket handshake presents. A stored session token is the normal
   // path; a Google credential is used the first time or after one expires.
@@ -55,10 +58,12 @@ export const UserProvider = ({ children }) => {
     return null
   }, [sessionToken, googleIdToken, testUser])
 
-  // Called by SocketContext when the server confirms who we are.
-  const onSession = useCallback(({ sessionToken: token, user: authedUser }) => {
+  // Called by SocketContext when the server confirms who we are, and again
+  // after a profile edit — so a rename or a new avatar lands here too.
+  const onSession = useCallback(({ sessionToken: token, user: authedUser, avatarChoices: choices }) => {
     setAuthError(null)
     setUser(authedUser)
+    if (Array.isArray(choices) && choices.length > 0) setAvatarChoices(choices)
     if (token) {
       setSessionToken(token)
       setGoogleIdToken(null)
@@ -80,8 +85,12 @@ export const UserProvider = ({ children }) => {
     setUser(null)
     setSessionToken(null)
     setGoogleIdToken(null)
+    // The seeded test identity is a credential too: leaving it would let the
+    // socket immediately re-authenticate and make logout a no-op in dev.
+    setTestUser(null)
     try {
       localStorage.removeItem(SESSION_KEY)
+      localStorage.removeItem(TEST_USER_KEY)
     } catch {
       // Nothing to clean up if storage is unavailable.
     }
@@ -94,6 +103,7 @@ export const UserProvider = ({ children }) => {
     setUser(null)
     setSessionToken(null)
     setGoogleIdToken(null)
+    setTestUser(null)
     try {
       localStorage.removeItem(SESSION_KEY)
     } catch {
@@ -122,6 +132,10 @@ export const UserProvider = ({ children }) => {
     // Routes must wait rather than bounce to sign-in, or every reload would
     // flash the login screen before landing where the user asked to go.
     isResolvingAuth: !!authPayload && !user && !authError,
+    // A profile with no avatar has never been through first-time setup. The
+    // server leaves it null on the very first sign-in and never again.
+    needsProfileSetup: !!user && !user.avatar,
+    avatarChoices,
     authPayload,
     authError,
     signInWithGoogle,

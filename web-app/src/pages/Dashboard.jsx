@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
 import { useModalA11y } from '../hooks/useModalA11y'
+import ProfileSetupModal from '../components/ProfileSetupModal'
+import AppNav from '../components/AppNav'
 import './Dashboard.css'
 
 function Dashboard() {
@@ -10,7 +12,7 @@ function Dashboard() {
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [joinCode, setJoinCode] = useState('')
   const { socket, isConnected } = useSocket()
-  const { user } = useUser()
+  const { user, needsProfileSetup } = useUser()
   const navigate = useNavigate()
   const location = useLocation()
   const joinModalRef = useRef(null)
@@ -84,7 +86,6 @@ function Dashboard() {
         settings: {
           totalRounds: group.settings.totalRounds || 6,
           maxPlayers: group.settings.maxPlayers || 12,
-          minPlayers: group.settings.minPlayers || 2,
           czarPoints: group.settings.czarPoints || 5,
           allowSkipCzar: group.settings.allowSkipCzar !== false,
           anonymousCzar: group.settings.anonymousCzar !== false,
@@ -98,7 +99,6 @@ function Dashboard() {
           autoStart: group.settings.autoStart || false,
           topicSelection: group.settings.topicSelection || 'czar',
           allowCustomTopics: group.settings.allowCustomTopics !== false,
-          presetTopics: group.settings.presetTopics || [],
           enableChat: group.settings.enableChat || false,
           enableSongPreview: group.settings.enableSongPreview !== false,
           showVoterIdentity: group.settings.showVoterIdentity || false
@@ -145,11 +145,6 @@ function Dashboard() {
     })
   }
 
-  const handleLogout = () => {
-    localStorage.removeItem('user')
-    navigate('/')
-  }
-
   if (!user) {
     return <div className="loading">Loading...</div>
   }
@@ -158,45 +153,7 @@ function Dashboard() {
     <div className="dashboard-page">
       <a href="#main-content" className="skip-link">Skip to main content</a>
       
-      <header className="dashboard-header">
-        <div className="header-content">
-          <div className="logo">
-            <h1>🎵 Prompted</h1>
-          </div>
-          
-          <nav className="header-nav" aria-label="Main navigation">
-            <button 
-              className="nav-button active"
-              aria-current="page"
-            >
-              Dashboard
-            </button>
-            <button 
-              className="nav-button"
-              onClick={() => navigate('/account')}
-            >
-              Account
-            </button>
-          </nav>
-
-          <div className="user-section">
-            <div className="user-info">
-              <span className="user-avatar" aria-hidden="true">{user?.avatar}</span>
-              <div className="user-details">
-                <span className="user-name">{user?.name}</span>
-                <span className="user-email">{user?.email}</span>
-              </div>
-            </div>
-            <button 
-              className="logout-button"
-              onClick={handleLogout}
-              aria-label="Logout"
-            >
-              Logout
-            </button>
-          </div>
-        </div>
-      </header>
+      <AppNav current="dashboard" />
 
       <main id="main-content" className="dashboard-main">
         <div className="dashboard-content">
@@ -385,6 +342,9 @@ function Dashboard() {
           </div>
         </div>
       )}
+
+      {/* First sign-in only: the server leaves avatar null exactly once. */}
+      {needsProfileSetup && <ProfileSetupModal />}
     </div>
   )
 }
