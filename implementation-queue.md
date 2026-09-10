@@ -22,18 +22,14 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | Wave 4 | `b784369` | `RT-2`, `REP-RT1-1` | `RT-2` = per-round vote budget (default 10), "Share the wealth" spread/concentrate toggle, downvote spends only from budget, server-enforced `allowDownvotes` and downvote-lifetime-dock removal; `voteBudgetRemaining` contract. `REP-RT1-1` = minute-window round-trip fix in `windowLengths.js` + regression spec. Full chromium suite 84/84 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) split: `REP-RT1-1` NON-BLOCKING → `Done`; `RT-2` BLOCKING (adversarial found DEF-1: zero-point votes bypass the budget and can force `public_override`) → stays `Implemented`, repair `REP-RT2-1` filed `Ready`. |
 | Wave 5 | `1f25e44` | `REP-RT2-1` | Zero-point budget-bypass repair: `cast_vote` rejects upvotes with `points <= 0`; new `clampDownvoteCost` (min 1) applied to `downvoteCost` in settings and at cast time so a downvote always spends budget. Regression added to `vote-budget.spec.js`. Full chromium suite 88/88 green; oxlint 0 errors/23 baseline warnings. Closure review split: change-reviewer NON-BLOCKING, but adversarial found `REP-RT2-1-FRAC` — non-integer upvote points (no `Number.isInteger` check) re-open the unbounded vote-count `public_override` pump. `REP-RT2-1` stays `Implemented`, blocked by new repair `REP-RT2-2`. |
 | Wave 6 | `14c6e14` | `REP-RT2-2` | Fractional-points repair: `cast_vote` now requires `Number.isInteger(points) && points >= 1`, rejecting fractions (`0.1`/`1e-9`) that could be spent as an unbounded vote-count `public_override` pump. Regression added to `vote-budget.spec.js`. Full chromium suite 90/90 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) NON-BLOCKING → `REP-RT2-2` `Done`. This clears the vote-budget chain: `REP-RT2-1` and `RT-2` are now `Done`. |
+| Wave 7 | (pending) | `RT-3`, `HG-1` | **In progress.** Final wave: `RT-3` (Judge skip, fair no-repeat rotation) + `HG-1` (host-abandonment election). Both share `server.js` + `GroupView.jsx`, so a single worker implements them sequentially to avoid write conflicts. |
 
-## Ready frontier
-
-The current dependency-free frontier. An issue is listed here only when every issue it depends on is `Done`.
-
-| Id | Issue |
-|---|---|
-| `RT-3` | Judge can skip their turn, with a fair no-repeat rotation — `docs/planning/gameplay-round-timing-product-brief.md` |
+## In progress (Wave 7)
 
 | Id | Issue |
 |---|---|
-| `HG-1` | Members can leave or elect a new host when the host has abandoned the group — `docs/planning/host-governance-product-brief.md` |
+| `RT-3` | Judge can skip their turn, with a fair no-repeat rotation |
+| `HG-1` | Members can leave or elect a new host when the host has abandoned the group |
 
 ## Done
 
@@ -53,7 +49,7 @@ The current dependency-free frontier. An issue is listed here only when every is
 |---|---|---|
 | none | |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`, zero-point) and Wave 6 (`REP-RT2-2`, fractional-points) are `Done` (closure NON-BLOCKING on both), clearing the entire vote-budget feature. Only two issues remain, both `Ready`: `RT-3` (Judge skip rotation) and `HG-1` (host-abandonment election).
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election) is **In progress** — the final two issues; once it lands and passes review, every issue in the backlog is `Done`.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 

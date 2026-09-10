@@ -1,6 +1,6 @@
 # HG-1 — Members can leave or elect a new host when the host has abandoned the group
 
-- **Status:** Ready
+- **Status:** In progress (Wave 7)
 - **Priority:** high
 - **Depends on:** none
 - **Source:** Product Brief `docs/planning/host-governance-product-brief.md`; design `docs/design/b5-host-election-change-design.md`.
