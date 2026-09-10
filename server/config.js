@@ -63,12 +63,42 @@ if (missing.length > 0) {
   console.warn('');
 }
 
+// Browser origins the HTTP API and the socket.io handshake accept cross-origin
+// requests from. Driven by ALLOWED_ORIGINS (comma-separated); falls back to the
+// local dev origins when unset so `npm run dev` and the Playwright suite work
+// with no .env entry. Production MUST set ALLOWED_ORIGINS to the real deployed
+// web origin(s) — a production boot that still only trusts localhost is almost
+// certainly a misconfiguration, so we warn loudly (but still boot, since a
+// smoke test on a box with no browser client is legitimate).
+const DEFAULT_DEV_ORIGINS = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'http://localhost:8081',
+  'exp://localhost:19000'
+];
+
+const parsedOrigins = (process.env.ALLOWED_ORIGINS || '')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+const allowedOrigins = parsedOrigins.length > 0 ? parsedOrigins : [...DEFAULT_DEV_ORIGINS];
+
+if (isProduction && parsedOrigins.length === 0) {
+  console.warn(
+    '[config] ALLOWED_ORIGINS is not set (or empty): the server will only accept ' +
+    'browser requests from localhost origins. Set ALLOWED_ORIGINS to the real ' +
+    'production web origin(s), comma-separated (e.g. https://app.example.com).'
+  );
+}
+
 module.exports = {
   isProduction,
   authTestMode,
   googleClientId,
   youtubeApiKey,
   sessionSecret,
+  allowedOrigins,
   googleSignInEnabled: !!googleClientId,
   youtubeSearchEnabled: !!youtubeApiKey,
   port: Number(process.env.PORT) || 5000,

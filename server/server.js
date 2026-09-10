@@ -2,21 +2,19 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
+const helmet = require('helmet');
 const config = require('./config');
 const { createAuthMiddleware } = require('./auth');
 const { searchVideos, isValidVideoId } = require('./youtube');
 const { getOrCreateProfile, updateProfile, AVATAR_CHOICES } = require('./profiles');
 const { PersistentStore } = require('./db');
 
-// The only origins the app is actually served from. Socket.io matches these
-// as exact strings, so a '*' entry here was never a wildcard — it only ever
-// matched a literal "Origin: *" header, which no browser sends.
-const ALLOWED_ORIGINS = [
-  'http://localhost:3000',
-  'http://localhost:5173',
-  'http://localhost:8081',
-  'exp://localhost:19000'
-];
+// The origins the app is actually served from, resolved from the
+// ALLOWED_ORIGINS env var (see config.js) with a localhost dev fallback.
+// Socket.io matches these as exact strings, so a '*' entry here was never a
+// wildcard — it only ever matched a literal "Origin: *" header, which no
+// browser sends.
+const ALLOWED_ORIGINS = config.allowedOrigins;
 
 const app = express();
 const server = http.createServer(app);
@@ -26,6 +24,12 @@ const io = new Server(server, {
     methods: ['GET', 'POST']
   }
 });
+
+// Standard security headers (CSP, HSTS, X-Content-Type-Options, frame-deny,
+// no X-Powered-By, …) on every HTTP response. Helmet's defaults are safe for a
+// JSON API; socket.io traffic is handled on the raw HTTP server ahead of the
+// Express stack, so its transport is unaffected.
+app.use(helmet());
 
 // cors() with no options answers every origin with "Access-Control-Allow-Origin: *".
 // Requests with no Origin header at all (curl, the Playwright webServer probe)
