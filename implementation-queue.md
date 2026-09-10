@@ -42,13 +42,19 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | `RT-3` | Judge can skip their turn, fair no-repeat rotation (Wave 7 + REP-RT3-1) |
 | `REP-RT3-1` | No-repeat rotation records Judges by play, not assignment (Wave 7 repair) |
 
+## Ready
+
+| Id | Issue | Notes |
+|---|---|---|
+| `UI-1` | Create Group timing-unit dropdown collapses; "minutes / hours / days" label is clipped | Triage batch (user-reported, replicated). CSS-only. Unscoped `.form-row select { flex: 1 }` in `GroupView.css:677` leaks app-wide and collapses the wizard's `.window-control select`. See `implementation/issues/UI-1.md`. |
+
 ## Blocked
 
 | Id | Issue | Blocked by |
 |---|---|---|
 | none | |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election) and its `REP-RT3-1` repair are all `Done`. Wave 8 (`RT-4`, deadline-display null guard) is `Done` (initial review passed). **Every issue in the backlog is now `Done`.**
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election) and its `REP-RT3-1` repair are all `Done`. Wave 8 (`RT-4`, deadline-display null guard) is `Done` (initial review passed). All prior waves are `Done`; a fresh triage batch of user-reported UI bugs is being collected — `UI-1` is `Ready`, more may follow before the next wave starts.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 
