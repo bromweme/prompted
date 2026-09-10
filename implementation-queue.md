@@ -19,14 +19,11 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | Wave 1 | `8253c51` | `GL-1`, `GL-2`, `GL-3` | GL-2, GL-3 `Done`; GL-1 `Implemented` (review-work). Review filed `REP-GL1-1` (host-leave orphan) and `REP-GL1-2` (client-navigation test gap), both `Ready`, blocking GL-1. |
 | Wave 2 | `0964c00` | `REP-GL1-1`, `REP-GL1-2` | Both repair issues `Done` (closure review passed, review-work). Server rejects host `leave_group` so a group always keeps a host who is a current member; `leave-delete.spec.js` gained two browser click→navigate tests. Full chromium suite 76/76 green; oxlint 0 errors. `GL-1` now `Done`. |
 | Wave 3 | `9695517` | `RT-1` | Timed submission & voting windows land; voting closes on its deadline (no early reveal); host sets each window with numeric value + unit with boundary clamping. Full chromium suite 77/77 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) NON-BLOCKING; `RT-1` now `Done`. Non-blocking follow-up `REP-RT1-1` (minute-window round-trip) filed `Ready`. `RT-2` is unblocked. |
+| Wave 4 | (pending) | `RT-2`, `REP-RT1-1` | **In progress.** `RT-2` = per-round vote budget (default 10), "Share the wealth" spread/concentrate toggle, downvote spends only from budget, server-enforced `allowDownvotes`. `REP-RT1-1` = minute-window round-trip fix in `windowLengths.js`. Disjoint files, parallel workers. |
 
 ## Ready frontier
 
 The current dependency-free frontier. An issue is listed here only when every issue it depends on is `Done`.
-
-| Id | Issue |
-|---|---|
-| `RT-2` | Per-round vote budget with "Share the wealth" and a single downvote cost — `docs/planning/gameplay-round-timing-product-brief.md` |
 
 | Id | Issue |
 |---|---|
@@ -36,9 +33,12 @@ The current dependency-free frontier. An issue is listed here only when every is
 |---|---|
 | `HG-1` | Members can leave or elect a new host when the host has abandoned the group — `docs/planning/host-governance-product-brief.md` |
 
+## In progress (Wave 4)
+
 | Id | Issue |
 |---|---|
-| `REP-RT1-1` | Minute window lengths that aren't whole hours round-trip to a larger whole hour (non-blocking follow-up from RT-1 closure) |
+| `RT-2` | Per-round vote budget with "Share the wealth" and a single downvote cost |
+| `REP-RT1-1` | Minute window lengths that aren't whole hours round-trip to a larger whole hour |
 
 ## Blocked
 
@@ -46,7 +46,7 @@ The current dependency-free frontier. An issue is listed here only when every is
 |---|---|---|
 | none | |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). Wave 3 (`RT-1`, timed windows) is `Done` (closure review NON-BLOCKING). The next wave frontier opens with `RT-2`, `RT-3`, `HG-1`, and `REP-RT1-1` all ready. `RT-2` (per-round vote budget) builds directly on the now-stable RT-1 voting-close seam. `REP-RT1-1` is a small non-blocking client fix on the RT-1 surface.
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). Wave 3 (`RT-1`, timed windows) is `Done` (closure review NON-BLOCKING). Wave 4 (`RT-2` vote budget + `REP-RT1-1` window round-trip) is **In progress**. `RT-3` and `HG-1` remain ready for a later wave. `RT-2` builds directly on the now-stable RT-1 voting-close seam.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 
