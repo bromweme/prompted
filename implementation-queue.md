@@ -24,6 +24,13 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | Wave 6 | `14c6e14` | `REP-RT2-2` | Fractional-points repair: `cast_vote` now requires `Number.isInteger(points) && points >= 1`, rejecting fractions (`0.1`/`1e-9`) that could be spent as an unbounded vote-count `public_override` pump. Regression added to `vote-budget.spec.js`. Full chromium suite 90/90 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) NON-BLOCKING → `REP-RT2-2` `Done`. This clears the vote-budget chain: `REP-RT2-1` and `RT-2` are now `Done`. |
 | Wave 7 | `6c428d0` | `RT-3`, `HG-1` | Final wave: `RT-3` (Judge skip, fair no-repeat rotation across rounds) + `HG-1` (host-abandonment election with durable `lastSeenAt`, majority transfer, return-cancels). Both `Implemented`, awaiting closure review. Full chromium suite 100/100 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) split: `HG-1` NON-BLOCKING → `Done`; `RT-3` BLOCKING (adversarial found `REP-RT3-1` — a Judge assigned via a skip or a host hand-pick is never recorded in the served set, so they can be re-drafted before an unserved member gets a turn) → stays `Implemented`, blocked by repair `REP-RT3-1`. |
 | Wave 7 repair | `35e1d31` | `REP-RT3-1` | No-repeat-rotation repair: judges are now recorded as having served when they actually PLAY (`select_topic` picks a topic), not at the moment of assignment. So a skip-assigned / host-hand-picked Judge who plays is added to `judgeUseCase` and cannot be re-drafted before an unserved member gets a turn, while the full-skip-revert branch stays reachable. Full chromium suite 101/101 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) NON-BLOCKING → `REP-RT3-1` `Done`. This unblocks and closes `RT-3`. |
+| Wave 8 | _pending_ | `RT-4` | Display-only bug: the Overview and Round tabs formatted `currentTheme.deadline` at three sites with no null guard, so during `topic_selection` (deadline is `null` by design until the Judge picks a topic) they rendered `new Date(null)` — an epoch date (observed "12/31/1969 at 7:00:00 PM") and a large negative "hours" value. Fix confined to `web-app/src/pages/GroupView.jsx`: shared `formatDeadline` / `formatHoursRemaining` helpers return a "Not set yet" placeholder when the deadline is absent or invalid; real deadlines render exactly as before. New UI regression `round-deadline-display.spec.js` (proven red against pre-fix code). oxlint 0 errors / 23 baseline warnings. Full suite green (2 unrelated WebKit `round-phases:211` YouTube-search flakes pass on isolated re-run). `Implemented`, awaiting initial review. |
+
+## Implemented (awaiting review)
+
+| Id | Issue | Notes |
+|---|---|---|
+| `RT-4` | Round deadline UI renders `new Date(null)` as the Unix epoch before a topic is picked | Wave 8. Display-only fix in `web-app/src/pages/GroupView.jsx` + `round-deadline-display.spec.js`. Initial review pending. See `implementation/issues/RT-4.md`. |
 
 ## Done
 
@@ -46,7 +53,7 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 |---|---|---|
 | none | |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election) and its `REP-RT3-1` repair are all `Done`. **Every issue in the backlog is now `Done`.**
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election) and its `REP-RT3-1` repair are all `Done`. Wave 8 (`RT-4`, deadline-display null guard) is `In progress`.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 

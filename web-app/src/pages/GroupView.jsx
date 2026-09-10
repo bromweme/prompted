@@ -11,6 +11,37 @@ import TopicPicker from '../components/TopicPicker'
 import { WINDOW_UNITS, windowValueToHours, hoursToWindowValue } from '../utils/windowLengths'
 import './GroupView.css'
 
+// A round in its topic_selection phase has no deadline yet: the server sets
+// currentTheme.deadline when the Judge picks a topic (select_topic), not at
+// beginRound, so the topic-choosing time isn't taken out of the players'
+// window. Formatting that missing value with `new Date(null)` would render the
+// Unix epoch (a ~1970 date, and a large negative "hours" figure), so every
+// deadline readout goes through these helpers and shows a plain placeholder
+// until the submission clock actually starts.
+const NO_DEADLINE_LABEL = 'Not set yet'
+
+function hasUsableDeadline(deadline) {
+  return Boolean(deadline) && !Number.isNaN(new Date(deadline).getTime())
+}
+
+// `withTime` picks the Round tab's "date at time" form; the Overview card uses
+// the date alone. Output for a real deadline is unchanged from before.
+function formatDeadline(deadline, { withTime = false } = {}) {
+  if (!hasUsableDeadline(deadline)) return NO_DEADLINE_LABEL
+  const when = new Date(deadline)
+  return withTime
+    ? `${when.toLocaleDateString()} at ${when.toLocaleTimeString()}`
+    : when.toLocaleDateString()
+}
+
+// The Overview "Time Remaining" stat. Keeps the existing whole-hours rounding
+// for a real deadline; only the missing/invalid case changes.
+function formatHoursRemaining(deadline) {
+  if (!hasUsableDeadline(deadline)) return NO_DEADLINE_LABEL
+  const hours = Math.ceil((new Date(deadline).getTime() - Date.now()) / (1000 * 60 * 60))
+  return `${hours} hours`
+}
+
 // Server player records carry both a transient socket id (`id`) and a stable
 // `userId`. The client only ever needs the stable identity to check who's
 // who (e.g. host), so `id` here is remapped to `userId`.
@@ -845,7 +876,7 @@ function GroupView() {
                         <div className="theme-stat">
                           <span className="stat-label">Deadline</span>
                           <span className="stat-value">
-                            {new Date(group.currentTheme.deadline).toLocaleDateString()}
+                            {formatDeadline(group.currentTheme.deadline)}
                           </span>
                         </div>
                       </div>
@@ -909,7 +940,7 @@ function GroupView() {
                   <div className="stat-card">
                     <div className="stat-icon" aria-hidden="true">⏱️</div>
                     <h4>Time Remaining</h4>
-                    <p>{group.currentTheme ? `${Math.ceil((new Date(group.currentTheme.deadline) - new Date()) / (1000 * 60 * 60))} hours` : 'No active theme'}</p>
+                    <p>{group.currentTheme ? formatHoursRemaining(group.currentTheme.deadline) : 'No active theme'}</p>
                   </div>
                   <div className="stat-card">
                     <div className="stat-icon" aria-hidden="true">👥</div>
@@ -970,7 +1001,7 @@ function GroupView() {
                         <div className="round-stat">
                           <span className="stat-label">Deadline</span>
                           <span className="stat-value">
-                            {new Date(group.currentTheme.deadline).toLocaleDateString()} at {new Date(group.currentTheme.deadline).toLocaleTimeString()}
+                            {formatDeadline(group.currentTheme.deadline, { withTime: true })}
                           </span>
                         </div>
                       </div>
