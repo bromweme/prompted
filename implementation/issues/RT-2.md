@@ -1,6 +1,6 @@
 # RT-2 — Per-round vote budget with "Share the wealth" and a single downvote cost
 
-- **Status:** Implemented (Wave 4) — awaiting repair `REP-RT2-1` (closure review found a blocking defect)
+- **Status:** Done (closure review passed; repairs `REP-RT2-1` and `REP-RT2-2` all Done)
 - **Priority:** high
 - **Depends on:** [`RT-1`](RT-1.md) (the voting window close — the budget applies until that same close)
 - **Source:** Product Brief `docs/planning/gameplay-round-timing-product-brief.md` (defining scenario "A player spends their budget"); design `docs/design/c8-per-round-vote-budget-change-design.md`.

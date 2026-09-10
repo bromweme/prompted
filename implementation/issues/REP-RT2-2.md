@@ -1,6 +1,6 @@
 # REP-RT2-2 — Fractional (non-integer) upvote points re-open the vote-count public-override pump
 
-- **Status:** Implemented (Wave 6) — awaiting closure review
+- **Status:** Done (closure review passed, review-work)
 - **Priority:** high
 - **Guarantee to restore:** The per-round vote budget must be a real cap on voting strength *and* on how many votes a player can cast. A player must not be able to cast an unbounded number of votes within a fixed budget, because unlimited votes let them inflate a submission's `voteCount` and force a `public_override` win.
 - **Blocks:** `REP-RT2-1` / `RT-2` (keeps the vote-budget feature from reaching `Done`)
