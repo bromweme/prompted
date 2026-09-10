@@ -1,6 +1,6 @@
 # RT-1 — Each round runs on two timed windows (submission and voting) that both close on their deadlines
 
-- **Status:** Implemented (Wave 3) — awaiting closure review
+- **Status:** Done (closure review passed, review-work; non-blocking follow-up `REP-RT1-1` filed)
 - **Priority:** high
 - **Depends on:** none
 - **Source:** Product Brief `docs/planning/gameplay-round-timing-product-brief.md` (defining scenario "Voting reaches its deadline"); designs `docs/design/a1-voting-deadline-change-design.md` and `docs/design/a4-round-windows-change-design.md`.

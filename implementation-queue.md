@@ -18,11 +18,15 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 |---|---|---|---|
 | Wave 1 | `8253c51` | `GL-1`, `GL-2`, `GL-3` | GL-2, GL-3 `Done`; GL-1 `Implemented` (review-work). Review filed `REP-GL1-1` (host-leave orphan) and `REP-GL1-2` (client-navigation test gap), both `Ready`, blocking GL-1. |
 | Wave 2 | `0964c00` | `REP-GL1-1`, `REP-GL1-2` | Both repair issues `Done` (closure review passed, review-work). Server rejects host `leave_group` so a group always keeps a host who is a current member; `leave-delete.spec.js` gained two browser click→navigate tests. Full chromium suite 76/76 green; oxlint 0 errors. `GL-1` now `Done`. |
-| Wave 3 | (pending) | `RT-1` | Timed submission & voting windows land; voting closes on its deadline (no early reveal); host sets each window with numeric value + unit with boundary clamping. Full chromium suite 77/77 green; oxlint 0 errors/23 baseline warnings. `RT-1` is `Implemented`, awaiting closure review. |
+| Wave 3 | `9695517` | `RT-1` | Timed submission & voting windows land; voting closes on its deadline (no early reveal); host sets each window with numeric value + unit with boundary clamping. Full chromium suite 77/77 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) NON-BLOCKING; `RT-1` now `Done`. Non-blocking follow-up `REP-RT1-1` (minute-window round-trip) filed `Ready`. `RT-2` is unblocked. |
 
 ## Ready frontier
 
 The current dependency-free frontier. An issue is listed here only when every issue it depends on is `Done`.
+
+| Id | Issue |
+|---|---|
+| `RT-2` | Per-round vote budget with "Share the wealth" and a single downvote cost — `docs/planning/gameplay-round-timing-product-brief.md` |
 
 | Id | Issue |
 |---|---|
@@ -32,14 +36,17 @@ The current dependency-free frontier. An issue is listed here only when every is
 |---|---|
 | `HG-1` | Members can leave or elect a new host when the host has abandoned the group — `docs/planning/host-governance-product-brief.md` |
 
+| Id | Issue |
+|---|---|
+| `REP-RT1-1` | Minute window lengths that aren't whole hours round-trip to a larger whole hour (non-blocking follow-up from RT-1 closure) |
+
 ## Blocked
 
 | Id | Issue | Blocked by |
 |---|---|---|
-| `RT-1` | Timed windows — voting close | (awaiting closure review, Wave 3) |
-| `RT-2` | Per-round vote budget with "Share the wealth" and a single downvote cost | `RT-1` (voting window close) |
+| none | |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). Wave 3 (`RT-1`, timed windows) is `Implemented` awaiting review. The next wave frontier opens with `RT-3` and `HG-1` ready; `RT-2` enters the frontier once `RT-1` reaches `Done`.
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). Wave 3 (`RT-1`, timed windows) is `Done` (closure review NON-BLOCKING). The next wave frontier opens with `RT-2`, `RT-3`, `HG-1`, and `REP-RT1-1` all ready. `RT-2` (per-round vote budget) builds directly on the now-stable RT-1 voting-close seam. `REP-RT1-1` is a small non-blocking client fix on the RT-1 surface.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 
@@ -52,3 +59,4 @@ These are real findings but are deliberately **not** ready implementation issues
 - **Session tokens cannot be revoked** (finding `f.norevoke`): a security change with its own review; needs scoping.
 - **Account Settings toggles are cosmetic and Deactivate is a stub** (finding `f.ui-dead`): separate surface from the group wave; needs a product decision on what the toggles should do.
 - **Downvote previously charged the voter as well as the target** (finding `f.downvote`): resolved as a desirable single-cost decision in `RT-2` (downvote spends only from the round budget; the lifetime score dock is removed). Note retained for history.
+- **Judge loses the "Select as Winner" control after voting** (RT-1 closure observation): once the Judge casts a vote, GroupView switches to "You've voted — waiting for the rest of the group" and hides the `isRoundLeader`-gated winner control, so in a 2-player round the Judge cannot reveal early via the UI after voting (the voting deadline still closes the round, and the server still honors a Judge's `czar_select_winner`). Consistent with the no-early-reveal design (A1/A4), but a UX gap on the surface RT-1 ships. `RT-2` reworks this exact voting panel for the vote budget; re-assess there rather than a separate issue.
