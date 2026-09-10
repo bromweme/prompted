@@ -18,14 +18,11 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 |---|---|---|---|
 | Wave 1 | `8253c51` | `GL-1`, `GL-2`, `GL-3` | GL-2, GL-3 `Done`; GL-1 `Implemented` (review-work). Review filed `REP-GL1-1` (host-leave orphan) and `REP-GL1-2` (client-navigation test gap), both `Ready`, blocking GL-1. |
 | Wave 2 | `0964c00` | `REP-GL1-1`, `REP-GL1-2` | Both repair issues `Done` (closure review passed, review-work). Server rejects host `leave_group` so a group always keeps a host who is a current member; `leave-delete.spec.js` gained two browser click→navigate tests. Full chromium suite 76/76 green; oxlint 0 errors. `GL-1` now `Done`. |
+| Wave 3 | (pending) | `RT-1` | Timed submission & voting windows land; voting closes on its deadline (no early reveal); host sets each window with numeric value + unit with boundary clamping. Full chromium suite 77/77 green; oxlint 0 errors/23 baseline warnings. `RT-1` is `Implemented`, awaiting closure review. |
 
 ## Ready frontier
 
 The current dependency-free frontier. An issue is listed here only when every issue it depends on is `Done`.
-
-| Id | Issue |
-|---|---|
-| `RT-1` | Each round runs on two timed windows (submission and voting) that both close on their deadlines — `docs/planning/gameplay-round-timing-product-brief.md` |
 
 | Id | Issue |
 |---|---|
@@ -39,9 +36,10 @@ The current dependency-free frontier. An issue is listed here only when every is
 
 | Id | Issue | Blocked by |
 |---|---|---|
+| `RT-1` | Timed windows — voting close | (awaiting closure review, Wave 3) |
 | `RT-2` | Per-round vote budget with "Share the wealth" and a single downvote cost | `RT-1` (voting window close) |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). The next wave frontier opens with `RT-1`, `RT-3`, and `HG-1` ready; `RT-2` enters the frontier once `RT-1` reaches `Done`.
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). Wave 3 (`RT-1`, timed windows) is `Implemented` awaiting review. The next wave frontier opens with `RT-3` and `HG-1` ready; `RT-2` enters the frontier once `RT-1` reaches `Done`.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 
