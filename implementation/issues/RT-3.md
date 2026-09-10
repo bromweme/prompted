@@ -1,6 +1,6 @@
 # RT-3 — Judge can skip their turn, with a fair no-repeat rotation
 
-- **Status:** In progress (Wave 7)
+- **Status:** Implemented (Wave 7) — awaiting closure review
 - **Priority:** medium
 - **Depends on:** none
 - **Source:** Product Brief `docs/planning/gameplay-round-timing-product-brief.md` (defining scenario "A Judge wants to pass"); design `docs/design/a2-judge-skip-change-design.md`.
