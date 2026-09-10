@@ -834,6 +834,14 @@ io.on('connection', (socket) => {
     const hours = submissionHours(group);
     theme.deadline = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 
+    // RT-3: the Judge who actually plays this round (picks the topic) has now
+    // served it, even if they were handed the role by a skip or a host
+    // hand-pick rather than the first assignment. Recording on play (not on
+    // mere assignment) keeps the served set coherent — a future skip re-pick
+    // can never re-draft them before everyone has served once — while leaving
+    // the full-skip exhaustion signal intact: a declined (skipped) role only
+    // counts once the Judge either plays or skips.
+    recordJudgeServed(group, theme.czarId);
     // Marked used in this group only. Re-selecting an already-used topic is
     // allowed (the UI marks it rather than blocking it), so this stays a set.
     group.usedTopicIds = Array.from(new Set([...(group.usedTopicIds || []), id]));

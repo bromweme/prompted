@@ -247,4 +247,96 @@ test.describe('judge skip and rotation', () => {
 
     host.socket.close(); p2.socket.close(); p3.socket.close()
   })
+
+  // RT-3 gap closure (REP-RT3-1): a Judge who became Judge via a skip and then
+  // actually plays a round must be recorded in judgedThisCycle. Otherwise a
+  // later round's skip re-pick can re-draft them while an unserved member never
+  // gets a turn. Group of 4 (host A + B, C, D): A skips round 1, someone is
+  // skipped-onto and plays; round 2 is forced to a member who did not serve
+  // round 1, and their skip must not re-select the round-1 Judge while one
+  // genuinely unserved member remains.
+  test('a skip-assigned Judge who plays is excluded from a later skip re-pick while an unserved member remains', async () => {
+    const runId = testRunId()
+    const host = connect(`js4-host-${runId}`, 'H')
+    const p2 = connect(`js4-b-${runId}`, 'B')
+    const p3 = connect(`js4-c-${runId}`, 'C')
+    const p4 = connect(`js4-d-${runId}`, 'D')
+    await Promise.all([host.ready, p2.ready, p3.ready, p4.ready])
+
+    const players = [host, p2, p3, p4]
+    const groupId = await rawGroup(host, [p2, p3, p4], {
+      name: `Gap ${runId}`,
+      settings: { submissionTime: ONE_SECOND, votingTime: ONE_SECOND }
+    })
+
+    // ---- Round 1: forced to host A ----
+    host.socket.emit('start_group', { groupId, czarUserId: host.id })
+    await waitForUpdate(host.socket, inPhase('topic_selection'))
+    expect(await currentJudge(players, groupId)).toBe(host.id)
+
+    // A skips; a non-served member (B/C/D) becomes Judge via the skip.
+    const moved = waitForUpdate(host.socket, (p) => p.isRoundLeader === false)
+    host.socket.emit('judge_skip', { groupId })
+    await moved
+    const round1Judge = await currentJudge(players, groupId)
+    expect([p2.id, p3.id, p4.id]).toContain(round1Judge)
+
+    // The skip only records the SKIPPER (host A) as served. The skip-assigned
+    // round-1 Judge is recorded only when they actually play (select_topic
+    // below) — that recorded state is asserted after the round completes.
+
+    // The round-1 Judge actually plays: pick a topic.
+    const round1JudgeSocket = players.find(p => p.id === round1Judge)
+    const topics1 = await new Promise((resolve) => {
+      round1JudgeSocket.socket.once('group_topics_list', resolve)
+      round1JudgeSocket.socket.emit('get_group_topics', { groupId })
+    })
+    let topicId1 = topics1.topics?.[0]?.id
+    if (!topicId1) {
+      round1JudgeSocket.socket.emit('submit_topic', { text: `Gap topic ${runId}`, isPublic: false })
+      topicId1 = (await once(round1JudgeSocket.socket, 'topic_submitted')).topic.id
+    }
+    round1JudgeSocket.socket.emit('select_topic', { groupId, topicId: topicId1 })
+    await waitForUpdate(round1JudgeSocket.socket, inPhase('submission'))
+
+    // Everyone except the Judge submits; the one-second windows run to reveal.
+    for (const p of players) {
+      if (p.id === round1Judge) continue
+      p.socket.emit('submit_video', {
+        groupId,
+        videoId: 'dQw4w9WgXcQ',
+        title: 'A submitted video',
+        thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg',
+        channelTitle: 'Someone'
+      })
+    }
+    await sleep(1500)
+    const revealed1 = waitForUpdate(host.socket, inPhase('reveal'))
+    host.socket.emit('check_round_deadline', { groupId })
+    await revealed1
+
+    // After round 1 the skip-assigned Judge who played is in the served set.
+    expect((await view(host.socket, groupId)).group.judgedThisCycle).toContain(round1Judge)
+
+    // ---- Round 2: forced to a member who did NOT serve round 1 ----
+    const unservedRound1 = [p2, p3, p4].filter(p => p.id !== round1Judge)
+    expect(unservedRound1).toHaveLength(2)
+    const [round2Skipper, remainingUnserved] = unservedRound1
+
+    host.socket.emit('start_round', { groupId, czarUserId: round2Skipper.id })
+    await waitForUpdate(host.socket, inPhase('topic_selection'))
+    expect(await currentJudge(players, groupId)).toBe(round2Skipper.id)
+
+    // The round-2 Judge skips. The re-pick must NOT re-select the round-1 Judge
+    // while the genuinely unserved member remains — it must land on them.
+    const moved2 = waitForUpdate(round2Skipper.socket, (p) => p.isRoundLeader === false)
+    round2Skipper.socket.emit('judge_skip', { groupId })
+    await moved2
+
+    const round2Judge = await currentJudge(players, groupId)
+    expect(round2Judge, 'the round-1 skip-assigned Judge must not be re-drafted').not.toBe(round1Judge)
+    expect(round2Judge, 'the only genuinely unserved member is picked').toBe(remainingUnserved.id)
+
+    host.socket.close(); p2.socket.close(); p3.socket.close(); p4.socket.close()
+  })
 })
