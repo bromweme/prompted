@@ -1,6 +1,6 @@
 # REP-RT2-1 — Zero-point votes bypass the round budget and can manipulate the winner
 
-- **Status:** Ready
+- **Status:** In progress (Wave 5)
 - **Priority:** high
 - **Guarantee to restore:** A player must not be able to vote after their round budget is spent, and a vote must always cost budget. Specifically, "when the budget is spent … they can no longer vote this round" (Product Brief `gameplay-round-timing-product-brief.md`), and the per-round budget must be a real cap on voting strength rather than something free votes can multiply past. Casting a zero-cost vote that inflates a submission's `voteCount` and forces a `public_override` win is the abuse this repair closes.
 - **Blocks:** `RT-2` (keeps it from reaching `Done`)
