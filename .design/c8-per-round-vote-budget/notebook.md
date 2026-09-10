@@ -176,11 +176,27 @@ immediate (no migration needed; scores simply stop docking).
 ## Remaining Design Questions
 
 1. The voting deadline mechanism itself (A1, separate design pass) — C8 depends on it being the
-   close trigger; C8 does not design the deadline clock.
+   close trigger; C8 does not design the deadline clock. **Resolved in refination:** A1/A4 are now
+   designed; the voting window's end (A4) = the A1 voting deadline = C8's close trigger. Deliver
+   the voting close once, shared.
 2. Budget + concentration defaults (suggest a default budget ~ maxJuryPoints-based and concentration
    on/off default) — product-default choice.
 3. Whether a player's own submission can be voted by others under concentration (existing own-vote
    rule endures regardless).
+
+## Cross-pass reconcile (final)
+
+- **Deadline clock is shared** across C8 (vote-budget), A1 (voting deadline), A4 (voting window
+  end). One voting-close mechanism: the voting window's end (A4) closes voting (A1) and applies
+  the budget until then (C8). Implement the voting close once.
+- **`votingTime`** becomes active (A4 reads it; A1 uses it as the voting window length). One
+  setting, two consumers — consistent. No conflict.
+- **A4's submission window** supersedes the current `submissionTime`-from-topic-pick duration
+  semantics; that is a delta to the existing shipped submission-deadline behavior and its tests.
+- **B5 (host election)** is independent surface (authorization/presence + a majority vote). Its
+  majority-vote pattern is conceptually similar to C8's ballot but does not share the code path.
+  B5 reassigns `group.host` (the first feature ever to do so) and adds a durable `lastSeenAt`
+  presence stamp. Delivered separately from the voting changes.
 
 ## Domain Model
 
