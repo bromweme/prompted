@@ -21,14 +21,11 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | Wave 3 | `9695517` | `RT-1` | Timed submission & voting windows land; voting closes on its deadline (no early reveal); host sets each window with numeric value + unit with boundary clamping. Full chromium suite 77/77 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) NON-BLOCKING; `RT-1` now `Done`. Non-blocking follow-up `REP-RT1-1` (minute-window round-trip) filed `Ready`. `RT-2` is unblocked. |
 | Wave 4 | `b784369` | `RT-2`, `REP-RT1-1` | `RT-2` = per-round vote budget (default 10), "Share the wealth" spread/concentrate toggle, downvote spends only from budget, server-enforced `allowDownvotes` and downvote-lifetime-dock removal; `voteBudgetRemaining` contract. `REP-RT1-1` = minute-window round-trip fix in `windowLengths.js` + regression spec. Full chromium suite 84/84 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) split: `REP-RT1-1` NON-BLOCKING → `Done`; `RT-2` BLOCKING (adversarial found DEF-1: zero-point votes bypass the budget and can force `public_override`) → stays `Implemented`, repair `REP-RT2-1` filed `Ready`. |
 | Wave 5 | `1f25e44` | `REP-RT2-1` | Zero-point budget-bypass repair: `cast_vote` rejects upvotes with `points <= 0`; new `clampDownvoteCost` (min 1) applied to `downvoteCost` in settings and at cast time so a downvote always spends budget. Regression added to `vote-budget.spec.js`. Full chromium suite 88/88 green; oxlint 0 errors/23 baseline warnings. Closure review split: change-reviewer NON-BLOCKING, but adversarial found `REP-RT2-1-FRAC` — non-integer upvote points (no `Number.isInteger` check) re-open the unbounded vote-count `public_override` pump. `REP-RT2-1` stays `Implemented`, blocked by new repair `REP-RT2-2`. |
+| Wave 6 | (pending) | `REP-RT2-2` | **In progress.** Fractional-points repair: require `Number.isInteger(points) && points >= 1` for upvotes + regression. Unblocks `REP-RT2-1` / `RT-2`. |
 
 ## Ready frontier
 
 The current dependency-free frontier. An issue is listed here only when every issue it depends on is `Done`.
-
-| Id | Issue |
-|---|---|
-| `REP-RT2-2` | Fractional (non-integer) upvote points re-open the vote-count public-override pump (blocks `REP-RT2-1` / `RT-2`) |
 
 | Id | Issue |
 |---|---|
@@ -37,6 +34,12 @@ The current dependency-free frontier. An issue is listed here only when every is
 | Id | Issue |
 |---|---|
 | `HG-1` | Members can leave or elect a new host when the host has abandoned the group — `docs/planning/host-governance-product-brief.md` |
+
+## In progress (Wave 6)
+
+| Id | Issue |
+|---|---|
+| `REP-RT2-2` | Fractional (non-integer) upvote points re-open the vote-count public-override pump (unblocks `REP-RT2-1` / `RT-2`) |
 
 ## Done (Waves 3-4)
 
@@ -52,7 +55,7 @@ The current dependency-free frontier. An issue is listed here only when every is
 | `REP-RT2-1` | Zero-point votes bypass the round budget (implemented Wave 5) | `REP-RT2-2` (fractional-points pump — closure blocker) |
 | `RT-2` | Per-round vote budget with "Share the wealth" and a single downvote cost | `REP-RT2-1` (and `REP-RT2-2`) |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4's `REP-RT1-1` are `Done`. Wave 5 (`REP-RT2-1`, zero-point bypass) is `Implemented` but its closure review found a further gap (`REP-RT2-2`, fractional upvote points) that must land before the budget feature (`RT-2`) reaches `Done`. `RT-3` and `HG-1` remain ready for later waves. The next wave should carry `REP-RT2-2`.
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4's `REP-RT1-1` are `Done`. Wave 5 (`REP-RT2-1`, zero-point bypass) is `Implemented` and Wave 6 (`REP-RT2-2`, fractional-points) is **In progress**; both must pass before the budget feature (`RT-2`) reaches `Done`. `RT-3` and `HG-1` remain ready for later waves.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 
