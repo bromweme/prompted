@@ -1,6 +1,6 @@
 # REP-RT1-1 — Minute window lengths that aren't whole hours round-trip to a larger whole hour
 
-- **Status:** In progress (Wave 4)
+- **Status:** Implemented (Wave 4) — awaiting closure review
 - **Priority:** medium
 - **Guarantee to restore:** A host-chosen window length must survive a round-trip (set → read back → re-save) without silently changing. A 90-minute voting (or submission) window must stay 90 minutes, not silently become 2 hours.
 - **Blocks:** none (does not gate `RT-1`; the running round's absolute deadline is correct)
