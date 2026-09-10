@@ -142,12 +142,16 @@ existing groups inherit a valid default on first read.
 ## Decisions
 
 - **Total point budget per round (participant):** the core model; budget resets each round.
+  **Default budget = 10 points** (participant).
+- **"Share the wealth" toggle (participant):** a checkbox **labeled "Share the wealth"** with a
+  description beneath it explaining the rule, **checked by default**. ON (default) = a player must
+  spread their points across at least two submissions (no single-song dump); OFF = a player may put
+  their whole budget on one submission. This is the "concentration" host rule, given its final name
+  and default by the participant.
 - **Voting ends on the deadline (participant):** fixed timed phase, no early reveal. High
   confidence; removes an existing fast path (e2e rework) and depends on A1.
 - **Downvotes spend only from the budget (participant):** remove lifetime score docking; resolves
   finding `f.downvote` as a deliberate one-cost choice.
-- **Concentration is a host rule (participant).** Default value is a remaining product-default
-  question.
 - **Server-enforce `allowDownvotes`:** new behavior; the e2e suite should cover a crafted downvote
   when forbidden.
 - **Used-points on `currentTheme`:** design-settled from the reset semantics and the server trace.
@@ -166,11 +170,11 @@ field is the one net-new contract.
 ## Remaining Design Questions
 
 1. **Voting-deadline mechanism (A1).** C8 depends on the deadline being the close trigger but does
-   not design the clock. A1 is the next design pass.
-2. **Budget + concentration defaults.** Suggested default budget ~ a small multiple of
-   `maxJuryPoints`; concentration on/off default is a product-default choice.
+   not design the clock. A1/A4 now provide it — deliver the voting close together.
+2. **"Share the wealth" description text.** The exact copy under the checkbox (what spreading
+   means) is a copy-writing item; the rule and default (ON, spread-across-at-least-two) are set.
 3. **Concentration under multi-vote.** The existing own-submission rule (a player cannot vote for
-   their own submission) endures regardless of the concentration setting.
+   their own submission) endures regardless of the "Share the wealth" setting.
 
 ---
 

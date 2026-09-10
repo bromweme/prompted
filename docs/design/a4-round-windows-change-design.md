@@ -116,8 +116,9 @@ expiry check to close voting (which is A1).
 
 ## Remaining Design Questions
 
-1. **Window-unit bounds.** Today 1-168h. With units (minutes/hours/days), confirm the min/max the
-   server should reject (e.g. 1 minute to, say, 30 days) and keep the reject-not-clamp pattern.
+1. **Window-unit bounds — RESOLVED (participant).** Out-of-range values are **clamped to the
+   nearest boundary** (not rejected with an error). The current bounds are 1-168h; the max defaults
+   to 168. With units (minutes/hours/days), clamp anything above max → max, below min → min.
 2. **Which "end" a host references.** This design assumes submission-end opens voting; confirm the
    two windows' exact relative anchor (submission ends → voting starts immediately).
 3. **Inventory of the inert settings.** `autoStart`, `enableChat`, `enableSongPreview`,

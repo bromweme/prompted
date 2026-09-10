@@ -102,7 +102,7 @@ and a new Judge-side control.
    `MIN_PLAYERS_TO_START` = 2 gate already bounds this).
 2. **Cycle scope.** "Across rounds" is decided; confirm whether a new Judge hand-selected by the
    host also advances the rotation (proposed: yes, for coherence).
-3. **Repeated skipping.** If every member skips repeatedly, the round stays in `topic_selection`
-   forever (a Judge declines, another is picked, that Judge declines...). Consider a guard (e.g.
-   after all have skipped once, revert to the host's pick or pick the next member and keep them).
-   *Needs a participant/design default — flagged as a remaining product decision.*
+3. **Repeated skipping — RESOLVED (participant).** When every player has skipped (the rotation
+   pool is exhausted and they still decline), the role returns to the **first-assigned Judge**, who
+   is **not given the pass option again** — they must play. Guard: once the full-cycle skip happens
+   and it reverts to the original Judge, the skip affordance is disabled for that Judge.
