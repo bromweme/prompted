@@ -1,6 +1,6 @@
 # RT-4 — Round deadline UI renders `new Date(null)` as the Unix epoch before a topic is picked
 
-- **Status:** Implemented (Wave 8) — awaiting initial review
+- **Status:** Done (Wave 8; initial review passed — change + adversarial, no blocking findings)
 - **Priority:** medium
 - **Guarantee:** While a round is in its `topic_selection` phase (no submission clock started yet), the group UI must not present a fabricated deadline. It must show a plain "no deadline yet" placeholder instead of a date derived from `new Date(null)`.
 - **Blocks:** none (display only; server timing is correct)
