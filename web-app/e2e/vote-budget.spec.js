@@ -267,3 +267,99 @@ test.describe('vote budget', () => {
     closeAll()
   })
 })
+
+// REP-RT2-1: a zero-point vote used to be free — it neither spent budget nor
+// was capped, so a player could keep voting after their budget was spent and
+// pump a submission's voteCount to force a public_override. These prove the
+// server rejects 0/negative upvotes and that a burnt-out budget cannot be
+// worked around with free zero-point casts.
+test.describe('zero-point votes are rejected (RT-2-1)', () => {
+  const castRaw = (player, payload) => {
+    const settled = new Promise((resolve) => {
+      player.socket.once('group_updated', resolve)
+      player.socket.once('error', (e) => resolve({ error: e }))
+    })
+    player.socket.emit('cast_vote', payload)
+    return settled
+  }
+
+  test('a crafted zero-point upvote is rejected server-side', async () => {
+    const runId = testRunId()
+    const { host, groupId, submissions, closeAll } = await runToVoting(runId, {
+      voteBudget: 6, maxJuryPoints: 3, shareTheWealth: false
+    })
+
+    const r = await castRaw(host, { groupId, submissionId: submissions[0].id, points: 0 })
+    expect(r.error?.message, 'a 0-point upvote must be refused').toContain('positive')
+
+    // No vote was recorded and no budget was spent (both would be the abuse).
+    const after = await fetchView(host, groupId)
+    expect(after.voteBudgetRemaining).toBe(6)
+    expect(after.group.currentTheme.voteCount, 'no free 0-point vote may be counted').toBe(0)
+
+    closeAll()
+  })
+
+  test('a crafted negative-points upvote is rejected server-side', async () => {
+    const runId = testRunId()
+    const { host, groupId, submissions, closeAll } = await runToVoting(runId, {
+      voteBudget: 6, maxJuryPoints: 3, shareTheWealth: false
+    })
+
+    const r = await castRaw(host, { groupId, submissionId: submissions[0].id, points: -1 })
+    expect(r.error?.message, 'a negative upvote must be refused').toContain('positive')
+
+    closeAll()
+  })
+
+  test('a zero-point vote cannot inflate voteCount / trigger a public_override', async () => {
+    // allowOverride on with a low threshold: exactly the pump the fix closes.
+    // A 0-point pump used to add a free vote that lifted a low-point song's
+    // voteShare past the threshold. With the server rejecting 0-point casts,
+    // the ledger only ever holds real (positive-point) votes, so the winner of
+    // this round is the Judge's pick, never a pumped override.
+    const runId = testRunId()
+    const { host, groupId, submissions, closeAll } = await runToVoting(runId, {
+      voteBudget: 6, maxJuryPoints: 3, shareTheWealth: false,
+      allowOverride: true, overrideThreshold: 51
+    })
+    const [a, b] = submissions
+
+    // The pump on the low-point song is refused and records no vote.
+    const pumped = await castRaw(host, { groupId, submissionId: a.id, points: 0 })
+    expect(pumped.error?.message).toContain('positive')
+    expect((await fetchView(host, groupId)).group.currentTheme.voteCount).toBe(0)
+
+    // Reveal via the Judge's pick: no zero-point votes exist to force an
+    // override, so the win is the czar selection.
+    host.socket.emit('czar_select_winner', { groupId, submissionId: b.id })
+    await waitForUpdate(host.socket, inPhase('reveal'))
+    const revealed = await fetchView(host, groupId)
+    const winningSub = revealed.group.currentTheme.submissions.find((s) => s.wonBy)
+    expect(winningSub?.wonBy, 'no free 0-point votes may force an override').not.toBe('public_override')
+
+    closeAll()
+  })
+
+  test('after the budget is spent an extra zero-point vote is rejected', async () => {
+    const runId = testRunId()
+    const { host, groupId, submissions, closeAll } = await runToVoting(runId, {
+      voteBudget: 6, maxJuryPoints: 3, shareTheWealth: false
+    })
+    const [a, b] = submissions
+
+    // Spend the whole budget on real votes (3 + 3).
+    for (const cast of [[a.id, 3], [b.id, 3]]) {
+      const spent = await castRaw(host, { groupId, submissionId: cast[0], points: cast[1] })
+      expect(spent.error).toBeUndefined()
+    }
+    expect((await fetchView(host, groupId)).voteBudgetRemaining).toBe(0)
+
+    // A burnt-out player's free 0-point cast is still refused: no vote-count
+    // pump and no budget slide after the cap.
+    const r = await castRaw(host, { groupId, submissionId: a.id, points: 0 })
+    expect(r.error?.message, 'a 0-point cast after the budget is spent must be refused').toContain('positive')
+
+    closeAll()
+  })
+})

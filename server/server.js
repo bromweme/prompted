@@ -192,6 +192,19 @@ function clampVoteBudget(value) {
   return Math.min(MAX_VOTE_BUDGET, Math.max(MIN_VOTE_BUDGET, Math.round(n)));
 }
 
+// A downvote must always spend a positive amount of budget (RT-2-1): a host
+// cannot configure a 0 or negative downvote cost, because that would make the
+// downvote free and let a player vote past their budget. Clamped to a minimum
+// of 1 in the create/update settings paths, and coerced again defensively at
+// cast time (see cast_vote). Missing/legacy values fall back to 1.
+const MIN_DOWNVOTE_COST = 1;
+
+function clampDownvoteCost(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < MIN_DOWNVOTE_COST) return MIN_DOWNVOTE_COST;
+  return Math.round(n);
+}
+
 // The per-round budget a group actually runs on, read from current settings
 // with clamping. Missing/legacy values fall back to the default.
 function voteBudget(group) {
@@ -843,6 +856,11 @@ io.on('connection', (socket) => {
     } else {
       settings.shareTheWealth = settings.shareTheWealth === true;
     }
+    // A downvote must always spend budget: clamp a 0/negative/absent
+    // downvoteCost to a positive value (RT-2-1).
+    if (settings.downvoteCost !== undefined) {
+      settings.downvoteCost = clampDownvoteCost(settings.downvoteCost);
+    }
 
     const group = {
       id: groupId,
@@ -1129,6 +1147,11 @@ io.on('connection', (socket) => {
     }
     if (settings.shareTheWealth !== undefined) {
       settings.shareTheWealth = settings.shareTheWealth === true;
+    }
+    // A downvote must always spend budget: clamp a 0/negative downvoteCost to
+    // a positive value so it can never make the downvote free (RT-2-1).
+    if (settings.downvoteCost !== undefined) {
+      settings.downvoteCost = clampDownvoteCost(settings.downvoteCost);
     }
 
     // Update group settings
@@ -1457,8 +1480,11 @@ io.on('connection', (socket) => {
     // A full vote is worth `points` (capped below); a downvote is asymmetric —
     // it spends downvoteCost from the budget rather than the points field.
     const maxPoints = group.settings.maxJuryPoints || 3;
-    if (!isDown && (typeof points !== 'number' || !Number.isFinite(points) || points < 0 || points > maxPoints)) {
-      socket.emit('error', { message: `Points must be a number between 0 and ${maxPoints}` });
+    // Upvotes must carry strictly positive points (RT-2-1): a zero-point cast
+    // would be free, so it would neither spend budget nor be capped — letting a
+    // player vote past their budget and pump a submission's voteCount free.
+    if (!isDown && (typeof points !== 'number' || !Number.isFinite(points) || points <= 0 || points > maxPoints)) {
+      socket.emit('error', { message: `Points must be a positive number no greater than ${maxPoints}` });
       return;
     }
 
@@ -1472,7 +1498,12 @@ io.on('connection', (socket) => {
     // across all their votes this round; voteBudgetUsed on currentTheme tracks
     // spend and auto-resets when beginRound starts the next round.
     const budget = voteBudget(group);
-    const cost = isDown ? (group.settings.downvoteCost || 1) : points;
+    // A downvote always spends a positive downvoteCost (RT-2-1). The settings
+    // paths clamp it to >= 1, but a legacy/malformed group could still hold a
+    // 0/negative value, so coerce it positive here too and use that single
+    // clamped value for both the budget cost and the stored points.
+    const downvoteCost = clampDownvoteCost(group.settings.downvoteCost);
+    const cost = isDown ? downvoteCost : points;
     const used = (theme.voteBudgetUsed && theme.voteBudgetUsed[userId]) || 0;
     if (used + cost > budget) {
       socket.emit('error', { message: `Vote exceeds your remaining budget of ${Math.max(0, budget - used)} points` });
@@ -1508,7 +1539,7 @@ io.on('connection', (socket) => {
     theme.votes.push({
       voterUserId: userId,
       submissionId: subId,
-      points: isDown ? -(group.settings.downvoteCost || 1) : points,
+      points: isDown ? -downvoteCost : points,
       isDownvote: isDown,
       comment: voteComment
     });
