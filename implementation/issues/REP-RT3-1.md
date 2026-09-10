@@ -1,6 +1,6 @@
 # REP-RT3-1 — A Judge assigned via a skip (or a host hand-pick) is never recorded in the served set, breaking no-repeat fairness
 
-- **Status:** Implemented (repair wave) — awaiting closure review
+- **Status:** Done (closure review passed, review-work)
 - **Priority:** high
 - **Guarantee to restore:** The RT-3 no-repeat guarantee — once a member has been the Judge, future re-picks skip them until every member has served once; only then does the cycle reset. A member must never be re-drafted as Judge (via a skip re-pick or a host hand-pick) while an unserved member has never held the role.
 - **Blocks:** `RT-3` (keeps the Judge-skip rotation feature from reaching `Done`)

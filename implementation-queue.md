@@ -23,34 +23,30 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | Wave 5 | `1f25e44` | `REP-RT2-1` | Zero-point budget-bypass repair: `cast_vote` rejects upvotes with `points <= 0`; new `clampDownvoteCost` (min 1) applied to `downvoteCost` in settings and at cast time so a downvote always spends budget. Regression added to `vote-budget.spec.js`. Full chromium suite 88/88 green; oxlint 0 errors/23 baseline warnings. Closure review split: change-reviewer NON-BLOCKING, but adversarial found `REP-RT2-1-FRAC` — non-integer upvote points (no `Number.isInteger` check) re-open the unbounded vote-count `public_override` pump. `REP-RT2-1` stays `Implemented`, blocked by new repair `REP-RT2-2`. |
 | Wave 6 | `14c6e14` | `REP-RT2-2` | Fractional-points repair: `cast_vote` now requires `Number.isInteger(points) && points >= 1`, rejecting fractions (`0.1`/`1e-9`) that could be spent as an unbounded vote-count `public_override` pump. Regression added to `vote-budget.spec.js`. Full chromium suite 90/90 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) NON-BLOCKING → `REP-RT2-2` `Done`. This clears the vote-budget chain: `REP-RT2-1` and `RT-2` are now `Done`. |
 | Wave 7 | `6c428d0` | `RT-3`, `HG-1` | Final wave: `RT-3` (Judge skip, fair no-repeat rotation across rounds) + `HG-1` (host-abandonment election with durable `lastSeenAt`, majority transfer, return-cancels). Both `Implemented`, awaiting closure review. Full chromium suite 100/100 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) split: `HG-1` NON-BLOCKING → `Done`; `RT-3` BLOCKING (adversarial found `REP-RT3-1` — a Judge assigned via a skip or a host hand-pick is never recorded in the served set, so they can be re-drafted before an unserved member gets a turn) → stays `Implemented`, blocked by repair `REP-RT3-1`. |
-
-## Implemented (Wave 7 / repair, awaiting closure review)
-
-| Id | Issue |
-|---|---|
-| `RT-3` | Judge can skip their turn, with a fair no-repeat rotation — blocked by `REP-RT3-1` |
-| `REP-RT3-1` | No-repeat rotation under-records skip-assigned / host-hand-picked Judges (repair of `RT-3`) |
+| Wave 7 repair | `35e1d31` | `REP-RT3-1` | No-repeat-rotation repair: judges are now recorded as having served when they actually PLAY (`select_topic` picks a topic), not at the moment of assignment. So a skip-assigned / host-hand-picked Judge who plays is added to `judgeUseCase` and cannot be re-drafted before an unserved member gets a turn, while the full-skip-revert branch stays reachable. Full chromium suite 101/101 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) NON-BLOCKING → `REP-RT3-1` `Done`. This unblocks and closes `RT-3`. |
 
 ## Done
 
 | Id | Issue |
 |---|---|
 | `GL-1`, `GL-2`, `GL-3` | Leave/Delete, EditVideo/Overview, Dashboard dead controls (Waves 1-2) |
-| `REP-GL1-1`, `REP-GL1-2` | GL-1 repairs (Waves 2) |
+| `REP-GL1-1`, `REP-GL1-2` | GL-1 repairs (Wave 2) |
 | `RT-1` | Two timed round windows (Wave 3) |
 | `REP-RT1-1` | Minute-window round-trip fix (Wave 4) |
 | `RT-2` | Per-round vote budget + "Share the wealth" + single downvote cost (Wave 4 + repairs) |
 | `REP-RT2-1` | Zero-point budget bypass (Wave 5) |
 | `REP-RT2-2` | Fractional-points vote-count pump (Wave 6) |
 | `HG-1` | Host-abandonment election (Wave 7 closure) |
+| `RT-3` | Judge can skip their turn, fair no-repeat rotation (Wave 7 + REP-RT3-1) |
+| `REP-RT3-1` | No-repeat rotation records Judges by play, not assignment (Wave 7 repair) |
 
 ## Blocked
 
 | Id | Issue | Blocked by |
 |---|---|---|
-| `RT-3` | Judge can skip their turn, fair no-repeat rotation | `REP-RT3-1` (rotation under-records skip-assigned / host-hand-picked Judges) |
+| none | |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election): `HG-1` is `Done` (closure review), `RT-3` is `Implemented` and blocked by the `REP-RT3-1` repair (closure review found a no-repeat-rotation fairness defect: skip-assigned / host-hand-picked Judges are never recorded in the served set). Once `REP-RT3-1` passes its closure review, `RT-3` reaches `Done` and every issue in the backlog is `Done`.
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election) and its `REP-RT3-1` repair are all `Done`. **Every issue in the backlog is now `Done`.**
 
 ## Out of scope for now (tracked as notes, not ready issues)
 
@@ -65,3 +61,5 @@ These are real findings but are deliberately **not** ready implementation issues
 - **Downvote previously charged the voter as well as the target** (finding `f.downvote`): resolved as a desirable single-cost decision in `RT-2` (downvote spends only from the round budget; the lifetime score dock is removed). Note retained for history.
 - **Judge loses the "Select as Winner" control after voting** (RT-1 + RT-2 closure observations): both closure reviews confirmed the gap persists — once the Judge spends their whole budget, `voteBudgetSpent` flips and hides the `isRoundLeader`-gated winner control (GroupView ~1111-1174), so in a 2-player round the Judge cannot reveal early via the UI after a full-budget vote. The server still honors a Judge's `czar_select_winner` and the voting deadline still closes the round, so no done condition is violated; it is a UX gap. Consistent with the no-early-reveal design (A1/A4). Not yet owned by a wave; re-assess when the voting panel is next reworked.
 - **HG-1 departed-member ballots are not purged from an in-flight election** (closure observation): `group.election.votes` keeps a departed member's ballot, and `electionMajorityNeeded` recomputes over the live member roster, so a scaled-down electorate counts stale votes toward the threshold. Both closure reviewers traced all paths and found **no reachable outcome where a departed candidate wins hostship** (any recompute that could promote a departed candidate is blocked because the candidate id ceases to be valid after departure; a solo electorate has no valid non-self target), so the non-member-host invariant holds. It is a robustness/fragility note only, not a defect; add explicit purge on `leave_group` whenever the election feature is next reworked.
+- **REP-RT3-1 regression test is a probabilistic pre-fix red** (closure observation): the new judge-skip test "a skip-assigned Judge who plays is excluded from a later skip re-pick" deterministically asserts a valid state on the fixed code, but against the pre-fix bug its round-2 re-pick draws uniformly from two eligible members, so `.toBe(remainingUnserved.id)` fails on roughly ~50% of runs rather than every run. It covers the exact gap as the done-condition requires and the fix is confirmed by both closure reviewers plus a full 101/101 green suite; the probabilistic nature is a test-strength note, not a blocker. If the rotation bookkeeping is next reworked, consider asserting the skip-pool state directly or looping to make it a strict red on any regression.
+- **A never-serving offline member can stall the rotation reset** (REP-RT3-1 adversarial observation, pre-existing, out of scope): `recordJudgeServed` resets the cycle only when `currentServed.length >= group.players.length`. If a member is offline and never serves, the set can never reach that size, so the full-skip-reset/revert path may not fire while they remain. This is a design consequence of the "set size == players.length" reset combined with presence-independent rounds (a round can begin with few connected members), not something introduced by `RT-3`/`REP-RT3-1`; note if rotation semantics are next reviewed.
