@@ -635,9 +635,13 @@
 }
 
 /* Rules Edit Form */
+/* Sections lay out two or more across on desktop. `auto-fit` + `minmax`
+   collapses to a single column once the container drops below ~300px, which is
+   what the `max-width: 1024px` media block below relies on. The read-only
+   `.rules-container` view has its own grid and is deliberately left untouched. */
 .rules-edit-form {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
   gap: var(--space-4);
 }
 
@@ -645,6 +649,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+
+/* Save / Cancel span the full grid width rather than sitting in column one. */
+.rules-edit-form .form-actions {
+  grid-column: 1 / -1;
 }
 
 /* Scoped: `.form-row` is a shared layout class, so an unscoped rule here
@@ -674,9 +683,31 @@
   color: var(--color-text-primary);
 }
 
-.form-row input,
-.form-row select {
-  flex: 1;
+/* `.form-row` is a shared layout class and these stylesheets are plain global
+   imports, so this MUST stay scoped: an unscoped `flex: 1` here leaked to the
+   Create Group wizard and collapsed its `.window-control select` down to the
+   native chevron. `flex-basis: auto` (not 0) keeps each control at its natural
+   width, and checkboxes / radios are excluded so a rules checkbox never
+   stretches the full row and shoves its label to the far edge. */
+.group-view-page .form-row input:not([type="checkbox"]):not([type="radio"]),
+.group-view-page .form-row select {
+  flex: 0 1 auto;
+}
+
+/* Numeric rules fields (Total Rounds, Max Players, Judge's-Pick points, Max
+   Jury Points, …) are short data entry, not full-bleed text fields. Cap the
+   width but let a narrow column shrink it. The window-control number inputs
+   are nested a level deeper and keep their own `flex: 1 1 auto` sizing. */
+.rules-edit-form .form-row > input[type="number"] {
+  width: 240px;
+  max-width: 100%;
+}
+
+/* Belt-and-braces: even with the checkbox excluded from the growth rule above,
+   a rules checkbox must never grow or shrink from the 18px box index.css
+   gives it, so the tick and its label stay together at the left. */
+.rules-edit-form .form-row.checkbox input[type="checkbox"] {
+  flex: 0 0 auto;
 }
 
 /* A window length is a numeric value next to a unit dropdown. The dropdown
@@ -696,6 +727,9 @@
 
 .group-view-page .window-control select {
   flex: 0 0 auto;
+  /* Overrides index.css's `width: 100%` on `.form-row select`, so the dropdown
+     sizes to its label and leaves the numeric input room on the row. */
+  width: auto;
 }
 
 .form-row.checkbox {

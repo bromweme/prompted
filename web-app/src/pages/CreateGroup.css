@@ -121,8 +121,15 @@
   min-width: 0;
 }
 
-.window-control select {
+/* Scoped so it outweighs any shared `.form-row select` growth rule from
+   another stylesheet: the unit dropdown stays a fixed comfortable width and
+   shows its "hours" / "minutes" / "days" label instead of collapsing to the
+   chevron. `width: auto` overrides the `width: 100%` that index.css gives
+   every `.form-row select` — without it, `flex-basis: auto` resolves to the
+   full row and squeezes the numeric input beside it down to nothing. */
+.create-group-page .window-control select {
   flex: 0 0 auto;
+  width: auto;
 }
 
 .features-grid {
