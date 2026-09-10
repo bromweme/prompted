@@ -19,11 +19,15 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | Wave 1 | `8253c51` | `GL-1`, `GL-2`, `GL-3` | GL-2, GL-3 `Done`; GL-1 `Implemented` (review-work). Review filed `REP-GL1-1` (host-leave orphan) and `REP-GL1-2` (client-navigation test gap), both `Ready`, blocking GL-1. |
 | Wave 2 | `0964c00` | `REP-GL1-1`, `REP-GL1-2` | Both repair issues `Done` (closure review passed, review-work). Server rejects host `leave_group` so a group always keeps a host who is a current member; `leave-delete.spec.js` gained two browser click→navigate tests. Full chromium suite 76/76 green; oxlint 0 errors. `GL-1` now `Done`. |
 | Wave 3 | `9695517` | `RT-1` | Timed submission & voting windows land; voting closes on its deadline (no early reveal); host sets each window with numeric value + unit with boundary clamping. Full chromium suite 77/77 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) NON-BLOCKING; `RT-1` now `Done`. Non-blocking follow-up `REP-RT1-1` (minute-window round-trip) filed `Ready`. `RT-2` is unblocked. |
-| Wave 4 | `b784369` | `RT-2`, `REP-RT1-1` | `RT-2` = per-round vote budget (default 10), "Share the wealth" spread/concentrate toggle, downvote spends only from budget, server-enforced `allowDownvotes` and downvote-lifetime-dock removal; `voteBudgetRemaining` contract. `REP-RT1-1` = minute-window round-trip fix in `windowLengths.js` + regression spec. Both `Implemented`, awaiting closure review. Full chromium suite 84/84 green; oxlint 0 errors/23 baseline warnings. |
+| Wave 4 | `b784369` | `RT-2`, `REP-RT1-1` | `RT-2` = per-round vote budget (default 10), "Share the wealth" spread/concentrate toggle, downvote spends only from budget, server-enforced `allowDownvotes` and downvote-lifetime-dock removal; `voteBudgetRemaining` contract. `REP-RT1-1` = minute-window round-trip fix in `windowLengths.js` + regression spec. Full chromium suite 84/84 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) split: `REP-RT1-1` NON-BLOCKING → `Done`; `RT-2` BLOCKING (adversarial found DEF-1: zero-point votes bypass the budget and can force `public_override`) → stays `Implemented`, repair `REP-RT2-1` filed `Ready`. |
 
 ## Ready frontier
 
 The current dependency-free frontier. An issue is listed here only when every issue it depends on is `Done`.
+
+| Id | Issue |
+|---|---|
+| `REP-RT2-1` | Zero-point votes bypass the round budget and can manipulate the winner (blocking `RT-2`) |
 
 | Id | Issue |
 |---|---|
@@ -33,20 +37,19 @@ The current dependency-free frontier. An issue is listed here only when every is
 |---|---|
 | `HG-1` | Members can leave or elect a new host when the host has abandoned the group — `docs/planning/host-governance-product-brief.md` |
 
-## Implemented (Wave 4, awaiting closure review)
+## Done (Wave 4)
 
 | Id | Issue |
 |---|---|
-| `RT-2` | Per-round vote budget with "Share the wealth" and a single downvote cost |
 | `REP-RT1-1` | Minute window lengths that aren't whole hours round-trip to a larger whole hour |
 
 ## Blocked
 
 | Id | Issue | Blocked by |
 |---|---|---|
-| none | |
+| `RT-2` | Per-round vote budget with "Share the wealth" and a single downvote cost | `REP-RT2-1` (zero-point budget bypass — closure blocker) |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). Wave 3 (`RT-1`, timed windows) is `Done` (closure review NON-BLOCKING). Wave 4 (`RT-2` vote budget + `REP-RT1-1` window round-trip) is `Implemented`, awaiting closure review. `RT-3` and `HG-1` remain ready for a later wave.
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). Wave 3 (`RT-1`, timed windows) is `Done`. Wave 4: `REP-RT1-1` (minute-window round-trip) is `Done`; `RT-2` (vote budget) is `Implemented` but blocked by the closure defect `REP-RT2-1`, which must land before RT-2 reaches `Done`. `RT-3` and `HG-1` remain ready. The next wave should carry `REP-RT2-1` (it unblocks the core budget feature).
 
 ## Out of scope for now (tracked as notes, not ready issues)
 
@@ -59,4 +62,4 @@ These are real findings but are deliberately **not** ready implementation issues
 - **Session tokens cannot be revoked** (finding `f.norevoke`): a security change with its own review; needs scoping.
 - **Account Settings toggles are cosmetic and Deactivate is a stub** (finding `f.ui-dead`): separate surface from the group wave; needs a product decision on what the toggles should do.
 - **Downvote previously charged the voter as well as the target** (finding `f.downvote`): resolved as a desirable single-cost decision in `RT-2` (downvote spends only from the round budget; the lifetime score dock is removed). Note retained for history.
-- **Judge loses the "Select as Winner" control after voting** (RT-1 closure observation): once the Judge casts a vote, GroupView switches to "You've voted — waiting for the rest of the group" and hides the `isRoundLeader`-gated winner control, so in a 2-player round the Judge cannot reveal early via the UI after voting (the voting deadline still closes the round, and the server still honors a Judge's `czar_select_winner`). Consistent with the no-early-reveal design (A1/A4), but a UX gap on the surface RT-1 ships. `RT-2` reworks this exact voting panel for the vote budget; re-assess there rather than a separate issue.
+- **Judge loses the "Select as Winner" control after voting** (RT-1 + RT-2 closure observations): both closure reviews confirmed the gap persists — once the Judge spends their whole budget, `voteBudgetSpent` flips and hides the `isRoundLeader`-gated winner control (GroupView ~1111-1174), so in a 2-player round the Judge cannot reveal early via the UI after a full-budget vote. The server still honors a Judge's `czar_select_winner` and the voting deadline still closes the round, so no done condition is violated; it is a UX gap. Consistent with the no-early-reveal design (A1/A4). Not yet owned by a wave; re-assess when the voting panel is next reworked.
