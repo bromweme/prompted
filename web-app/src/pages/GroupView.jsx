@@ -8,6 +8,7 @@ import YouTubeSearch from '../components/YouTubeSearch'
 import YouTubeEmbed from '../components/YouTubeEmbed'
 import RoundVideoList from '../components/RoundVideoList'
 import TopicPicker from '../components/TopicPicker'
+import { WINDOW_UNITS, windowValueToHours, hoursToWindowValue } from '../utils/windowLengths'
 import './GroupView.css'
 
 // Server player records carry both a transient socket id (`id`) and a stable
@@ -78,6 +79,10 @@ function GroupView() {
   const [userSubmission, setUserSubmission] = useState(null)
   const [isEditingRules, setIsEditingRules] = useState(false)
   const [editedSettings, setEditedSettings] = useState(null)
+  // The Rules editor represents each round window as a value + unit (see
+  // utils/windowLengths.js); the persisted settings stay in hours.
+  const [submissionWindow, setSubmissionWindow] = useState({ value: 24, unit: 'hours' })
+  const [votingWindow, setVotingWindow] = useState({ value: 24, unit: 'hours' })
   const [showRoundLeaderModal, setShowRoundLeaderModal] = useState(false)
   const [showPlayerSelection, setShowPlayerSelection] = useState(false)
   const [timeRemaining, setTimeRemaining] = useState(null)
@@ -355,7 +360,11 @@ function GroupView() {
   }
 
   const handleEditRules = () => {
-    setEditedSettings({ ...group.settings })
+    const settings = { ...group.settings }
+    setEditedSettings(settings)
+    // Seed the window editors from the stored hours.
+    setSubmissionWindow(hoursToWindowValue(settings.submissionTime || 24))
+    setVotingWindow(hoursToWindowValue(settings.votingTime || 24))
     setIsEditingRules(true)
   }
 
@@ -365,14 +374,22 @@ function GroupView() {
       return
     }
 
+    // Convert the value + unit windows back to hours before sending (the
+    // persisted settings stay in hours).
+    const settings = {
+      ...editedSettings,
+      submissionTime: windowValueToHours(submissionWindow.value, submissionWindow.unit),
+      votingTime: windowValueToHours(votingWindow.value, votingWindow.unit)
+    }
+
     // overrideThreshold is a whole percentage everywhere — no conversion needed
     socket.emit('update_group', {
       groupId,
-      settings: editedSettings
+      settings
     })
 
     socket.once('group_updated', ({ group }) => {
-      setGroup(prev => ({ ...prev, settings: editedSettings }))
+      setGroup(prev => ({ ...prev, settings }))
       setIsEditingRules(false)
       alert('Group rules updated!')
     })
@@ -1465,26 +1482,44 @@ function GroupView() {
                       <h3>Timing</h3>
                       <small className="form-hint">Changes to timing apply to the next round — the round in progress keeps its original deadline.</small>
                       <div className="form-row">
-                        <label htmlFor="rules-submission-time">Submission Time (hours):</label>
-                        <input
-                          id="rules-submission-time"
-                          type="number"
-                          value={editedSettings.submissionTime}
-                          onChange={(e) => setEditedSettings(prev => ({ ...prev, submissionTime: parseInt(e.target.value) }))}
-                          min="1"
-                          max="168"
-                        />
+                        <label htmlFor="rules-submission-time">Submission Length:</label>
+                        <div className="window-control">
+                          <input
+                            id="rules-submission-time"
+                            type="number"
+                            value={submissionWindow.value}
+                            onChange={(e) => setSubmissionWindow(prev => ({ ...prev, value: e.target.value }))}
+                            min="1"
+                            max={submissionWindow.unit === 'minutes' ? 10080 : submissionWindow.unit === 'days' ? 7 : 168}
+                          />
+                          <select
+                            aria-label="Submission length unit"
+                            value={submissionWindow.unit}
+                            onChange={(e) => setSubmissionWindow(prev => ({ ...prev, unit: e.target.value }))}
+                          >
+                            {WINDOW_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                          </select>
+                        </div>
                       </div>
                       <div className="form-row">
-                        <label htmlFor="rules-voting-time">Voting Time (hours):</label>
-                        <input
-                          id="rules-voting-time"
-                          type="number"
-                          value={editedSettings.votingTime}
-                          onChange={(e) => setEditedSettings(prev => ({ ...prev, votingTime: parseInt(e.target.value) }))}
-                          min="1"
-                          max="168"
-                        />
+                        <label htmlFor="rules-voting-time">Voting Length:</label>
+                        <div className="window-control">
+                          <input
+                            id="rules-voting-time"
+                            type="number"
+                            value={votingWindow.value}
+                            onChange={(e) => setVotingWindow(prev => ({ ...prev, value: e.target.value }))}
+                            min="1"
+                            max={votingWindow.unit === 'minutes' ? 10080 : votingWindow.unit === 'days' ? 7 : 168}
+                          />
+                          <select
+                            aria-label="Voting length unit"
+                            value={votingWindow.unit}
+                            onChange={(e) => setVotingWindow(prev => ({ ...prev, unit: e.target.value }))}
+                          >
+                            {WINDOW_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                          </select>
+                        </div>
                       </div>
                       <div className="form-row checkbox">
                         <label>
@@ -1621,8 +1656,8 @@ function GroupView() {
                     <div className="rules-section">
                       <h3>Timing</h3>
                       <ul className="rules-list">
-                        <li><strong>Submission Time:</strong> {group.settings.submissionTime} hours</li>
-                        <li><strong>Voting Time:</strong> {group.settings.votingTime} hours</li>
+                        <li><strong>Submission Length:</strong> {(hoursToWindowValue(group.settings.submissionTime || 24)).value} {(hoursToWindowValue(group.settings.submissionTime || 24)).unit}</li>
+                        <li><strong>Voting Length:</strong> {(hoursToWindowValue(group.settings.votingTime || 24)).value} {(hoursToWindowValue(group.settings.votingTime || 24)).unit}</li>
                         <li><strong>Auto-Start:</strong> {group.settings.autoStart ? 'Yes' : 'No'}</li>
                       </ul>
                     </div>

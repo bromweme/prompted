@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
 import AppNav from '../components/AppNav'
+import { WINDOW_UNITS, windowValueToHours } from '../utils/windowLengths'
 import './CreateGroup.css'
 
 const STEPS = ['Basics', 'Game Rules', 'Override & Timing', 'Topics & Extras']
@@ -47,9 +48,10 @@ function CreateGroup() {
   const [allowOverride, setAllowOverride] = useState(true)
   const [overrideThreshold, setOverrideThreshold] = useState(70)
 
-  // Timing Settings
-  const [submissionTime, setSubmissionTime] = useState(24) // hours
-  const [votingTime, setVotingTime] = useState(24) // hours
+  // Timing Settings — each window is a numeric value + a unit (minutes/hours/
+  // days) converted to hours on the wire (see utils/windowLengths.js).
+  const [submissionWindow, setSubmissionWindow] = useState({ value: 24, unit: 'hours' })
+  const [votingWindow, setVotingWindow] = useState({ value: 24, unit: 'hours' })
   const [autoStart, setAutoStart] = useState(false)
 
   // Topic Settings
@@ -116,8 +118,8 @@ function CreateGroup() {
         downvoteCost,
         allowOverride,
         overrideThreshold, // whole percentage (51-100); stored and transmitted as-is everywhere
-        submissionTime,
-        votingTime,
+        submissionTime: windowValueToHours(submissionWindow.value, submissionWindow.unit),
+        votingTime: windowValueToHours(votingWindow.value, votingWindow.unit),
         autoStart,
         topicSelection,
         allowCustomTopics,
@@ -456,28 +458,46 @@ function CreateGroup() {
                 <h3>Timing Settings</h3>
                 <div className="form-row">
                   <div className="form-group">
-                    <label htmlFor="submission-time">Submission Time (hours)</label>
-                    <input
-                      id="submission-time"
-                      type="number"
-                      value={submissionTime}
-                      onChange={(e) => setSubmissionTime(parseInt(e.target.value))}
-                      min="1"
-                      max="168"
-                    />
+                    <label htmlFor="submission-time">Submission Length</label>
+                    <div className="window-control">
+                      <input
+                        id="submission-time"
+                        type="number"
+                        value={submissionWindow.value}
+                        onChange={(e) => setSubmissionWindow(prev => ({ ...prev, value: e.target.value }))}
+                        min="1"
+                        max={submissionWindow.unit === 'minutes' ? 10080 : submissionWindow.unit === 'days' ? 7 : 168}
+                      />
+                      <select
+                        aria-label="Submission length unit"
+                        value={submissionWindow.unit}
+                        onChange={(e) => setSubmissionWindow(prev => ({ ...prev, unit: e.target.value }))}
+                      >
+                        {WINDOW_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
                     <small className="form-hint">Time players have to submit songs</small>
                   </div>
 
                   <div className="form-group">
-                    <label htmlFor="voting-time">Voting Time (hours)</label>
-                    <input
-                      id="voting-time"
-                      type="number"
-                      value={votingTime}
-                      onChange={(e) => setVotingTime(parseInt(e.target.value))}
-                      min="1"
-                      max="168"
-                    />
+                    <label htmlFor="voting-time">Voting Length</label>
+                    <div className="window-control">
+                      <input
+                        id="voting-time"
+                        type="number"
+                        value={votingWindow.value}
+                        onChange={(e) => setVotingWindow(prev => ({ ...prev, value: e.target.value }))}
+                        min="1"
+                        max={votingWindow.unit === 'minutes' ? 10080 : votingWindow.unit === 'days' ? 7 : 168}
+                      />
+                      <select
+                        aria-label="Voting length unit"
+                        value={votingWindow.unit}
+                        onChange={(e) => setVotingWindow(prev => ({ ...prev, unit: e.target.value }))}
+                      >
+                        {WINDOW_UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+                      </select>
+                    </div>
                     <small className="form-hint">Time players have to vote</small>
                   </div>
 

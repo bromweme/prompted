@@ -168,11 +168,13 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
     expect(submissions[0]).not.toHaveProperty('playerUserId')
   })
 
-  await test.step('both players vote, including the Round Leader', async () => {
-    // Only the leader can vote here: the sole submission is the non-leader's
-    // own, and self-voting is blocked in the UI and on the server.
+  await test.step('the Round Leader resolves the round as Judge', async () => {
+    // The leader is the Judge and the sole submission is the non-leader's own.
+    // Casting a vote no longer reveals the round (RT-1), and the "Select as
+    // Winner" control disappears once the Judge votes, so the Judge resolves
+    // this two-player round directly by picking the winner.
     await leader.page.locator('.submissions-list').getByText(submittedTitle).click()
-    await leader.page.getByRole('button', { name: 'Cast Vote' }).click()
+    await leader.page.getByRole('button', { name: /Select as Winner/ }).click()
 
     await expect.poll(() => latestGroupUpdate(player1.events)?.group?.currentTheme?.status).toBe('reveal')
     await expect.poll(() => latestGroupUpdate(player2.events)?.group?.currentTheme?.status).toBe('reveal')
@@ -182,29 +184,27 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
     const result = latestGroupUpdate(player1.events).group
     const theme = result.currentTheme
 
-    // The leader's vote is the only one possible — the sole submission
-    // belongs to the other player, who may not vote for their own — so 1/1 =
-    // 100% clears the default 70% override threshold and this resolves as a
-    // public override rather than falling through to the popular-vote branch.
+    // The Judge resolved by directly picking the winner (czar_selection), so
+    // no popular-vote override applies even though only one submission exists.
     const winningSubmission = theme.submissions.find((s) => s.wonBy)
     expect(winningSubmission).toBeTruthy()
     expect(winningSubmission.title).toBe(submittedTitle)
     // The id is what the reveal iframe is built from, so its shape matters.
     expect(winningSubmission.videoId).toMatch(/^[A-Za-z0-9_-]{11}$/)
-    expect(winningSubmission.wonBy).toBe('public_override')
+    expect(winningSubmission.wonBy).toBe('czar_selection')
 
     // Now that the round is revealed, the Round Leader's name is public.
     const expectedLeaderName = p1IsLeader ? 'Host Player' : 'Guest Player'
     expect(theme.czarUsername).toBe(expectedLeaderName)
 
     // Scoring: the submitter (non-leader) gets czarPoints (5, the create
-    // form's default) for winning. They earn no jury bonus this round because
-    // the only submission was their own and self-voting is not allowed. The
-    // Round Leader collects their own jury bonus (1) for backing the winner.
+    // form's default) for winning. Nobody cast a ballot — the Judge picked the
+    // winner without voting, and self-voting is blocked for the only submitter
+    // — so no jury bonus is awarded this round.
     const submitterName = p1IsLeader ? 'Guest Player' : 'Host Player'
     const scoreOf = (name) => result.players.find((p) => p.username === name).score
     expect(scoreOf(submitterName)).toBe(5)
-    expect(scoreOf(expectedLeaderName)).toBe(1)
+    expect(scoreOf(expectedLeaderName)).toBe(0)
 
     // History recorded the completed round.
     expect(result.history).toHaveLength(1)

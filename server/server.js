@@ -144,21 +144,50 @@ function isValidOverrideThreshold(value) {
   return typeof value === 'number' && Number.isFinite(value) && value >= 51 && value <= 100;
 }
 
-// The submission window, in hours. The wizard offers 1-168 through an HTML
-// min/max, which is not validation at all: nothing stopped a crafted payload
-// setting any number, and the deadline is now acted on rather than merely
-// displayed, so an absurd window has real consequences.
+// Both round windows (submission and voting) are expressed in hours in
+// settings and on the wire; the host picks a numeric value plus a unit
+// (minutes/hours/days) in the UI, and the client converts that to hours. The
+// design (docs/design/a4-round-windows-change-design.md) clamps an out-of-range
+// window to the nearest boundary rather than rejecting it — the "ceiling" is
+// always 168 hours, regardless of unit.
 //
-// The floor drops to one second under AUTH_TEST_MODE so the suite can drive a
-// genuine expiry instead of asserting around it. That flag already refuses to
-// coexist with NODE_ENV=production (the server exits at boot; see config.js),
-// so this cannot widen the range on a deployed server.
-const MAX_SUBMISSION_HOURS = 168;
-const MIN_SUBMISSION_HOURS = config.authTestMode ? 1 / 3600 : 1;
+// Per-unit bounds (enforced in the UI by clamping before conversion to hours):
+//   minutes 1..10080   (10080 minutes == 168h)
+//   hours   1..168
+//   days    1..7       (7 days == 168h)
+//
+// The server clamps the received hours to the same 168h ceiling. Because the
+// minutes unit legitimately goes below one hour, the production floor is one
+// minute (1/60h). That floor drops to one second under AUTH_TEST_MODE so the
+// suite can drive a genuine expiry instead of asserting around it — a flag
+// that already refuses to coexist with NODE_ENV=production (see config.js), so
+// this cannot widen the range on a deployed server.
+const MAX_WINDOW_HOURS = 168;
+const MIN_WINDOW_HOURS = config.authTestMode ? 1 / 3600 : 1 / 60;
 
-function isValidSubmissionTime(value) {
-  return typeof value === 'number' && Number.isFinite(value)
-    && value >= MIN_SUBMISSION_HOURS && value <= MAX_SUBMISSION_HOURS;
+// Clamps a window length (in hours) to the valid band, falling back to the
+// default when the value is missing or not a usable number. Used both when a
+// host saves a setting and every time a window length is turned into a
+// deadline, so a crafted or legacy value can never make a window absurdly
+// short or long. Values below the floor (including negatives) go down to the
+// floor; values above the ceiling go up to it.
+function clampWindowHours(value, fallback = 24) {
+  const hours = Number(value);
+  if (!Number.isFinite(hours)) return fallback;
+  return Math.min(MAX_WINDOW_HOURS, Math.max(MIN_WINDOW_HOURS, hours));
+}
+
+// The submission window length a round actually runs on, from the group's
+// settings with clamping applied.
+function submissionHours(group) {
+  return clampWindowHours(group.settings && group.settings.submissionTime);
+}
+
+// The voting window length, read server-side for the first time by RT-1. It is
+// collected and displayed like submissionTime but was inert (never read) until
+// this change gave it a real deadline.
+function votingHours(group) {
+  return clampWindowHours(group.settings && group.settings.votingTime);
 }
 
 // How many times a round with no submissions at all re-arms itself before it
@@ -182,22 +211,45 @@ function addHostNotice(group, kind, message) {
 }
 
 /**
- * Acts on an expired submission deadline. Returns true when it changed the
+ * Moves a round into voting and starts the voting window's clock. This is the
+ * single closure of the submission phase (called from the expiry path, the
+ * all-submitted auto-advance, and the host's close_submissions), mirroring how
+ * select_topic sets the submission deadline. It replaces the stale submission
+ * deadline with a fresh absolute voting deadline so the client countdown,
+ * which keys off theme.deadline generically, ticks the voting window and its
+ * nudge (check_round_deadline) expires it. Voting always runs to this deadline
+ * — there is no early reveal (docs/design/a1-voting-deadline-change-design.md).
+ */
+function openVoting(theme, group) {
+  theme.status = 'voting';
+  const hours = votingHours(group);
+  theme.deadline = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+}
+
+/**
+ * Acts on an expired round-window deadline. Returns true when it changed the
  * group, so callers know to persist and broadcast.
  *
  * This is called wherever a round is already being handled rather than from a
  * timer. `deadline` is an absolute instant that already persists inside the
  * group, so evaluating it on read is correct across a server restart and needs
- * no scheduler — the server has none, and a 24-hour default is the wrong scale
- * for setTimeout anyway. See docs/design/round-stall-change-design.md.
+ * no scheduler — the server has none, and a multi-hour default is the wrong
+ * scale for setTimeout anyway. See docs/design/round-stall-change-design.md.
  *
- * Idempotent: it only acts while the round is in its submission phase with a
+ * It honors both round windows (docs/design/a4-round-windows-change-design.md):
+ * a passed submission deadline either opens voting (when something was
+ * submitted) or re-arms the same round (when nobody submitted); a passed
+ * voting deadline completes the round via calculateGroupResults.
+ *
+ * Idempotent: it only acts while the round is in a window phase with a
  * genuinely past deadline, and every branch either leaves that phase or moves
  * the deadline forward.
  */
 function advanceIfExpired(group) {
   const theme = group && group.currentTheme;
-  if (!theme || theme.status !== 'submission' || !theme.deadline) return false;
+  // The deadline is the active window's close for both submission and voting.
+  if (!theme || !theme.deadline) return false;
+  if (theme.status !== 'submission' && theme.status !== 'voting') return false;
 
   // Already given up on this round. The deadline stays in the past, so without
   // this guard every later call would queue the host another notice.
@@ -206,10 +258,20 @@ function advanceIfExpired(group) {
   const deadline = Date.parse(theme.deadline);
   if (!Number.isFinite(deadline) || Date.now() < deadline) return false;
 
+  // The voting window closed. Nobody settling the round with a vote has to
+  // wait for anyone else: the winner is calculated from whatever votes turned
+  // up. calculateGroupResults sets status='reveal', tallies the winner, pushes
+  // history, persists and broadcasts, so this returns true for the existing
+  // callsites to broadcast the reveal too.
+  if (theme.status === 'voting') {
+    calculateGroupResults(group);
+    return true;
+  }
+
   // Something arrived: play the round with what turned up. A player who never
   // submitted simply misses this round rather than holding everyone else.
   if (theme.submissions.length > 0) {
-    theme.status = 'voting';
+    openVoting(theme, group);
     console.log('Submission deadline passed for group:', group.id, '- opening voting with',
       theme.submissions.length, 'submission(s)');
     return true;
@@ -228,8 +290,8 @@ function advanceIfExpired(group) {
     return true;
   }
 
-  const submissionHours = group.settings.submissionTime || 24;
-  theme.deadline = new Date(Date.now() + submissionHours * 60 * 60 * 1000).toISOString();
+  const hours = submissionHours(group);
+  theme.deadline = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
   theme.autoRearmCount = attempts;
   addHostNotice(group, 'round_restarted',
     `Nobody submitted a video in time, so "${theme.title}" has restarted with the same Judge and topic. Attempt ${attempts} of ${MAX_AUTO_REARMS}.`);
@@ -631,8 +693,8 @@ io.on('connection', (socket) => {
     theme.topicId = id;
     theme.title = topic.text;
     theme.status = 'submission';
-    const submissionHours = group.settings.submissionTime || 24;
-    theme.deadline = new Date(Date.now() + submissionHours * 60 * 60 * 1000).toISOString();
+    const hours = submissionHours(group);
+    theme.deadline = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
 
     // Marked used in this group only. Re-selecting an already-used topic is
     // allowed (the UI marks it rather than blocking it), so this stays a set.
@@ -715,15 +777,15 @@ io.on('connection', (socket) => {
     if (settings.overrideThreshold !== undefined && !isValidOverrideThreshold(settings.overrideThreshold)) {
       settings.overrideThreshold = 70;
     }
-    // Rejected rather than silently corrected, unlike overrideThreshold above:
-    // the submission window now decides when a round advances on its own, so a
-    // host who typed something impossible needs to know rather than discover it
-    // a day later.
-    if (settings.submissionTime !== undefined && !isValidSubmissionTime(settings.submissionTime)) {
-      socket.emit('error', {
-        message: `Submission time must be between 1 and ${MAX_SUBMISSION_HOURS} hours`
-      });
-      return;
+    // Round windows are clamped to the valid band rather than rejected (the A4
+    // "numeric + unit, clamp out-of-range" model — see docs/design/a4-round-windows-change-design.md).
+    // A crafted absurd length can now only make a window as short as the floor
+    // or as long as 168h, never open/close a round absurdly fast or hang it.
+    if (settings.submissionTime !== undefined) {
+      settings.submissionTime = clampWindowHours(settings.submissionTime);
+    }
+    if (settings.votingTime !== undefined) {
+      settings.votingTime = clampWindowHours(settings.votingTime);
     }
 
     const group = {
@@ -927,7 +989,7 @@ io.on('connection', (socket) => {
       return;
     }
 
-    theme.status = 'voting';
+    openVoting(theme, group);
     groups.set(gid, group);
     broadcastGroup(group);
     console.log('Host closed submissions early for group:', gid);
@@ -998,11 +1060,11 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (settings.submissionTime !== undefined && !isValidSubmissionTime(settings.submissionTime)) {
-      socket.emit('error', {
-        message: `Submission time must be between 1 and ${MAX_SUBMISSION_HOURS} hours`
-      });
-      return;
+    if (settings.submissionTime !== undefined) {
+      settings.submissionTime = clampWindowHours(settings.submissionTime);
+    }
+    if (settings.votingTime !== undefined) {
+      settings.votingTime = clampWindowHours(settings.votingTime);
     }
 
     // Update group settings
@@ -1272,7 +1334,7 @@ io.on('connection', (socket) => {
 
     const eligiblePlayers = group.players.filter(p => p.connected !== false && p.userId !== theme.czarId);
     if (eligiblePlayers.length > 0 && theme.submissions.length >= eligiblePlayers.length) {
-      theme.status = 'voting';
+      openVoting(theme, group);
     } else {
       // Everyone present has not finished, but the window may have closed
       // while this submission was in flight. Checked after the push so this
@@ -1355,18 +1417,10 @@ io.on('connection', (socket) => {
 
     groups.set(gid, group);
 
-    // Only players who have something they're allowed to vote for count
-    // towards "everyone has voted". Without this, a player whose own
-    // submission is the only one on offer — the two-player case — would
-    // never be able to vote, and the round could never resolve.
-    const eligibleVoters = group.players.filter(p =>
-      p.connected !== false && theme.submissions.some(sub => sub.playerUserId !== p.userId)
-    );
-    if (theme.votes.length >= eligibleVoters.length) {
-      calculateGroupResults(group);
-    } else {
-      broadcastGroup(group);
-    }
+    // Voting always runs to its deadline (see openVoting): a round does NOT
+    // resolve just because every eligible voter has voted. The reveal happens
+    // when the persisted voting deadline passes, evaluated on read.
+    broadcastGroup(group);
   });
 
   // Round Leader explicitly selects a winner (can resolve the round before everyone votes)

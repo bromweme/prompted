@@ -58,7 +58,7 @@ const inPhase = (phase) => (p) => p.group?.currentTheme?.status === phase
  * Builds a group and runs it to the submission phase with the given window. Returns the players split by role, so a test can act as the Judge or
  * as the contestant without caring which socket drew which.
  */
-async function runToSubmission(runId, { submissionTime = ONE_SECOND, contestants = 2 } = {}) {
+async function runToSubmission(runId, { submissionTime = ONE_SECOND, votingTime = ONE_SECOND, contestants = 2 } = {}) {
   const host = connect(`dl-host-${runId}`, 'Deadline Host')
   // Two contestants by default. With only one, that player submitting is
   // already every eligible player, so the round advances on its own and no
@@ -68,7 +68,7 @@ async function runToSubmission(runId, { submissionTime = ONE_SECOND, contestants
   await Promise.all([host.ready, ...others.map((o) => o.ready)])
 
   host.socket.emit('create_group', {
-    groupData: { name: `Deadline ${runId}`, settings: { submissionTime } }
+    groupData: { name: `Deadline ${runId}`, settings: { submissionTime, votingTime } }
   })
   const created = await once(host.socket, 'group_created')
   const groupId = created.group.id
@@ -260,6 +260,55 @@ test.describe('submission deadline', () => {
   })
 })
 
+test.describe('voting deadline', () => {
+  test('does not reveal when everyone (or anyone) votes early, and reveals only on the deadline', async () => {
+    const runId = testRunId()
+    const { host, groupId, judge, contestant, closeAll } = await runToSubmission(runId)
+
+    // The contestant submits; the other contestant stays absent, so the round
+    // only leaves submission via its own deadline.
+    await submitVideo(contestant, groupId)
+    await sleep(1200)
+
+    const advanced = waitForUpdate(host.socket, inPhase('voting'))
+    contestant.socket.emit('check_round_deadline', { groupId })
+    const { group } = await advanced
+    expect(group.currentTheme.status, 'the submission window expiry opens voting').toBe('voting')
+    expect(group.currentTheme.submissionCount).toBe(1)
+
+    // The voting window persisted its own fresh deadline when voting opened
+    // (it replaces the stale submission deadline the countdown used to show).
+    const votingDeadline = Date.parse(group.currentTheme.deadline)
+    expect(Number.isFinite(votingDeadline)).toBe(true)
+    expect(votingDeadline).toBeGreaterThan(Date.now())
+
+    // Everyone present who can vote votes. Under the old behavior the last of
+    // these votes would have revealed the round immediately; RT-1 says voting
+    // always runs to its deadline, so it stays in voting.
+    const subId = group.currentTheme.submissions[0].id
+    judge.socket.emit('cast_vote', { groupId, submissionId: subId, points: 3 })
+
+    const stillVoting = await new Promise((resolve) => {
+      judge.socket.once('group_details', resolve)
+      judge.socket.emit('get_group', { groupId })
+    })
+    expect(stillVoting.group.currentTheme.status, 'voting must not close on an early vote').toBe('voting')
+
+    // Now let the voting window itself close, then nudge the server.
+    await sleep(1200)
+    const revealed = waitForUpdate(host.socket, inPhase('reveal'))
+    judge.socket.emit('check_round_deadline', { groupId })
+    const final = await revealed
+
+    expect(final.group.currentTheme.status, 'the voting deadline completes the round').toBe('reveal')
+    expect(final.group.currentTheme.submissionCount).toBe(1)
+    expect(final.group.history, 'the resolved round is recorded').toHaveLength(1)
+    expect(final.group.currentTheme.voteCount ?? final.group.currentTheme.votes?.length).toBeGreaterThan(0)
+
+    closeAll()
+  })
+})
+
 test.describe('host controls for a stuck round', () => {
   test('the host can close submissions early', async () => {
     const runId = testRunId()
@@ -343,24 +392,29 @@ test.describe('host controls for a stuck round', () => {
   })
 })
 
-test.describe('submission window validation', () => {
-  test('an out-of-range window is refused when creating a group', async () => {
-    // The wizard bounds this with an HTML min/max, which is not validation:
-    // nothing stopped a crafted payload, and the deadline is now acted on.
+test.describe('window clamping', () => {
+  test('an out-of-range window is clamped to the ceiling when creating a group', async () => {
+    // The host picks a value + unit (A4); the server clamps an out-of-range
+    // length to the 168h ceiling rather than rejecting it (RT-1).
     const runId = testRunId()
     const host = connect(`sv-create-${runId}`, 'Validation Host')
     await host.ready
 
     host.socket.emit('create_group', {
-      groupData: { name: `Validation ${runId}`, settings: { submissionTime: 100000 } }
+      groupData: { name: `Validation ${runId}`, settings: { submissionTime: 100000, votingTime: 100000 } }
     })
-    const err = await once(host.socket, 'error')
-    expect(err.message).toContain('Submission time must be between')
+    const result = await Promise.race([
+      once(host.socket, 'group_created'),
+      once(host.socket, 'error').then((e) => ({ error: e.message }))
+    ])
+    expect(result.error, 'an absurd window clamps instead of failing the request').toBeUndefined()
+    expect(result.group.settings.submissionTime).toBe(168)
+    expect(result.group.settings.votingTime).toBe(168)
 
     host.socket.close()
   })
 
-  test('an out-of-range window is refused when editing the rules', async () => {
+  test('an under-range window is clamped to the floor when editing the rules', async () => {
     const runId = testRunId()
     const host = connect(`sv-edit-${runId}`, 'Validation Editor')
     await host.ready
@@ -368,14 +422,19 @@ test.describe('submission window validation', () => {
     host.socket.emit('create_group', { groupData: { name: `Validation edit ${runId}`, settings: {} } })
     const { group } = await once(host.socket, 'group_created')
 
-    host.socket.emit('update_group', { groupId: group.id, settings: { submissionTime: 0 } })
-    const err = await once(host.socket, 'error')
-    expect(err.message).toContain('Submission time must be between')
+    // Under AUTH_TEST_MODE the floor is one second; clamping 0 (or a negative)
+    // must land on that floor, not error, and the update must still succeed.
+    host.socket.emit('update_group', { groupId: group.id, settings: { submissionTime: 0, votingTime: -5 } })
+    const got = await new Promise((resolve) => {
+      host.socket.once('group_updated', resolve)
+    })
+    expect(got.group.settings.submissionTime).toBe(ONE_SECOND)
+    expect(got.group.settings.votingTime).toBe(ONE_SECOND)
 
     host.socket.close()
   })
 
-  test('a window inside the range is accepted', async () => {
+  test('a window inside the range is accepted as-is', async () => {
     const runId = testRunId()
     const host = connect(`sv-ok-${runId}`, 'Validation Ok')
     await host.ready

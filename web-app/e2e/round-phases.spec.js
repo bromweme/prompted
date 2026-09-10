@@ -387,30 +387,31 @@ test.describe('round phases', () => {
     await submitVideoThroughSearch(submitters[0].page, 'queen')
     const secondTitle = await submitVideoThroughSearch(submitters[1].page, 'adele')
 
-    // The leader votes for the second submission with a comment.
-    await expect(leader.page.getByText('Phase 2 of 3')).toBeVisible()
-    await leader.page.locator('.submissions-list').getByText(secondTitle).click()
-    await leader.page.getByLabel('Comment (optional)').fill('This one is unbeatable')
-    await leader.page.getByRole('button', { name: 'Cast Vote' }).click()
+    // A contestant votes for the other contestant's submission with a comment.
+    // The Judge deliberately does not vote here, so they keep the "Select as
+    // Winner" control (that control disappears once the Judge has voted).
+    await expect(submitters[0].page.getByText('Phase 2 of 3')).toBeVisible()
+    await submitters[0].page.locator('.submissions-list').getByText(secondTitle).click()
+    await submitters[0].page.getByLabel('Comment (optional)').fill('This one is unbeatable')
+    await submitters[0].page.getByRole('button', { name: 'Cast Vote' }).click()
 
     // Another player sees the comment but not who wrote it.
-    const otherView = submitters[0].page
+    const otherView = leader.page
     const comment = otherView.locator('.vote-comment').filter({ hasText: 'This one is unbeatable' })
     await expect(comment).toBeVisible()
     await expect(comment.locator('.vote-comment-author')).toHaveText('Anonymous')
-    await expect(otherView.locator('.vote-comment')).not.toContainText(leader.name)
+    await expect(otherView.locator('.vote-comment')).not.toContainText(submitters[0].name)
 
-    // Finish the round so the reveal attributes it.
-    for (const s of submitters) {
-      const selectable = s.page.locator('.submission-item:not(.own-submission)')
-      await selectable.first().click()
-      await s.page.getByRole('button', { name: 'Cast Vote' }).click()
-    }
+    // Voting keeps running to its deadline (RT-1), so the reveal is driven by
+    // the Judge explicitly picking a winner — a valid during-voting path that
+    // resolves immediately.
+    await leader.page.locator('.submissions-list').getByText(secondTitle).click()
+    await leader.page.getByRole('button', { name: /Select as Winner/ }).click()
 
     await expect(leader.page.getByText('Phase 3 of 3')).toBeVisible()
     const revealed = leader.page.locator('.vote-comment').filter({ hasText: 'This one is unbeatable' })
     await expect(revealed).toBeVisible()
-    await expect(revealed.locator('.vote-comment-author')).toHaveText(leader.name)
+    await expect(revealed.locator('.vote-comment-author')).toHaveText(submitters[0].name)
 
     for (const p of all) await p.context.close()
   })
@@ -421,30 +422,31 @@ test.describe('round phases', () => {
       browser, runId, { allowVotingComments: true, showCommentsLive: false }
     )
 
-    await submitVideoThroughSearch(submitters[0].page, 'queen')
-    const secondTitle = await submitVideoThroughSearch(submitters[1].page, 'adele')
+    const commentedTitle = await submitVideoThroughSearch(submitters[0].page, 'queen')
+    await submitVideoThroughSearch(submitters[1].page, 'adele')
 
-    // The comment box is still offered — collection is unchanged.
+    // The comment box is still offered — collection is unchanged. submitters[1]
+    // comments on submitters[0]'s submission (a peer's, not its own).
     await expect(leader.page.getByText('Phase 2 of 3')).toBeVisible()
-    await leader.page.locator('.submissions-list').getByText(secondTitle).click()
-    await leader.page.getByLabel('Comment (optional)').fill('Held until the reveal')
-    await leader.page.getByRole('button', { name: 'Cast Vote' }).click()
+    await submitters[1].page.locator('.submissions-list').getByText(commentedTitle).click()
+    await submitters[1].page.getByLabel('Comment (optional)').fill('Held until the reveal')
+    await submitters[1].page.getByRole('button', { name: 'Cast Vote' }).click()
 
-    // Nobody sees it mid-round, including the author's own view.
-    const otherView = submitters[0].page
-    await expect(otherView.locator('.vote-comment')).toHaveCount(0)
-    await expect(leader.page.locator('.vote-comment')).toHaveCount(0)
-
-    for (const s of submitters) {
-      await s.page.locator('.submission-item:not(.own-submission)').first().click()
-      await s.page.getByRole('button', { name: 'Cast Vote' }).click()
+    // Nobody sees it mid-round, including the author's own view (live is off).
+    for (const p of [leader, submitters[0], submitters[1]]) {
+      await expect(p.page.locator('.vote-comment')).toHaveCount(0)
     }
+
+    // Voting stays open even after people vote (RT-1), so the reveal is driven
+    // by the Judge explicitly picking a winner rather than by "everyone cast".
+    await leader.page.locator('.submissions-list').getByText(commentedTitle).click()
+    await leader.page.getByRole('button', { name: /Select as Winner/ }).click()
 
     // At reveal it appears, attributed like any other comment.
     await expect(leader.page.getByText('Phase 3 of 3')).toBeVisible()
     const revealed = leader.page.locator('.vote-comment').filter({ hasText: 'Held until the reveal' })
     await expect(revealed).toBeVisible()
-    await expect(revealed.locator('.vote-comment-author')).toHaveText(leader.name)
+    await expect(revealed.locator('.vote-comment-author')).toHaveText(submitters[1].name)
 
     for (const p of all) await p.context.close()
   })

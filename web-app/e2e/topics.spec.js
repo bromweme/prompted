@@ -91,11 +91,14 @@ test.describe('topic library', () => {
     await judge.page.locator('.topic-option').filter({ hasText: topicText }).click()
     await expect(judge.page.getByText('Phase 1 of 3')).toBeVisible()
 
-    // Complete the round so a second one can begin.
+    // Complete the round so a second one can begin. Casting a vote no longer
+    // reveals the round (RT-1), and the Judge loses the "Select as Winner"
+    // control once they vote, so the Judge resolves by directly picking the
+    // winner without voting.
     const title = await submitVideoThroughSearch(contestant.page, 'queen')
     await expect(judge.page.getByText('Phase 2 of 3')).toBeVisible()
     await judge.page.locator('.submissions-list').getByText(title).click()
-    await judge.page.getByRole('button', { name: 'Cast Vote' }).click()
+    await judge.page.getByRole('button', { name: /Select as Winner/ }).click()
     await expect(judge.page.getByText('Phase 3 of 3')).toBeVisible()
 
     // --- Round 2 in the same group: the topic is marked as already played ---
