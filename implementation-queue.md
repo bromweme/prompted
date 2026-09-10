@@ -23,16 +23,34 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 
 The current dependency-free frontier. An issue is listed here only when every issue it depends on is `Done`.
 
-_Empty_ — the `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done`. No issue is `Ready` for the next wave.
+| Id | Issue |
+|---|---|
+| `RT-1` | Each round runs on two timed windows (submission and voting) that both close on their deadlines — `docs/planning/gameplay-round-timing-product-brief.md` |
+
+| Id | Issue |
+|---|---|
+| `RT-3` | Judge can skip their turn, with a fair no-repeat rotation — `docs/planning/gameplay-round-timing-product-brief.md` |
+
+| Id | Issue |
+|---|---|
+| `HG-1` | Members can leave or elect a new host when the host has abandoned the group — `docs/planning/host-governance-product-brief.md` |
+
+## Blocked
+
+| Id | Issue | Blocked by |
+|---|---|---|
+| `RT-2` | Per-round vote budget with "Share the wealth" and a single downvote cost | `RT-1` (voting window close) |
+
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). The next wave frontier opens with `RT-1`, `RT-3`, and `HG-1` ready; `RT-2` enters the frontier once `RT-1` reaches `Done`.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 
 These are real findings but are deliberately **not** ready implementation issues in this wave. Leave them as notes until a wave owns them:
 
-- **`allowDownvotes` is not server-enforced** (finding `f.settings`): a crafted `isDownvote:true` passes when the group forbids downvoting. The fix is a one-line server guard plus a raw-socket test. Smaller than a standalone wave; fold in when a wave touches the voting contract.
-- **Voting has no deadline or host escape** (finding `f.deadline`): `votingTime` is never read and `close_submissions` only works during submission. This is a product/design decision (should voting get a clock or a host escape, and what should it do at expiry?). It needs a Planning/Design decision before it becomes a ready implementation issue. Track as `Blocked`-style note, not `Ready`.
+- **`allowDownvotes` was not server-enforced** (finding `f.settings`): now owned by `RT-2` (per-round vote budget), which enforces `allowDownvotes` server-side. Note retained for history.
+- **Voting had no deadline or host escape** (finding `f.deadline`): now owned by `RT-1` (two timed windows, voting closes on its deadline). The design/decision is settled (`docs/design/a1-voting-deadline-change-design.md`, `docs/design/a4-round-windows-change-design.md`). Note retained for history.
 - **`maxPlayers` / `totalRounds` are displayed as limits but never enforced** (finding `f.settings`): implementing enforcement changes product semantics (does a group end at `totalRounds`? is it a standing league?). Needs a product decision first.
 - **Song preview, chat, voter identity, auto-start, skip-Judge settings are inert** (finding `f.settings`): removing, wiring, or completing them is a product decision, not a bug fix.
 - **Session tokens cannot be revoked** (finding `f.norevoke`): a security change with its own review; needs scoping.
 - **Account Settings toggles are cosmetic and Deactivate is a stub** (finding `f.ui-dead`): separate surface from the group wave; needs a product decision on what the toggles should do.
-- **Downvote charges the voter as well as the target** (finding `f.downvote`): product decision on intended semantics.
+- **Downvote previously charged the voter as well as the target** (finding `f.downvote`): resolved as a desirable single-cost decision in `RT-2` (downvote spends only from the round budget; the lifetime score dock is removed). Note retained for history.
