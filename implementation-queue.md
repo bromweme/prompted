@@ -22,14 +22,14 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | Wave 4 | `b784369` | `RT-2`, `REP-RT1-1` | `RT-2` = per-round vote budget (default 10), "Share the wealth" spread/concentrate toggle, downvote spends only from budget, server-enforced `allowDownvotes` and downvote-lifetime-dock removal; `voteBudgetRemaining` contract. `REP-RT1-1` = minute-window round-trip fix in `windowLengths.js` + regression spec. Full chromium suite 84/84 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) split: `REP-RT1-1` NON-BLOCKING → `Done`; `RT-2` BLOCKING (adversarial found DEF-1: zero-point votes bypass the budget and can force `public_override`) → stays `Implemented`, repair `REP-RT2-1` filed `Ready`. |
 | Wave 5 | `1f25e44` | `REP-RT2-1` | Zero-point budget-bypass repair: `cast_vote` rejects upvotes with `points <= 0`; new `clampDownvoteCost` (min 1) applied to `downvoteCost` in settings and at cast time so a downvote always spends budget. Regression added to `vote-budget.spec.js`. Full chromium suite 88/88 green; oxlint 0 errors/23 baseline warnings. Closure review split: change-reviewer NON-BLOCKING, but adversarial found `REP-RT2-1-FRAC` — non-integer upvote points (no `Number.isInteger` check) re-open the unbounded vote-count `public_override` pump. `REP-RT2-1` stays `Implemented`, blocked by new repair `REP-RT2-2`. |
 | Wave 6 | `14c6e14` | `REP-RT2-2` | Fractional-points repair: `cast_vote` now requires `Number.isInteger(points) && points >= 1`, rejecting fractions (`0.1`/`1e-9`) that could be spent as an unbounded vote-count `public_override` pump. Regression added to `vote-budget.spec.js`. Full chromium suite 90/90 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) NON-BLOCKING → `REP-RT2-2` `Done`. This clears the vote-budget chain: `REP-RT2-1` and `RT-2` are now `Done`. |
-| Wave 7 | `6c428d0` | `RT-3`, `HG-1` | Final wave: `RT-3` (Judge skip, fair no-repeat rotation across rounds) + `HG-1` (host-abandonment election with durable `lastSeenAt`, majority transfer, return-cancels). Both `Implemented`, awaiting closure review. Full chromium suite 100/100 green; oxlint 0 errors/23 baseline warnings. |
+| Wave 7 | `6c428d0` | `RT-3`, `HG-1` | Final wave: `RT-3` (Judge skip, fair no-repeat rotation across rounds) + `HG-1` (host-abandonment election with durable `lastSeenAt`, majority transfer, return-cancels). Both `Implemented`, awaiting closure review. Full chromium suite 100/100 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) split: `HG-1` NON-BLOCKING → `Done`; `RT-3` BLOCKING (adversarial found `REP-RT3-1` — a Judge assigned via a skip or a host hand-pick is never recorded in the served set, so they can be re-drafted before an unserved member gets a turn) → stays `Implemented`, blocked by repair `REP-RT3-1`. |
 
-## Implemented (Wave 7, awaiting closure review)
+## Implemented (Wave 7 / repair, awaiting closure review)
 
 | Id | Issue |
 |---|---|
-| `RT-3` | Judge can skip their turn, with a fair no-repeat rotation |
-| `HG-1` | Members can leave or elect a new host when the host has abandoned the group |
+| `RT-3` | Judge can skip their turn, with a fair no-repeat rotation — blocked by `REP-RT3-1` |
+| `REP-RT3-1` | No-repeat rotation under-records skip-assigned / host-hand-picked Judges (repair of `RT-3`) |
 
 ## Done
 
@@ -42,14 +42,15 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | `RT-2` | Per-round vote budget + "Share the wealth" + single downvote cost (Wave 4 + repairs) |
 | `REP-RT2-1` | Zero-point budget bypass (Wave 5) |
 | `REP-RT2-2` | Fractional-points vote-count pump (Wave 6) |
+| `HG-1` | Host-abandonment election (Wave 7 closure) |
 
 ## Blocked
 
 | Id | Issue | Blocked by |
 |---|---|---|
-| none | |
+| `RT-3` | Judge can skip their turn, fair no-repeat rotation | `REP-RT3-1` (rotation under-records skip-assigned / host-hand-picked Judges) |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election) is `Implemented`, awaiting closure review — the final two issues. Once they pass review, every issue in the backlog is `Done`.
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election): `HG-1` is `Done` (closure review), `RT-3` is `Implemented` and blocked by the `REP-RT3-1` repair (closure review found a no-repeat-rotation fairness defect: skip-assigned / host-hand-picked Judges are never recorded in the served set). Once `REP-RT3-1` passes its closure review, `RT-3` reaches `Done` and every issue in the backlog is `Done`.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 
@@ -63,3 +64,4 @@ These are real findings but are deliberately **not** ready implementation issues
 - **Account Settings toggles are cosmetic and Deactivate is a stub** (finding `f.ui-dead`): separate surface from the group wave; needs a product decision on what the toggles should do.
 - **Downvote previously charged the voter as well as the target** (finding `f.downvote`): resolved as a desirable single-cost decision in `RT-2` (downvote spends only from the round budget; the lifetime score dock is removed). Note retained for history.
 - **Judge loses the "Select as Winner" control after voting** (RT-1 + RT-2 closure observations): both closure reviews confirmed the gap persists — once the Judge spends their whole budget, `voteBudgetSpent` flips and hides the `isRoundLeader`-gated winner control (GroupView ~1111-1174), so in a 2-player round the Judge cannot reveal early via the UI after a full-budget vote. The server still honors a Judge's `czar_select_winner` and the voting deadline still closes the round, so no done condition is violated; it is a UX gap. Consistent with the no-early-reveal design (A1/A4). Not yet owned by a wave; re-assess when the voting panel is next reworked.
+- **HG-1 departed-member ballots are not purged from an in-flight election** (closure observation): `group.election.votes` keeps a departed member's ballot, and `electionMajorityNeeded` recomputes over the live member roster, so a scaled-down electorate counts stale votes toward the threshold. Both closure reviewers traced all paths and found **no reachable outcome where a departed candidate wins hostship** (any recompute that could promote a departed candidate is blocked because the candidate id ceases to be valid after departure; a solo electorate has no valid non-self target), so the non-member-host invariant holds. It is a robustness/fragility note only, not a defect; add explicit purge on `leave_group` whenever the election feature is next reworked.

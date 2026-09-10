@@ -1,6 +1,6 @@
 # RT-3 — Judge can skip their turn, with a fair no-repeat rotation
 
-- **Status:** Implemented (Wave 7) — awaiting closure review
+- **Status:** Implemented (Wave 7) — **blocked by `REP-RT3-1`** (closure review found a no-repeat-rotation fairness defect: skip-assigned / host-hand-picked Judges are never recorded in the served set)
 - **Priority:** medium
 - **Depends on:** none
 - **Source:** Product Brief `docs/planning/gameplay-round-timing-product-brief.md` (defining scenario "A Judge wants to pass"); design `docs/design/a2-judge-skip-change-design.md`.
