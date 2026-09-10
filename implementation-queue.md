@@ -20,11 +20,15 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | Wave 2 | `0964c00` | `REP-GL1-1`, `REP-GL1-2` | Both repair issues `Done` (closure review passed, review-work). Server rejects host `leave_group` so a group always keeps a host who is a current member; `leave-delete.spec.js` gained two browser click→navigate tests. Full chromium suite 76/76 green; oxlint 0 errors. `GL-1` now `Done`. |
 | Wave 3 | `9695517` | `RT-1` | Timed submission & voting windows land; voting closes on its deadline (no early reveal); host sets each window with numeric value + unit with boundary clamping. Full chromium suite 77/77 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) NON-BLOCKING; `RT-1` now `Done`. Non-blocking follow-up `REP-RT1-1` (minute-window round-trip) filed `Ready`. `RT-2` is unblocked. |
 | Wave 4 | `b784369` | `RT-2`, `REP-RT1-1` | `RT-2` = per-round vote budget (default 10), "Share the wealth" spread/concentrate toggle, downvote spends only from budget, server-enforced `allowDownvotes` and downvote-lifetime-dock removal; `voteBudgetRemaining` contract. `REP-RT1-1` = minute-window round-trip fix in `windowLengths.js` + regression spec. Full chromium suite 84/84 green; oxlint 0 errors/23 baseline warnings. Closure review (change + adversarial) split: `REP-RT1-1` NON-BLOCKING → `Done`; `RT-2` BLOCKING (adversarial found DEF-1: zero-point votes bypass the budget and can force `public_override`) → stays `Implemented`, repair `REP-RT2-1` filed `Ready`. |
-| Wave 5 | `1f25e44` | `REP-RT2-1` | Zero-point budget-bypass repair: `cast_vote` rejects upvotes with `points <= 0`; new `clampDownvoteCost` (min 1) applied to `downvoteCost` in settings and at cast time so a downvote always spends budget. Regression added to `vote-budget.spec.js`. `Implemented`, awaiting closure review. Full chromium suite 88/88 green; oxlint 0 errors/23 baseline warnings. Unblocks `RT-2`. |
+| Wave 5 | `1f25e44` | `REP-RT2-1` | Zero-point budget-bypass repair: `cast_vote` rejects upvotes with `points <= 0`; new `clampDownvoteCost` (min 1) applied to `downvoteCost` in settings and at cast time so a downvote always spends budget. Regression added to `vote-budget.spec.js`. Full chromium suite 88/88 green; oxlint 0 errors/23 baseline warnings. Closure review split: change-reviewer NON-BLOCKING, but adversarial found `REP-RT2-1-FRAC` — non-integer upvote points (no `Number.isInteger` check) re-open the unbounded vote-count `public_override` pump. `REP-RT2-1` stays `Implemented`, blocked by new repair `REP-RT2-2`. |
 
 ## Ready frontier
 
 The current dependency-free frontier. An issue is listed here only when every issue it depends on is `Done`.
+
+| Id | Issue |
+|---|---|
+| `REP-RT2-2` | Fractional (non-integer) upvote points re-open the vote-count public-override pump (blocks `REP-RT2-1` / `RT-2`) |
 
 | Id | Issue |
 |---|---|
@@ -33,12 +37,6 @@ The current dependency-free frontier. An issue is listed here only when every is
 | Id | Issue |
 |---|---|
 | `HG-1` | Members can leave or elect a new host when the host has abandoned the group — `docs/planning/host-governance-product-brief.md` |
-
-## Implemented (Wave 5, awaiting closure review)
-
-| Id | Issue |
-|---|---|
-| `REP-RT2-1` | Zero-point votes bypass the round budget and can manipulate the winner (unblocks `RT-2`) |
 
 ## Done (Waves 3-4)
 
@@ -51,9 +49,10 @@ The current dependency-free frontier. An issue is listed here only when every is
 
 | Id | Issue | Blocked by |
 |---|---|---|
-| `RT-2` | Per-round vote budget with "Share the wealth" and a single downvote cost | `REP-RT2-1` (implemented Wave 5, awaiting review) |
+| `REP-RT2-1` | Zero-point votes bypass the round budget (implemented Wave 5) | `REP-RT2-2` (fractional-points pump — closure blocker) |
+| `RT-2` | Per-round vote budget with "Share the wealth" and a single downvote cost | `REP-RT2-1` (and `REP-RT2-2`) |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4's `REP-RT1-1` are `Done`. Wave 5 (`REP-RT2-1`, zero-point budget bypass) is `Implemented`, awaiting closure review; once it passes, `RT-2` reaches `Done`. `RT-3` and `HG-1` remain ready for later waves.
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are all `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4's `REP-RT1-1` are `Done`. Wave 5 (`REP-RT2-1`, zero-point bypass) is `Implemented` but its closure review found a further gap (`REP-RT2-2`, fractional upvote points) that must land before the budget feature (`RT-2`) reaches `Done`. `RT-3` and `HG-1` remain ready for later waves. The next wave should carry `REP-RT2-2`.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 
