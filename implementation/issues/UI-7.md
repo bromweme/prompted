@@ -2,7 +2,11 @@
 
 - **Status:** Ready (triage batch; not yet in a wave). CSS-only. **Coordinate with `UI-1`** — both change `.form-row input, .form-row select { flex: 1 }` in `GroupView.css`.
 - **Priority:** medium
-- **Guarantee:** On the Group Rules page in edit mode, number inputs are a sensible width (not full row), each checkbox sits directly beside its label, and the rules sections lay out at least two across on a wide screen.
+- **Guarantee:** In the Group Rules **edit form** (host has clicked "Edit Rules"), number inputs are a sensible width (not full row), each checkbox sits directly beside its label, and the rules sections lay out at least two across on a wide screen. The read-only Rules view is already correct and must stay that way.
+
+## When it happens
+
+**Only while editing the rules.** The bug is in the rules **edit form** — the state after the host clicks **Rules → "Edit Rules"** (`isEditingRules`, `.rules-edit-form`, `GroupView.jsx:1522-1523`). The read-only Rules view (what everyone sees before "Edit Rules") is fine and already lays out ~3 sections across. All three symptoms below appear only in edit mode.
 
 ## Observed (verified in the running app)
 
