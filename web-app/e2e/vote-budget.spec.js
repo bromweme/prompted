@@ -363,3 +363,88 @@ test.describe('zero-point votes are rejected (RT-2-1)', () => {
     closeAll()
   })
 })
+
+// REP-RT2-2: RT-2-1 closed only the points <= 0 path, but cast_vote still
+// accepted any positive fraction. That let a crafted client spend its integer
+// budget as an unbounded number of tiny votes (e.g. points: 1e-9), inflating a
+// submission's voteCount and driving a public_override win for a low-point
+// song. These prove the server requires whole-number upvote points, so the
+// budget stays a real cap on both strength and vote count.
+test.describe('fractional-points votes are rejected (RT-2-2)', () => {
+  const castRaw = (player, payload) => {
+    const settled = new Promise((resolve) => {
+      player.socket.once('group_updated', resolve)
+      player.socket.once('error', (e) => resolve({ error: e }))
+    })
+    player.socket.emit('cast_vote', payload)
+    return settled
+  }
+
+  test('a crafted fractional-point upvote is rejected server-side', async () => {
+    const runId = testRunId()
+    const { host, groupId, submissions, closeAll } = await runToVoting(runId, {
+      voteBudget: 6, maxJuryPoints: 3, shareTheWealth: false
+    })
+
+    // Legit integer points still work, so the rejection is the fractional
+    // path specifically, not the whole validation.
+    const legits = [
+      await castRaw(host, { groupId, submissionId: submissions[1].id, points: 1 }),
+      await castRaw(host, { groupId, submissionId: submissions[0].id, points: 1 }),
+    ]
+    expect(legits[0].error, 'an integer upvote must still be accepted').toBeUndefined()
+    expect(legits[1].error, 'an integer upvote must still be accepted').toBeUndefined()
+
+    for (const points of [0.5, 1.5, 1e-9]) {
+      const r = await castRaw(host, { groupId, submissionId: submissions[0].id, points })
+      expect(r.error?.message, `a fractional upvote of ${points} must be refused`)
+        .toContain('whole number')
+    }
+
+    // No fractional vote was counted and no budget was spent beyond the two
+    // integer votes (6 -> 4).
+    const after = await fetchView(host, groupId)
+    expect(after.voteBudgetRemaining).toBe(4)
+    expect(after.group.currentTheme.voteCount, 'no fractional vote may be counted').toBe(2)
+
+    closeAll()
+  })
+
+  test('fractional-point spam cannot inflate voteCount / trigger a public_override', async () => {
+    // allowOverride on with a low threshold: exactly the pump the fix closes.
+    // A fractional pump used to add an unbounded number of votes that lifted a
+    // low-point song's voteShare past the threshold. With the server rejecting
+    // fractional casts, the ledger only ever holds real (whole-point) votes, so
+    // the winner of this round resolves by the normal path (the Judge's pick),
+    // never a vote-count public_override.
+    const runId = testRunId()
+    const { host, groupId, submissions, closeAll } = await runToVoting(runId, {
+      voteBudget: 6, maxJuryPoints: 3, shareTheWealth: false,
+      allowOverride: true, overrideThreshold: 51
+    })
+    const [a, b] = submissions
+
+    // Pump the low-point song with a burst of fractional casts as a crafted
+    // client would. This is many more than the integer budget (6) could ever
+    // permit — far past any vote-count threshold — yet every one must be
+    // refused. A short pause between casts keeps the loop under the socket
+    // rate limiter so the rejection we assert is the points rule, not a
+    // rate-limit reply.
+    for (let i = 0; i < 12; i++) {
+      const pumped = await castRaw(host, { groupId, submissionId: a.id, points: i === 0 ? 0.1 : 1e-9 })
+      expect(pumped.error?.message, 'fractional spam must be refused').toContain('whole number')
+      await new Promise((r) => setTimeout(r, 250))
+    }
+    expect((await fetchView(host, groupId)).group.currentTheme.voteCount).toBe(0)
+
+    // Reveal via the Judge's pick: no fractional votes exist to force an
+    // override, so the win is the czar selection, not a pumped public_override.
+    host.socket.emit('czar_select_winner', { groupId, submissionId: b.id })
+    await waitForUpdate(host.socket, inPhase('reveal'))
+    const revealed = await fetchView(host, groupId)
+    const winningSub = revealed.group.currentTheme.submissions.find((s) => s.wonBy)
+    expect(winningSub?.wonBy, 'fractional spam must not force a public_override').not.toBe('public_override')
+
+    closeAll()
+  })
+})

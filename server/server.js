@@ -1480,11 +1480,15 @@ io.on('connection', (socket) => {
     // A full vote is worth `points` (capped below); a downvote is asymmetric —
     // it spends downvoteCost from the budget rather than the points field.
     const maxPoints = group.settings.maxJuryPoints || 3;
-    // Upvotes must carry strictly positive points (RT-2-1): a zero-point cast
-    // would be free, so it would neither spend budget nor be capped — letting a
-    // player vote past their budget and pump a submission's voteCount free.
-    if (!isDown && (typeof points !== 'number' || !Number.isFinite(points) || points <= 0 || points > maxPoints)) {
-      socket.emit('error', { message: `Points must be a positive number no greater than ${maxPoints}` });
+    // Upvotes must carry whole positive points (RT-2-1 + RT-2-2). A zero-point
+    // cast would be free, so it would neither spend budget nor be capped —
+    // letting a player vote past their budget and pump a submission's voteCount
+    // free (RT-2-1). A fractional cast (e.g. 0.1) would likewise let a player
+    // spend their integer budget as an unbounded number of tiny votes and ramp
+    // a submission's voteCount past the public-override threshold (RT-2-2), so
+    // points must be a whole number >= 1.
+    if (!isDown && (typeof points !== 'number' || !Number.isInteger(points) || points < 1 || points > maxPoints)) {
+      socket.emit('error', { message: `Points must be a positive whole number between 1 and ${maxPoints}` });
       return;
     }
 
