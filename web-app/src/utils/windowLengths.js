@@ -50,5 +50,11 @@ export function hoursToWindowValue(hours) {
   if (h % 24 === 0 && h / 24 >= 1 && h / 24 <= 7) {
     return { value: h / 24, unit: 'days' }
   }
-  return { value: clampWindowValue(Math.round(h), 'hours'), unit: 'hours' }
+  // Every other in-range window is a whole number of hours (shown as hours) or
+  // a non-whole number of hours (represented in whole minutes so the value
+  // round-trips exactly instead of being rounded up to a larger whole hour).
+  if (Number.isInteger(h)) {
+    return { value: clampWindowValue(h, 'hours'), unit: 'hours' }
+  }
+  return { value: clampWindowValue(Math.round(h * 60), 'minutes'), unit: 'minutes' }
 }

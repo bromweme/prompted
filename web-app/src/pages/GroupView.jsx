@@ -54,7 +54,11 @@ function normalizeGroupData(group) {
       showVoterIdentity: group.settings.showVoterIdentity || false,
       allowMemberInvites: group.settings.allowMemberInvites === true,
       allowVotingComments: group.settings.allowVotingComments === true,
-      showCommentsLive: group.settings.showCommentsLive === true
+      showCommentsLive: group.settings.showCommentsLive === true,
+      // Per-round vote budget (default 10) and the "Share the wealth" rule
+      // (default on) — see docs/design/c8-per-round-vote-budget-change-design.md.
+      voteBudget: typeof group.settings.voteBudget === 'number' ? group.settings.voteBudget : 10,
+      shareTheWealth: group.settings.shareTheWealth !== false
     },
     status: group.status,
     currentRound: group.currentRound,
@@ -90,7 +94,15 @@ function GroupView() {
   const [selectedSubmissionId, setSelectedSubmissionId] = useState(null)
   const [votePoints, setVotePoints] = useState(1)
   const [voteComment, setVoteComment] = useState('')
-  const [userVote, setUserVote] = useState(null)
+  // How many budget points this player still has this round, delivered by the
+  // server (per-socket, like ownSubmissionId). The old single `userVote` flag
+  // could not tell "mid-budget" from "spent" once multiple votes were possible
+  // (RT-2), so this replaces it as the voting gate.
+  const [remainingBudget, setRemainingBudget] = useState(null)
+  // The distinct submissions this player has voted on this round, tracked
+  // locally so the UI can warn (and disable a persona-breaking cast) when
+  // "Share the wealth" is on and a vote would concentrate everything on one.
+  const [myVotedSubmissionIds, setMyVotedSubmissionIds] = useState(() => new Set())
   // Which submission in the current round is this player's own. The server
   // tells each socket only about its own, so this can gate self-voting in the
   // UI without leaking anyone else's authorship.
@@ -163,7 +175,8 @@ function GroupView() {
   // Clear per-round local state whenever a new round begins
   useEffect(() => {
     setUserSubmission(null)
-    setUserVote(null)
+    setRemainingBudget(null)
+    setMyVotedSubmissionIds(new Set())
     setSelectedSubmissionId(null)
     setVoteComment('')
     setOwnSubmissionId(null)
@@ -200,7 +213,9 @@ function GroupView() {
           showVoterIdentity: false,
           allowMemberInvites: false,
           allowVotingComments: false,
-          showCommentsLive: false
+          showCommentsLive: false,
+          voteBudget: 10,
+          shareTheWealth: true
         },
         status: groupData.status || 'waiting',
         currentRound: groupData.currentRound || 0,
@@ -223,10 +238,11 @@ function GroupView() {
       // reconnect rather than adding a duplicate).
       socket.emit('join_group', { groupId })
 
-      socket.once('group_joined', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, notices }) => {
+      socket.once('group_joined', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, voteBudgetRemaining, notices }) => {
         setGroup(normalizeGroupData(group))
         setIsRoundLeader(!!youAreRoundLeader)
         setOwnSubmissionId(yourSubmissionId || null)
+        if (typeof voteBudgetRemaining === 'number') setRemainingBudget(voteBudgetRemaining)
         setHostNotices(notices || [])
       })
 
@@ -238,10 +254,11 @@ function GroupView() {
       // Fetch group data from server
       socket.emit('get_group', { groupId })
 
-      socket.once('group_details', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, notices }) => {
+      socket.once('group_details', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, voteBudgetRemaining, notices }) => {
         setGroup(normalizeGroupData(group))
         setIsRoundLeader(!!youAreRoundLeader)
         setOwnSubmissionId(yourSubmissionId || null)
+        if (typeof voteBudgetRemaining === 'number') setRemainingBudget(voteBudgetRemaining)
         setHostNotices(notices || [])
       })
 
@@ -252,8 +269,9 @@ function GroupView() {
     }
 
     // Listen for group updates
-    socket.on('group_updated', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, notices }) => {
+    socket.on('group_updated', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, voteBudgetRemaining, notices }) => {
       if (yourSubmissionId !== undefined) setOwnSubmissionId(yourSubmissionId || null)
+      if (typeof voteBudgetRemaining === 'number') setRemainingBudget(voteBudgetRemaining)
       if (notices !== undefined) setHostNotices(notices || [])
       setGroup(prev => ({
         ...prev,
@@ -583,8 +601,18 @@ function GroupView() {
       alert(`Failed to cast vote: ${message}`)
     })
 
-    setUserVote({ submissionId: selectedSubmissionId, isDownvote })
+    // Optimistically fold this vote into the local view so the UI can keep
+    // rendering the spread/concentrate affordance. The server is the authority
+    // on the budget (it rejects an over-budget or concentration-violating cast
+    // and re-broadcasts the true remaining budget back to us), so a mismatch
+    // here is only ever cosmetic and self-corrects on the next group_updated.
+    setMyVotedSubmissionIds(prev => new Set(prev).add(selectedSubmissionId))
+    if (typeof remainingBudget === 'number') {
+      const cost = isDownvote ? (group.settings.downvoteCost || 1) : (group.settings.maxJuryPoints ? Math.max(0, Math.min(votePoints, group.settings.maxJuryPoints)) : votePoints)
+      setRemainingBudget(Math.max(0, remainingBudget - cost))
+    }
     setVoteComment('')
+    setSelectedSubmissionId(null)
   }
 
   const handleCzarSelectWinner = () => {
@@ -604,6 +632,32 @@ function GroupView() {
       alert(`Failed to select winner: ${message}`)
     })
   }
+
+  // ---- RT-2 vote-budget view-model (server-sourced gate) ----
+  // remainingBudget is delivered per-socket by the server; when it has not
+  // arrived yet (e.g. mid-handoff) we fall back to the full budget so the UI
+  // never disables voting purely on a missing field.
+  const budgetSetting = typeof group?.settings?.voteBudget === 'number' ? group.settings.voteBudget : 10
+  const currentRemaining = typeof remainingBudget === 'number' ? remainingBudget : budgetSetting
+  const voteBudgetSpent = !group?.currentTheme || currentRemaining <= 0
+  // A single vote is capped by the per-vote max (maxJuryPoints) AND by how
+  // much budget remains, so a player can't be offered a value they can't afford.
+  const maxVoteValue = group?.settings?.maxJuryPoints
+    ? Math.min(group.settings.maxJuryPoints, Math.max(0, currentRemaining))
+    : Math.max(0, currentRemaining)
+  // "Share the wealth" (default on): a player must spread points across at
+  // least two submissions. If this vote is their first-or-only submission and
+  // it would consume their whole remaining budget, the cast is disabled and a
+  // hint explains why — mirroring the server-side rejection.
+  const shareRuleOn = group?.settings?.shareTheWealth !== false
+  const costOfDownvote = group?.settings?.downvoteCost || 1
+  const castThisVoteWouldConcentrate = (() => {
+    if (!shareRuleOn || !selectedSubmissionId) return false
+    const cost = Math.min(votePoints, maxVoteValue)
+    const afterRemaining = currentRemaining - cost
+    const newDistinct = myVotedSubmissionIds.has(selectedSubmissionId) ? myVotedSubmissionIds.size : myVotedSubmissionIds.size + 1
+    return newDistinct < 2 && afterRemaining <= 0
+  })()
 
   if (!group) {
     return <div className="loading">Loading group...</div>
@@ -1027,9 +1081,9 @@ function GroupView() {
                             <div key={submission.id} className="submission-entry">
                               <button
                                 type="button"
-                                className={`submission-item ${!userVote && !isOwn ? 'selectable' : ''} ${selectedSubmissionId === submission.id ? 'selected' : ''} ${isOwn ? 'own-submission' : ''}`}
+                                className={`submission-item ${!voteBudgetSpent && !isOwn ? 'selectable' : ''} ${selectedSubmissionId === submission.id ? 'selected' : ''} ${isOwn ? 'own-submission' : ''}`}
                                 onClick={() => setSelectedSubmissionId(submission.id)}
-                                disabled={!!userVote || isOwn}
+                                disabled={voteBudgetSpent || isOwn}
                                 aria-pressed={selectedSubmissionId === submission.id}
                               >
                                 <div className="submission-song">
@@ -1054,18 +1108,29 @@ function GroupView() {
                         })}
                       </div>
 
-                      {userVote ? (
-                        <p className="submissions-count">You've voted — waiting for the rest of the group.</p>
+                      {voteBudgetSpent ? (
+                        <div className="voting-actions voting-budget-spent">
+                          <p className="submissions-count">You've spent your {budgetSetting}-point budget for this round — waiting for the rest of the group.</p>
+                        </div>
                       ) : selectedSubmissionId ? (
                         <div className="voting-actions">
+                          <p className="submissions-count budget-remaining">
+                            Budget remaining: {currentRemaining}/{budgetSetting} points
+                          </p>
                           <label>
                             Points:
                             <select value={votePoints} onChange={(e) => setVotePoints(parseInt(e.target.value))}>
-                              {Array.from({ length: group.settings.maxJuryPoints || 3 }, (_, i) => i + 1).map(n => (
+                              {Array.from({ length: Math.max(0, maxVoteValue) }, (_, i) => i + 1).map(n => (
                                 <option key={n} value={n}>{n}</option>
                               ))}
                             </select>
                           </label>
+
+                          {shareRuleOn && myVotedSubmissionIds.size < 2 && (
+                            <p className="form-hint share-wealth-hint">
+                              Share the wealth is on — spread your points across at least two submissions.
+                            </p>
+                          )}
 
                           {group.settings.allowVotingComments && (
                             <div className="form-group vote-comment-field">
@@ -1081,12 +1146,21 @@ function GroupView() {
                             </div>
                           )}
 
-                          <button className="theme-action-button" onClick={() => handleCastVote(false)}>
+                          <button
+                            className="theme-action-button"
+                            onClick={() => handleCastVote(false)}
+                            disabled={castThisVoteWouldConcentrate}
+                          >
                             Cast Vote
                           </button>
-                          {group.settings.allowDownvotes && (
+                          {castThisVoteWouldConcentrate && (
+                            <p className="form-hint share-wealth-warning">
+                              With Share the wealth on you can't put your whole budget on one submission.
+                            </p>
+                          )}
+                          {group.settings.allowDownvotes && currentRemaining >= costOfDownvote && (
                             <button className="cancel-button" onClick={() => handleCastVote(true)}>
-                              Downvote
+                              Downvote ({costOfDownvote} pts)
                             </button>
                           )}
                           {isRoundLeader && (
@@ -1401,6 +1475,35 @@ function GroupView() {
                           max="10"
                         />
                       </div>
+                      <div className="form-row">
+                        <label htmlFor="rules-vote-budget">Per-Round Vote Budget:</label>
+                        <input
+                          id="rules-vote-budget"
+                          type="number"
+                          value={editedSettings.voteBudget}
+                          onChange={(e) => setEditedSettings(prev => ({ ...prev, voteBudget: parseInt(e.target.value) }))}
+                          min="1"
+                          max="100"
+                        />
+                      </div>
+                      <p className="form-hint">
+                        How many points each player may spend across their votes this round. It resets at the
+                        start of every round.
+                      </p>
+                      <div className="form-row checkbox">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={editedSettings.shareTheWealth !== false}
+                            onChange={(e) => setEditedSettings(prev => ({ ...prev, shareTheWealth: e.target.checked }))}
+                          />
+                          Share the wealth
+                        </label>
+                      </div>
+                      <p className="form-hint">
+                        When on, a player must spread their points across at least two submissions. When off,
+                        a player may put their whole budget on one submission.
+                      </p>
                       <div className="form-row checkbox">
                         <label>
                           <input
@@ -1636,6 +1739,8 @@ function GroupView() {
                       <h3>Jury Rules</h3>
                       <ul className="rules-list">
                         <li><strong>Max Jury Points:</strong> {group.settings.maxJuryPoints}</li>
+                        <li><strong>Per-Round Vote Budget:</strong> {typeof group.settings.voteBudget === 'number' ? group.settings.voteBudget : 10} points</li>
+                        <li><strong>Share the Wealth:</strong> {group.settings.shareTheWealth !== false ? 'Yes' : 'No'}</li>
                         <li><strong>Allow Downvotes:</strong> {group.settings.allowDownvotes ? 'Yes' : 'No'}</li>
                         <li><strong>Comments During Voting:</strong> {group.settings.allowVotingComments ? 'Yes' : 'No'}</li>
                         {group.settings.allowVotingComments && (

@@ -92,6 +92,8 @@ function Dashboard() {
           maxJuryPoints: group.settings.maxJuryPoints || 3,
           allowDownvotes: group.settings.allowDownvotes !== false,
           downvoteCost: group.settings.downvoteCost || 1,
+          voteBudget: typeof group.settings.voteBudget === 'number' ? group.settings.voteBudget : 10,
+          shareTheWealth: group.settings.shareTheWealth !== false,
           allowOverride: group.settings.allowOverride !== false,
           overrideThreshold: group.settings.overrideThreshold || 70, // whole percentage; no conversion
           submissionTime: group.settings.submissionTime || 24,

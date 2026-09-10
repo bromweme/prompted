@@ -177,6 +177,34 @@ function clampWindowHours(value, fallback = 24) {
   return Math.min(MAX_WINDOW_HOURS, Math.max(MIN_WINDOW_HOURS, hours));
 }
 
+// The per-player, per-round vote budget (RT-2). Each player may spend up to
+// this many points across their votes in a round; the budget resets at the
+// start of every round (it lives on currentTheme, which beginRound replaces).
+// It is host-set (default 10 per the product brief / design C8) and clamped to
+// a sane band rather than rejected, matching how the round windows are handled.
+const DEFAULT_VOTE_BUDGET = 10;
+const MAX_VOTE_BUDGET = 100;
+const MIN_VOTE_BUDGET = 1;
+
+function clampVoteBudget(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return DEFAULT_VOTE_BUDGET;
+  return Math.min(MAX_VOTE_BUDGET, Math.max(MIN_VOTE_BUDGET, Math.round(n)));
+}
+
+// The per-round budget a group actually runs on, read from current settings
+// with clamping. Missing/legacy values fall back to the default.
+function voteBudget(group) {
+  return clampVoteBudget(group.settings && group.settings.voteBudget);
+}
+
+// "Share the wealth" (default on) decides whether a player must spread their
+// points across at least two submissions or may concentrate the whole budget
+// on one. Absent => on (the product default).
+function shareTheWealth(group) {
+  return !(group.settings && group.settings.shareTheWealth === false);
+}
+
 // The submission window length a round actually runs on, from the group's
 // settings with clamping applied.
 function submissionHours(group) {
@@ -336,6 +364,11 @@ function beginRound(group, forcedCzarUserId) {
     czarId: roundLeader.userId, // stable id; stripped from broadcasts by publicizeTheme
     submissions: [],
     votes: [],
+    // Per-player points spent this round (voterUserId -> points), seeded empty
+    // on every fresh theme so the budget resets automatically at the start of
+    // each round. Maintained by cast_vote; drives the budget gate and the
+    // remaining-budget field delivered to each player.
+    voteBudgetUsed: {},
     czarSelection: null
   };
 
@@ -427,6 +460,17 @@ function ownSubmissionId(group, playerUserId) {
   return own ? own.id : null;
 }
 
+// How many budget points this player has left this round, for their own
+// socket's voting UI. Per-player-per-socket like ownSubmissionId: everyone
+// sees the public theme, but each player only learns their own remaining
+// budget. null when there is no live round to vote in.
+function remainingBudget(group, playerUserId) {
+  const theme = group.currentTheme;
+  if (!theme) return null;
+  const used = (theme.voteBudgetUsed && theme.voteBudgetUsed[playerUserId]) || 0;
+  return Math.max(0, voteBudget(group) - used);
+}
+
 function broadcastGroup(group) {
   const publicGroup = { ...group, currentTheme: publicizeTheme(group.currentTheme, group) };
   // Notices are the host's alone, so they are stripped from the shared object
@@ -438,6 +482,7 @@ function broadcastGroup(group) {
       group: publicGroup,
       isRoundLeader: !!(group.currentTheme && player.userId === group.currentTheme.czarId),
       yourSubmissionId: ownSubmissionId(group, player.userId),
+      voteBudgetRemaining: remainingBudget(group, player.userId),
       notices: noticesFor(group, player.userId)
     });
   });
@@ -506,12 +551,11 @@ function calculateGroupResults(group) {
 
   theme.votes.forEach(vote => {
     const voter = group.players.find(p => p.userId === vote.voterUserId);
-    if (voter) {
-      if (vote.isDownvote) {
-        voter.score -= (group.settings.downvoteCost || 1);
-      } else if (winner && vote.submissionId === winner.id) {
-        voter.score += vote.points;
-      }
+    if (voter && !vote.isDownvote && winner && vote.submissionId === winner.id) {
+      // A downvote spends only from the voter's round budget (RT-2); it no
+      // longer docks a lifetime score here. Winners on the winning submission
+      // are scored as before.
+      voter.score += vote.points;
     }
   });
 
@@ -787,6 +831,18 @@ io.on('connection', (socket) => {
     if (settings.votingTime !== undefined) {
       settings.votingTime = clampWindowHours(settings.votingTime);
     }
+    // Per-round vote budget (RT-2): clamped rather than rejected, defaulting to
+    // 10 when absent. "Share the wealth" is a strict boolean, defaulting on.
+    if (settings.voteBudget === undefined) {
+      settings.voteBudget = DEFAULT_VOTE_BUDGET;
+    } else {
+      settings.voteBudget = clampVoteBudget(settings.voteBudget);
+    }
+    if (settings.shareTheWealth === undefined) {
+      settings.shareTheWealth = true;
+    } else {
+      settings.shareTheWealth = settings.shareTheWealth === true;
+    }
 
     const group = {
       id: groupId,
@@ -878,6 +934,7 @@ io.on('connection', (socket) => {
       group: joinedGroup,
       isRoundLeader: !!(group.currentTheme && userId === group.currentTheme.czarId),
       yourSubmissionId: ownSubmissionId(group, userId),
+      voteBudgetRemaining: remainingBudget(group, userId),
       notices: noticesFor(group, userId)
     });
     broadcastGroup(group);
@@ -923,6 +980,7 @@ io.on('connection', (socket) => {
       group: publicGroup,
       isRoundLeader: !!(group.currentTheme && userId === group.currentTheme.czarId),
       yourSubmissionId: ownSubmissionId(group, userId),
+      voteBudgetRemaining: remainingBudget(group, userId),
       notices: noticesFor(group, userId)
     });
   });
@@ -1065,6 +1123,12 @@ io.on('connection', (socket) => {
     }
     if (settings.votingTime !== undefined) {
       settings.votingTime = clampWindowHours(settings.votingTime);
+    }
+    if (settings.voteBudget !== undefined) {
+      settings.voteBudget = clampVoteBudget(settings.voteBudget);
+    }
+    if (settings.shareTheWealth !== undefined) {
+      settings.shareTheWealth = settings.shareTheWealth === true;
     }
 
     // Update group settings
@@ -1363,11 +1427,6 @@ io.on('connection', (socket) => {
       return;
     }
 
-    if (theme.votes.some(v => v.voterUserId === userId)) {
-      socket.emit('error', { message: 'You already voted this round' });
-      return;
-    }
-
     const subId = cleanId(submissionId);
     const target = subId && theme.submissions.find(sub => sub.id === subId);
     if (!target) {
@@ -1375,20 +1434,30 @@ io.on('connection', (socket) => {
       return;
     }
 
+    const isDown = isDownvote === true;
+
     // You cannot vote for your own submission, upvote or downvote. Enforced
     // here and not only in the UI: the client is told which submission is its
     // own so it can grey it out, but nothing stops a crafted payload naming
-    // it anyway.
+    // it anyway. Checked before the downvote gate so a self-vote is always
+    // reported as such regardless of whether downvotes are allowed.
     if (target.playerUserId === userId) {
       socket.emit('error', { message: 'You cannot vote for your own submission' });
       return;
     }
 
-    // The old check only bounded points from above, so a negative or
-    // non-numeric value went straight into the tally and could swing the
-    // result or poison a score with NaN.
+    // Downvotes are a host-controlled opt-in, enforced here and not just in the
+    // UI. A crafted downvote against a group that forbids them is rejected
+    // (RT-2); allowDownvotes previously appeared only in the client.
+    if (isDown && group.settings.allowDownvotes !== true) {
+      socket.emit('error', { message: 'Downvotes are not allowed in this group' });
+      return;
+    }
+
+    // A full vote is worth `points` (capped below); a downvote is asymmetric —
+    // it spends downvoteCost from the budget rather than the points field.
     const maxPoints = group.settings.maxJuryPoints || 3;
-    if (!isDownvote && (typeof points !== 'number' || !Number.isFinite(points) || points < 0 || points > maxPoints)) {
+    if (!isDown && (typeof points !== 'number' || !Number.isFinite(points) || points < 0 || points > maxPoints)) {
       socket.emit('error', { message: `Points must be a number between 0 and ${maxPoints}` });
       return;
     }
@@ -1397,6 +1466,35 @@ io.on('connection', (socket) => {
     if (!voter || voter.connected === false) {
       socket.emit('error', { message: 'You must be connected to vote' });
       return;
+    }
+
+    // Per-round budget (RT-2). Each player may spend up to voteBudget points
+    // across all their votes this round; voteBudgetUsed on currentTheme tracks
+    // spend and auto-resets when beginRound starts the next round.
+    const budget = voteBudget(group);
+    const cost = isDown ? (group.settings.downvoteCost || 1) : points;
+    const used = (theme.voteBudgetUsed && theme.voteBudgetUsed[userId]) || 0;
+    if (used + cost > budget) {
+      socket.emit('error', { message: `Vote exceeds your remaining budget of ${Math.max(0, budget - used)} points` });
+      return;
+    }
+
+    // "Share the wealth" (default on): a player must spread their points across
+    // at least two submissions. Concretely, a vote is rejected when it is a
+    // player's first-or-only distinct submission AND spending it means their
+    // whole budget lands on that single submission with none left to spread
+    // elsewhere. With the toggle off, the whole budget may go on one song.
+    if (shareTheWealth(group)) {
+      const spentSubs = new Set(theme.votes
+        .filter(v => v.voterUserId === userId)
+        .map(v => v.submissionId));
+      const distinctAfter = spentSubs.has(subId) ? spentSubs.size : spentSubs.size + 1;
+      if (distinctAfter < 2 && used + cost >= budget) {
+        socket.emit('error', {
+          message: "With 'Share the wealth' on, spread your points across at least two submissions"
+        });
+        return;
+      }
     }
 
     // Comments are opt-in per group. When the setting is off the field is
@@ -1410,10 +1508,11 @@ io.on('connection', (socket) => {
     theme.votes.push({
       voterUserId: userId,
       submissionId: subId,
-      points: isDownvote ? -(group.settings.downvoteCost || 1) : points,
-      isDownvote: !!isDownvote,
+      points: isDown ? -(group.settings.downvoteCost || 1) : points,
+      isDownvote: isDown,
       comment: voteComment
     });
+    theme.voteBudgetUsed = { ...(theme.voteBudgetUsed || {}), [userId]: used + cost };
 
     groups.set(gid, group);
 

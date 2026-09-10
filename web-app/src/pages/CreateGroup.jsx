@@ -43,6 +43,10 @@ function CreateGroup() {
   const [maxJuryPoints, setMaxJuryPoints] = useState(3)
   const [allowDownvotes, setAllowDownvotes] = useState(true)
   const [downvoteCost, setDownvoteCost] = useState(1)
+  // RT-2: the per-round vote budget (default 10) and the "Share the wealth"
+  // rule (default on). See docs/design/c8-per-round-vote-budget-change-design.md.
+  const [voteBudget, setVoteBudget] = useState(10)
+  const [shareTheWealth, setShareTheWealth] = useState(true)
 
   // Override Settings
   const [allowOverride, setAllowOverride] = useState(true)
@@ -116,6 +120,8 @@ function CreateGroup() {
         maxJuryPoints,
         allowDownvotes,
         downvoteCost,
+        voteBudget,
+        shareTheWealth,
         allowOverride,
         overrideThreshold, // whole percentage (51-100); stored and transmitted as-is everywhere
         submissionTime: windowValueToHours(submissionWindow.value, submissionWindow.unit),
@@ -353,6 +359,34 @@ function CreateGroup() {
                       max="5"
                     />
                     <small className="form-hint">Maximum points jury can award per vote</small>
+                  </div>
+
+                  <div className="form-group">
+                    <label htmlFor="vote-budget">Per-Round Vote Budget</label>
+                    <input
+                      id="vote-budget"
+                      type="number"
+                      value={voteBudget}
+                      onChange={(e) => setVoteBudget(parseInt(e.target.value))}
+                      min="1"
+                      max="100"
+                    />
+                    <small className="form-hint">Points each player can spend across votes, resetting each round</small>
+                  </div>
+
+                  <div className="form-group checkbox-group">
+                    <label className="checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={shareTheWealth}
+                        onChange={(e) => setShareTheWealth(e.target.checked)}
+                      />
+                      <span>Share the wealth</span>
+                    </label>
+                    <small className="form-hint">
+                      When on, a player must spread their points across at least two submissions. When off,
+                      a player may put their whole budget on one submission.
+                    </small>
                   </div>
 
                   <div className="form-group">
