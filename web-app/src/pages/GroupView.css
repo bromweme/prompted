@@ -1330,3 +1330,54 @@
 .group-view-page .round-host-actions .form-hint {
   margin-top: 0.4rem;
 }
+
+/* Judge skip control (RT-3): the Judge's "Skip my turn" affordance and the
+   rotation state shown in the topic picker. */
+.group-view-page .judge-skip-control {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--color-border);
+}
+
+.group-view-page .judge-skip-control .form-hint,
+.group-view-page .judge-rotation-hint {
+  margin-top: 0.4rem;
+}
+
+/* Host election (HG-1): the leave-or-vote banner and ballot on the
+   Participants roster when the host has abandoned the group. */
+.group-view-page .host-election-banner {
+  margin-bottom: 1.25rem;
+  padding: 1rem;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-surface-muted, rgba(0, 0, 0, 0.03));
+}
+
+.group-view-page .host-election-banner h3 {
+  margin: 0 0 0.4rem;
+}
+
+.group-view-page .host-election-banner p {
+  margin: 0 0 0.75rem;
+}
+
+.group-view-page .host-election-ballot {
+  margin-top: 0.5rem;
+}
+
+.group-view-page .host-election-candidate {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.group-view-page .host-election-candidate:last-child {
+  border-bottom: none;
+}
+
+.group-view-page .host-election-candidate .action-button {
+  margin-left: auto;
+}

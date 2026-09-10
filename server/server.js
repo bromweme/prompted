@@ -137,6 +137,78 @@ function withRateLimit(socket, eventName, takeToken, handler) {
 // floor. Enforced here as well as in the UI, like every other rule in this app.
 const MIN_PLAYERS_TO_START = 2;
 
+// How long a host may be gone before the group considers them abandoned and
+// offers the members a leave-or-vote election (HG-1). The product brief and
+// design (docs/design/b5-host-election-change-design.md) settle on "more than a
+// month"; 30 calendar days is the concrete threshold used everywhere. A host
+// who is present, or who merely disconnected minutes ago, is never affected —
+// the boundary is measured from the durable lastSeenAt stamp, not from the
+// transient `connected` flag.
+const HOST_ABANDON_THRESHOLD_MS = 30 * 24 * 60 * 60 * 1000;
+
+// A host is "abandoned" when they are not currently present AND their durable
+// lastSeenAt is more than HOST_ABANDON_THRESHOLD_MS in the past. A present host
+// is never abandoned (and so can never be voted out); a briefly-offline host
+// whose lastSeenAt is recent is likewise untouched. Missing lastSeenAt is
+// treated as "present/recent" so an existing group is never accidentally
+// offered an election on first read (see docs/design/b5-host-election-change-design.md).
+function isHostAbandoned(group) {
+  const host = group && group.players.find(p => p.userId === group.host);
+  if (!host) return false;
+  if (host.connected !== false) return false;
+  const lastSeen = host.lastSeenAt ? new Date(host.lastSeenAt).getTime() : Date.now();
+  return Date.now() - lastSeen > HOST_ABANDON_THRESHOLD_MS;
+}
+
+// Stamps a player's durable last-seen time. Called on connect and on the
+// low-cost presence re-establishment (create/join/get_group), so a player who
+// opens the group or reconnects is tracked even if their client never sends
+// another event. Persisted in the group blob so "gone > a month" survives a
+// server restart (HG-1).
+function touchPlayer(group, playerUserId) {
+  const player = group.players.find(p => p.userId === playerUserId);
+  if (player) player.lastSeenAt = new Date().toISOString();
+}
+
+// The number of current members who may vote in a host election: everyone
+// except the abandoned host, who is off the ballot (HG-1).
+function electionElectorate(group) {
+  return group.players.filter(p => p.userId !== group.host).length;
+}
+
+// A candidate wins by a strict majority (> 50%) of the electorate. With an
+// electorate of N, that is floor(N/2) + 1 votes for one candidate.
+function electionMajorityNeeded(group) {
+  return Math.floor(electionElectorate(group) / 2) + 1;
+}
+
+// Builds the shared, publicized view of a group that every player receives.
+// Strips the host's private notices and attaches the derived host-abandoned
+// flag so the client can offer the leave-or-vote election (HG-1).
+function publicizeGroup(group) {
+  const publicGroup = { ...group, currentTheme: publicizeTheme(group.currentTheme, group) };
+  delete publicGroup.hostNotices;
+  publicGroup.hostAbandoned = isHostAbandoned(group);
+  return publicGroup;
+}
+
+// Judge rotation bookkeeping (RT-3). Records that `userId` has served as Judge
+// this cycle in the group-level `judgedThisCycle` set, which persists across
+// rounds. When every current member has served once, the set resets so the
+// rotation can begin again. Stale entries for members who have since left are
+// dropped so they never count toward the cycle.
+function recordJudgeServed(group, userId) {
+  const memberIds = new Set(group.players.map(p => p.userId));
+  const served = new Set(group.judgedThisCycle || []);
+  served.add(userId);
+  const currentServed = Array.from(served).filter(id => memberIds.has(id));
+  if (currentServed.length >= group.players.length) {
+    group.judgedThisCycle = [];
+  } else {
+    group.judgedThisCycle = currentServed;
+  }
+}
+
 // overrideThreshold is always a whole percentage (e.g. 70) in settings objects
 // and over the wire; it's only ever converted to a 0-1 fraction at the point
 // it's compared against a vote ratio (see calculateGroupResults).
@@ -375,6 +447,13 @@ function beginRound(group, forcedCzarUserId) {
     // so time spent choosing isn't taken out of the players' window.
     deadline: null,
     czarId: roundLeader.userId, // stable id; stripped from broadcasts by publicizeTheme
+    // The Judge assigned when this round began. If every member skips, the
+    // role reverts to this person, who is then not offered the pass again
+    // (RT-3 / docs/design/a2-judge-skip-change-design.md).
+    firstAssignedJudge: roundLeader.userId,
+    // Set true only when the full-cycle skip reverts to the first-assigned
+    // Judge: that Judge must pick a topic and is not offered the skip control.
+    judgeMustPlay: false,
     submissions: [],
     votes: [],
     // Per-player points spent this round (voterUserId -> points), seeded empty
@@ -384,6 +463,11 @@ function beginRound(group, forcedCzarUserId) {
     voteBudgetUsed: {},
     czarSelection: null
   };
+
+  // Judge rotation (RT-3): the assigned Judge has now served this cycle. The
+  // group-level set persists across rounds; when every current member has
+  // served once, the cycle resets so the rotation can begin again.
+  recordJudgeServed(group, roundLeader.userId);
 
   return roundLeader;
 }
@@ -485,10 +569,7 @@ function remainingBudget(group, playerUserId) {
 }
 
 function broadcastGroup(group) {
-  const publicGroup = { ...group, currentTheme: publicizeTheme(group.currentTheme, group) };
-  // Notices are the host's alone, so they are stripped from the shared object
-  // and attached per-player below.
-  delete publicGroup.hostNotices;
+  const publicGroup = publicizeGroup(group);
 
   group.players.forEach(player => {
     io.to(player.id).emit('group_updated', {
@@ -874,7 +955,9 @@ io.on('connection', (socket) => {
         username: socket.data.username,
         score: 0,
         isHost: true,
-        connected: true
+        connected: true,
+        // Durable presence (HG-1): the creator is present at creation.
+        lastSeenAt: new Date().toISOString()
       }],
       settings,
       status: 'setup',
@@ -901,7 +984,14 @@ io.on('connection', (socket) => {
       group.players.some(player => player.userId === userId)
     );
 
-    socket.emit('groups_list', { groups: userGroups });
+    // Attach the derived host-abandoned flag so the Dashboard can surface the
+    // leave-or-vote election for a group whose host has gone (HG-1).
+    const listed = userGroups.map(group => ({
+      ...group,
+      hostAbandoned: isHostAbandoned(group)
+    }));
+
+    socket.emit('groups_list', { groups: listed });
   });
 
   // Join group
@@ -938,6 +1028,20 @@ io.on('connection', (socket) => {
       });
     }
 
+    // Durable presence (HG-1): joining re-establishes presence, so stamp the
+    // player's lastSeenAt. This is the low-cost heartbeat that lets the server
+    // later tell "host gone a month" from "host briefly offline".
+    touchPlayer(group, userId);
+
+    // If the current host returns while a host election is in flight, the
+    // election cancels and the host keeps the group (HG-1). The host is only
+    // still `group.host` before a transfer, so this only fires for the
+    // original host returning in time.
+    if (group.host === userId && group.election && group.election.open) {
+      group.election = null;
+      console.log('Host returned; host election cancelled for group:', gid);
+    }
+
     advanceIfExpired(group);
     groups.set(gid, group);
 
@@ -945,8 +1049,7 @@ io.on('connection', (socket) => {
     // else already viewing the group so the new player shows up live. The
     // joiner's own payload is publicized the same as any other broadcast —
     // the Round Leader's identity is never exposed via this event either.
-    const joinedGroup = { ...group, currentTheme: publicizeTheme(group.currentTheme, group) };
-    delete joinedGroup.hostNotices;
+    const joinedGroup = publicizeGroup(group);
 
     socket.emit('group_joined', {
       group: joinedGroup,
@@ -980,6 +1083,13 @@ io.on('connection', (socket) => {
     if (player) {
       player.id = socket.id;
       player.connected = true;
+      // Durable presence (HG-1): opening the group is a low-cost heartbeat.
+      touchPlayer(group, userId);
+      // A returning host cancels an in-flight election (HG-1).
+      if (group.host === userId && group.election && group.election.open) {
+        group.election = null;
+        console.log('Host returned; host election cancelled for group:', gid);
+      }
       groups.set(gid, group);
     }
 
@@ -991,8 +1101,7 @@ io.on('connection', (socket) => {
       broadcastGroup(group);
     }
 
-    const publicGroup = { ...group, currentTheme: publicizeTheme(group.currentTheme, group) };
-    delete publicGroup.hostNotices;
+    const publicGroup = publicizeGroup(group);
 
     socket.emit('group_details', {
       group: publicGroup,
@@ -1101,9 +1210,73 @@ io.on('connection', (socket) => {
     }
 
     theme.czarId = next.userId;
+    // A host hand-pick is a fresh assignment, so the new Judge is free to skip
+    // even if the previous Judge had been forced to play (RT-3).
+    theme.judgeMustPlay = false;
     groups.set(gid, group);
     broadcastGroup(group);
     console.log('Judge reassigned for group:', gid);
+  });
+
+  // A Judge who does not want to hold the role can skip their turn while the
+  // round is still choosing a topic (RT-3). This is the Judge-authorized mirror
+  // of the host's reassign_judge: the caller must be the current Judge, and the
+  // replacement is chosen at random from members who have not already served
+  // as Judge this cycle. A skipped Judge counts as having served, so the
+  // rotation advances. When every member has served (the pool is exhausted),
+  // the role reverts to the first-assigned Judge, who is then not offered the
+  // pass again — they must pick a topic.
+  on('judge_skip', ({ groupId }) => {
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+
+    const theme = group.currentTheme;
+    if (!theme || theme.status !== 'topic_selection') {
+      socket.emit('error', { message: 'The Judge can only skip while the round is choosing a topic' });
+      return;
+    }
+    if (userId !== theme.czarId) {
+      socket.emit('error', { message: 'Only the Judge can skip their turn' });
+      return;
+    }
+    // The first-assigned Judge who was reverted to after a full-cycle skip must
+    // play: they are not offered the pass again.
+    if (theme.judgeMustPlay) {
+      socket.emit('error', { message: 'You must pick a topic this round' });
+      return;
+    }
+
+    const currentJudgeId = theme.czarId;
+    // The skipping Judge has now served this cycle. Build the served set
+    // including them so the pool below correctly excludes everyone who has
+    // already judged — and so a full set (everyone served) yields an empty
+    // pool, which is what triggers the revert to the first-assigned Judge.
+    const memberIds = new Set(group.players.map(p => p.userId));
+    const served = new Set(group.judgedThisCycle || []);
+    served.add(currentJudgeId);
+    const currentServed = Array.from(served).filter(id => memberIds.has(id));
+
+    const pool = group.players.filter(p => p.userId !== currentJudgeId && !currentServed.includes(p.userId));
+    if (pool.length > 0) {
+      const next = pool[Math.floor(Math.random() * pool.length)];
+      theme.czarId = next.userId;
+      group.judgedThisCycle = currentServed;
+      console.log('Judge skipped for group:', gid, '-> new Judge:', next.userId);
+    } else {
+      // Everyone has served and still declined: revert to the first-assigned
+      // Judge, who must play. The cycle is complete, so it resets.
+      theme.czarId = theme.firstAssignedJudge || currentJudgeId;
+      theme.judgeMustPlay = true;
+      group.judgedThisCycle = [];
+      console.log('Full-cycle skip for group:', gid, '-> first Judge must play:', theme.czarId);
+    }
+
+    groups.set(gid, group);
+    broadcastGroup(group);
   });
 
   // Update group settings
@@ -1237,6 +1410,138 @@ io.on('connection', (socket) => {
     connectedSockets.forEach(socketId => {
       io.to(socketId).emit('group_deleted', { groupId: gid });
     });
+  });
+
+  // Host election (HG-1): when the host has abandoned the group (gone > 30
+  // days and not present), any current member may open an election to pick a
+  // new sole host. A present host is never eligible — the election only exists
+  // while the host is determined abandoned, so a briefly-offline host is never
+  // affected. Opening when one is already in flight is a no-op that just
+  // re-broadcasts the current state.
+  on('host_election_open', ({ groupId }) => {
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+    if (!group.players.some(p => p.userId === userId)) {
+      socket.emit('error', { message: 'You are not a member of this group' });
+      return;
+    }
+    if (group.host === userId) {
+      socket.emit('error', { message: 'The host cannot start an election' });
+      return;
+    }
+    if (!isHostAbandoned(group)) {
+      socket.emit('error', { message: 'The host is still here — no election is available' });
+      return;
+    }
+
+    if (!group.election || !group.election.open) {
+      group.election = {
+        open: true,
+        openedBy: userId,
+        openedAt: new Date().toISOString(),
+        // voterUserId -> candidateUserId. Keyed by the authenticated identity,
+        // never a payload-supplied id.
+        votes: {}
+      };
+      console.log('Host election opened for group:', gid, 'by', userId);
+    }
+
+    groups.set(gid, group);
+    broadcastGroup(group);
+  });
+
+  // Cast a vote in a host election (HG-1). Votes are keyed by the
+  // authenticated socket.data.userId, never a payload id; a member cannot vote
+  // for themselves; the abandoned host is off the ballot. When a candidate
+  // reaches a strict majority (> 50%) of the current non-host members, hostship
+  // transfers to them and the election closes.
+  on('host_vote', ({ groupId, candidateId }) => {
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+    if (!group.election || !group.election.open) {
+      socket.emit('error', { message: 'No host election is open' });
+      return;
+    }
+    if (group.host === userId) {
+      socket.emit('error', { message: 'The host cannot vote in an election' });
+      return;
+    }
+    if (!group.players.some(p => p.userId === userId)) {
+      socket.emit('error', { message: 'You are not a member of this group' });
+      return;
+    }
+
+    const candidateIdClean = cleanId(candidateId);
+    const candidate = candidateIdClean && group.players.find(p => p.userId === candidateIdClean);
+    if (!candidate) {
+      socket.emit('error', { message: 'That player is not in this group' });
+      return;
+    }
+    if (candidate.userId === group.host) {
+      socket.emit('error', { message: 'The abandoned host is not on the ballot' });
+      return;
+    }
+    if (candidate.userId === userId) {
+      socket.emit('error', { message: 'You cannot vote for yourself' });
+      return;
+    }
+
+    group.election.votes[userId] = candidate.userId;
+    console.log('Host election vote for group:', gid, 'by', userId, '->', candidate.userId);
+
+    // Majority check: a candidate wins with > 50% of the current non-host
+    // members. With an electorate of N that is floor(N/2) + 1 votes.
+    const needed = electionMajorityNeeded(group);
+    const tally = {};
+    Object.values(group.election.votes).forEach(v => { tally[v] = (tally[v] || 0) + 1; });
+    const winnerId = Object.keys(tally).find(c => tally[c] >= needed);
+
+    if (winnerId) {
+      // Transfer hostship. This is the only writer of group.host besides group
+      // creation, and every host gate compares group.host === userId, so all
+      // host powers re-point at the elected member automatically.
+      const oldHost = group.host;
+      group.host = winnerId;
+      group.players.forEach(p => { p.isHost = p.userId === winnerId; });
+      group.election = null;
+      console.log('Host election resolved for group:', gid, '-> new host:', winnerId, '(old host:', oldHost + ')');
+    }
+
+    groups.set(gid, group);
+    broadcastGroup(group);
+  });
+
+  // Test-only hook (HG-1): backdate a player's lastSeenAt so the suite can
+  // simulate an abandoned host without waiting 30 real days. Only available
+  // under AUTH_TEST_MODE, which refuses to coexist with production (config.js).
+  on('test_backdate_last_seen', ({ groupId, userId: targetId, daysAgo }) => {
+    if (!config.authTestMode) {
+      socket.emit('error', { message: 'Not available' });
+      return;
+    }
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+    const player = group.players.find(p => p.userId === targetId);
+    if (!player) {
+      socket.emit('error', { message: 'Player not in group' });
+      return;
+    }
+    const days = Number(daysAgo) || 31;
+    player.lastSeenAt = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+    groups.set(gid, group);
+    socket.emit('test_backdated', { groupId: gid });
   });
 
   // Start group: transitions out of setup and creates the first round

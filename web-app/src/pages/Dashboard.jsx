@@ -35,7 +35,9 @@ function Dashboard() {
         currentRound: group.currentRound,
         totalRounds: group.settings.totalRounds || 6,
         status: group.status,
-        host: group.host
+        host: group.host,
+        // Host governance (HG-1): whether the host has abandoned this group.
+        hostAbandoned: group.hostAbandoned === true
       }))
       setGroups(transformedGroups)
     })
@@ -200,6 +202,9 @@ function Dashboard() {
                         <span className="host-badge">You're the host</span>
                       ) : (
                         <span className="member-badge">Member</span>
+                      )}
+                      {group.hostAbandoned && group.host !== user.id && (
+                        <span className="host-abandoned-badge">Host abandoned</span>
                       )}
                     </div>
                   </article>

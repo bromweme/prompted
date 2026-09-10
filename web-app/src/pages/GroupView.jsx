@@ -64,7 +64,13 @@ function normalizeGroupData(group) {
     currentRound: group.currentRound,
     players: mapPlayers(group.players, group.host),
     currentTheme: group.currentTheme || null,
-    history: group.history || []
+    history: group.history || [],
+    // Judge rotation (RT-3): who has already served as Judge this cycle.
+    judgedThisCycle: group.judgedThisCycle || [],
+    // Host governance (HG-1): whether the host has abandoned the group, and any
+    // in-flight host election.
+    hostAbandoned: group.hostAbandoned === true,
+    election: group.election || null
   }
 }
 
@@ -435,6 +441,25 @@ function GroupView() {
   const handleReassignJudge = (playerUserId) => {
     if (socket && groupId) socket.emit('reassign_judge', { groupId, czarUserId: playerUserId })
     setShowPlayerSelection(false)
+  }
+
+  // The Judge declines their turn (RT-3). The server re-assigns the role to a
+  // random member who has not already judged this cycle; if everyone skips, the
+  // first-assigned Judge must play.
+  const handleSkipJudge = () => {
+    if (socket && groupId) socket.emit('judge_skip', { groupId })
+  }
+
+  // A member opens a host election when the host has abandoned the group
+  // (HG-1). The server only allows this while the host is determined gone.
+  const handleOpenElection = () => {
+    if (socket && groupId) socket.emit('host_election_open', { groupId })
+  }
+
+  // A member casts a vote for a new host (HG-1). The server keys the vote to
+  // the authenticated identity and refuses self-votes.
+  const handleHostVote = (candidateId) => {
+    if (socket && groupId) socket.emit('host_vote', { groupId, candidateId })
   }
 
   const handleDismissNotice = (noticeId) => {
@@ -967,6 +992,39 @@ function GroupView() {
                             submission timer begins once you choose.
                           </p>
                           <TopicPicker groupId={groupId} onSelect={handleSelectTopic} />
+
+                          {/* Judge skip (RT-3): a Judge who doesn't want the role
+                              can pass it to a random member who hasn't judged this
+                              cycle. The first-assigned Judge who is reverted to
+                              after a full-cycle skip is not offered the pass again. */}
+                          {!group.currentTheme.judgeMustPlay && (
+                            <div className="judge-skip-control">
+                              <button
+                                className="action-button"
+                                onClick={handleSkipJudge}
+                              >
+                                Skip my turn
+                              </button>
+                              <p className="form-hint">
+                                Pass the Judge role to someone who hasn't judged yet this cycle.
+                              </p>
+                            </div>
+                          )}
+                          {group.currentTheme.judgeMustPlay && (
+                            <p className="form-hint">
+                              Everyone has skipped, so you must pick a topic this round.
+                            </p>
+                          )}
+
+                          {/* Rotation state (RT-3): who has already served as Judge
+                              this cycle, so the fairness rule is legible. */}
+                          {group.judgedThisCycle.length > 0 && (
+                            <p className="form-hint judge-rotation-hint">
+                              Already judged this cycle: {group.judgedThisCycle
+                                .map(id => playerName(id))
+                                .join(', ')}
+                            </p>
+                          )}
                         </>
                       ) : (
                         <p className="no-submission">
@@ -1272,7 +1330,55 @@ function GroupView() {
             {activeTab === 'participants' && (
               <section className="tab-content">
                 <h2>Participants</h2>
-                
+
+                {/* Host governance (HG-1): when the host has abandoned the group,
+                    members get a leave-or-vote choice. A present host never sees
+                    this, and a briefly-offline host is never affected. */}
+                {group.hostAbandoned && !isHost && (
+                  <div className="host-election-banner">
+                    <h3>The host hasn't been here in a while</h3>
+                    <p>
+                      You can leave the group, or vote for a new host. A majority of
+                      current members elects the new sole host.
+                    </p>
+
+                    {!group.election?.open ? (
+                      <button
+                        className="action-button"
+                        onClick={handleOpenElection}
+                      >
+                        Start a host election
+                      </button>
+                    ) : (
+                      <div className="host-election-ballot">
+                        <p className="form-hint">
+                          Vote for a new host. You can't vote for yourself.
+                        </p>
+                        {group.players
+                          .filter(p => !p.isHost)
+                          .map(candidate => {
+                            const myVote = group.election.votes?.[user?.id]
+                            const votesFor = Object.values(group.election.votes || {})
+                              .filter(v => v === candidate.id).length
+                            return (
+                              <div key={candidate.id} className="host-election-candidate">
+                                <span className="participant-name">{candidate.username}</span>
+                                <span className="form-hint">{votesFor} vote{votesFor === 1 ? '' : 's'}</span>
+                                <button
+                                  className="action-button"
+                                  onClick={() => handleHostVote(candidate.id)}
+                                  disabled={myVote === candidate.id}
+                                >
+                                  {myVote === candidate.id ? 'Your vote' : 'Vote'}
+                                </button>
+                              </div>
+                            )
+                          })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="participants-list">
                   {group.players
                     .sort((a, b) => b.score - a.score)
