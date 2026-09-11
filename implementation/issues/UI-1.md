@@ -1,6 +1,6 @@
 # UI-1 — Create Group timing-unit dropdown collapses; its "minutes / hours / days" label is clipped
 
-- **Status:** Implemented (Wave 9) — initial review BLOCKING: stays Implemented, blocked by `REP-UI7-1`
+- **Status:** Done (REP-UI7-1 closure review passed, review-work)
 - **Priority:** medium
 - **Guarantee:** In the Create Group wizard's "Timing Settings" step, each window's unit `<select>` (Submission Length, Voting Length) must be wide enough to show its selected label ("minutes" / "hours" / "days"), matching the same control in the GroupView Rules editor.
 

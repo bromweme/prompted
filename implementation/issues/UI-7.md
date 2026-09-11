@@ -1,6 +1,6 @@
 # UI-7 — Group Rules edit form: inputs full-bleed, checkboxes detached from labels, sections stack one-per-row
 
-- **Status:** Implemented (Wave 9) — initial review BLOCKING: stays Implemented, blocked by `REP-UI7-1`. CSS-only. **Coordinate with `UI-1`** — both change `.form-row input, .form-row select { flex: 1 }` in `GroupView.css`.
+- **Status:** Done (REP-UI7-1 closure review passed, review-work). CSS-only. **Coordinate with `UI-1`** — both change `.form-row input, .form-row select { flex: 1 }` in `GroupView.css`.
 - **Priority:** medium
 - **Guarantee:** In the Group Rules **edit form** (host has clicked "Edit Rules"), number inputs are a sensible width (not full row), each checkbox sits directly beside its label, and the rules sections lay out at least two across on a wide screen. The read-only Rules view is already correct and must stay that way.
 

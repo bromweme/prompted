@@ -1,6 +1,6 @@
 # REP-UI7-1 — `.rules-edit-form` grid columns are too narrow for the rigid 180px label + rules number input; rows overflow their section
 
-- **Status:** Implemented (Wave 9 repair) — awaiting closure review
+- **Status:** Done (closure review passed, review-work)
 - **Priority:** high (blocking)
 - **Guarantee to restore:** In the Group Rules edit form, at any desktop viewport that lays sections out 2+ across, every numeric `.form-row` (and the Timing `.window-control` row) fits inside its `.rules-section` — no horizontal overflow, no overlapping sections, and the number input renders at a usable width (not squeezed toward 0px).
 - **Blocks:** `UI-1` (its "GroupView Rules editor timing controls are unchanged" done condition), `UI-7` (its own core "bounds its fields" / "sections show 2+ per row" done condition)
