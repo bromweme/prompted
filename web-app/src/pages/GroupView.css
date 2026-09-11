@@ -636,12 +636,22 @@
 
 /* Rules Edit Form */
 /* Sections lay out two or more across on desktop. `auto-fit` + `minmax`
-   collapses to a single column once the container drops below ~300px, which is
-   what the `max-width: 1024px` media block below relies on. The read-only
-   `.rules-container` view has its own grid and is deliberately left untouched. */
+   collapses to a single column once the container drops below the track
+   floor. The read-only `.rules-container` view has its own grid and is
+   deliberately left untouched.
+   The 440px track floor is sized to the row's own worst case, not just to
+   avoid overflow: `.rules-section` padding (2 x var(--space-3) = 32px) + its
+   1px border on each side (2px) + `.form-row` padding (2 x var(--space-2) =
+   16px) + the rigid 180px label + the label-to-control gap (var(--space-3) =
+   16px) leaves ~194px for the control at a 440px track. That is comfortably
+   above the ~150px floor a plain number input needs, and — for the Timing
+   `.window-control` rows, which spend part of that space on their own rigid
+   unit `<select>` (~90-100px) plus an 8px internal gap — still leaves the
+   nested number input a genuinely usable width instead of being squeezed
+   toward 0. See REP-UI7-1. */
 .rules-edit-form {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(440px, 1fr));
   gap: var(--space-4);
 }
 
@@ -696,11 +706,18 @@
 
 /* Numeric rules fields (Total Rounds, Max Players, Judge's-Pick points, Max
    Jury Points, …) are short data entry, not full-bleed text fields. Cap the
-   width but let a narrow column shrink it. The window-control number inputs
-   are nested a level deeper and keep their own `flex: 1 1 auto` sizing. */
+   width but let a narrow column shrink it. `min-width: 0` matches the
+   established `.window-control input[type="number"]` pattern below — without
+   it, this input's flex-shrink basis floors at its content-based intrinsic
+   width and refuses to shrink into a tight row, overflowing the section (see
+   REP-UI7-1). The wider grid track floor above means this rarely needs to
+   bite; it's the safety net for anything narrower. The window-control number
+   inputs are nested a level deeper and keep their own `flex: 1 1 auto`
+   sizing. */
 .rules-edit-form .form-row > input[type="number"] {
   width: 240px;
   max-width: 100%;
+  min-width: 0;
 }
 
 /* Belt-and-braces: even with the checkbox excluded from the growth rule above,

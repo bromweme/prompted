@@ -27,6 +27,99 @@ async function newPlayer(browser, id, name) {
   return { context, page }
 }
 
+// REP-UI7-1: the original UI-7 assertions (`numWidth < 300`,
+// `numWidth < numRowWidth * 0.6`) pass even while the row overflows its
+// section — a squeezed, overflowing ~155px input in an overflowing ~356px
+// row satisfies both. This helper pulls the computed geometry needed to
+// actually catch that: overflow, section-overlap, and row-containment.
+async function measureRulesLayout(page) {
+  return page.evaluate(() => {
+    function contentBoxRight(el) {
+      const rect = el.getBoundingClientRect()
+      const cs = getComputedStyle(el)
+      return rect.right - parseFloat(cs.paddingRight) - parseFloat(cs.borderRightWidth)
+    }
+
+    const num = document.getElementById('rules-total-rounds')
+    const numRow = num.closest('.form-row')
+    const cb = document.querySelector('.rules-edit-form .form-row.checkbox input[type="checkbox"]')
+    const cbLabel = cb.closest('label')
+    const sections = [...document.querySelectorAll('.rules-edit-form .rules-section')]
+    const actions = document.querySelector('.rules-edit-form .form-actions')
+    const form = document.querySelector('.rules-edit-form')
+    const mainContent = document.querySelector('.group-main-content')
+    const timingNum = document.getElementById('rules-submission-time')
+    const timingRow = timingNum.closest('.form-row')
+
+    return {
+      numWidth: num.getBoundingClientRect().width,
+      numRowWidth: numRow.getBoundingClientRect().width,
+      cbWidth: cb.getBoundingClientRect().width,
+      cbRight: cb.getBoundingClientRect().right,
+      cbLabelLeft: cbLabel.getBoundingClientRect().left,
+      sectionTops: sections.map((s) => Math.round(s.getBoundingClientRect().top)),
+      sectionCount: sections.length,
+      actionsWidth: actions.getBoundingClientRect().width,
+      formWidth: form.getBoundingClientRect().width,
+
+      formScrollWidth: form.scrollWidth,
+      formClientWidth: form.clientWidth,
+      mainScrollWidth: mainContent.scrollWidth,
+      mainClientWidth: mainContent.clientWidth,
+
+      sectionRects: sections.map((s) => {
+        const r = s.getBoundingClientRect()
+        return { top: r.top, left: r.left, right: r.right, bottom: r.bottom }
+      }),
+
+      numRowRight: numRow.getBoundingClientRect().right,
+      numSectionContentRight: contentBoxRight(num.closest('.rules-section')),
+
+      timingNumWidth: timingNum.getBoundingClientRect().width,
+      timingRowRight: timingRow.getBoundingClientRect().right,
+      timingSectionContentRight: contentBoxRight(timingNum.closest('.rules-section')),
+    }
+  })
+}
+
+// Two rects overlap iff their horizontal AND vertical ranges both intersect.
+// A small epsilon absorbs the sub-pixel jitter of adjacent (gap-separated,
+// not touching) grid cells without masking a real overlap.
+function rectsOverlap(a, b, eps = 1) {
+  const noHorizontalOverlap = a.right <= b.left + eps || b.right <= a.left + eps
+  const noVerticalOverlap = a.bottom <= b.top + eps || b.bottom <= a.top + eps
+  return !(noHorizontalOverlap || noVerticalOverlap)
+}
+
+function assertNoSectionOverlap(sectionRects) {
+  for (let i = 0; i < sectionRects.length; i++) {
+    for (let j = i + 1; j < sectionRects.length; j++) {
+      expect(rectsOverlap(sectionRects[i], sectionRects[j])).toBe(false)
+    }
+  }
+}
+
+// Shared assertions for REP-UI7-1: no horizontal overflow of the form or its
+// scroll container, no two sections overlapping, the numeric and Timing rows
+// stay inside their section's content box, and the Timing number input keeps
+// a genuinely usable width (matching UI-1's own >60px chevron-vs-label
+// threshold). Called at more than one viewport so the defect — which
+// reproduced at 1400px, 1920px and 2560px alike, since the old fixed 300px
+// track floor never widened to fit — can't hide at just one width.
+function assertNoOverflowOrOverlap(measures) {
+  const OVERFLOW_TOLERANCE = 2
+  expect(measures.formScrollWidth).toBeLessThanOrEqual(measures.formClientWidth + OVERFLOW_TOLERANCE)
+  expect(measures.mainScrollWidth).toBeLessThanOrEqual(measures.mainClientWidth + OVERFLOW_TOLERANCE)
+
+  assertNoSectionOverlap(measures.sectionRects)
+
+  const CONTAINMENT_TOLERANCE = 2
+  expect(measures.numRowRight).toBeLessThanOrEqual(measures.numSectionContentRight + CONTAINMENT_TOLERANCE)
+  expect(measures.timingRowRight).toBeLessThanOrEqual(measures.timingSectionContentRight + CONTAINMENT_TOLERANCE)
+
+  expect(measures.timingNumWidth).toBeGreaterThan(60)
+}
+
 test('UI-1: the Create Group timing unit select shows its label, not just the chevron', async ({ page, context }) => {
   await seedTestUser(context, { id: `ui1-${testRunId()}`, name: 'Timing Host' })
 
@@ -94,26 +187,7 @@ test('UI-7: the Group Rules edit form bounds its fields, keeps checkboxes small,
     const totalRounds = host.page.locator('#rules-total-rounds')
     await expect(totalRounds).toBeVisible()
 
-    const measures = await host.page.evaluate(() => {
-      const num = document.getElementById('rules-total-rounds')
-      const numRow = num.closest('.form-row')
-      const cb = document.querySelector('.rules-edit-form .form-row.checkbox input[type="checkbox"]')
-      const cbLabel = cb.closest('label')
-      const sections = [...document.querySelectorAll('.rules-edit-form .rules-section')]
-      const actions = document.querySelector('.rules-edit-form .form-actions')
-      const form = document.querySelector('.rules-edit-form')
-      return {
-        numWidth: num.getBoundingClientRect().width,
-        numRowWidth: numRow.getBoundingClientRect().width,
-        cbWidth: cb.getBoundingClientRect().width,
-        cbRight: cb.getBoundingClientRect().right,
-        cbLabelLeft: cbLabel.getBoundingClientRect().left,
-        sectionTops: sections.map((s) => Math.round(s.getBoundingClientRect().top)),
-        sectionCount: sections.length,
-        actionsWidth: actions.getBoundingClientRect().width,
-        formWidth: form.getBoundingClientRect().width,
-      }
-    })
+    const measures = await measureRulesLayout(host.page)
 
     // 1. A rules number field is bounded, not full-bleed.
     expect(measures.numWidth).toBeLessThan(300)
@@ -134,6 +208,25 @@ test('UI-7: the Group Rules edit form bounds its fields, keeps checkboxes small,
 
     // 4. The Save / Cancel row spans the full grid width.
     expect(measures.actionsWidth).toBeGreaterThan(measures.formWidth * 0.9)
+
+    // 5. REP-UI7-1: no horizontal overflow, no overlapping sections, every
+    //    row stays inside its section, and the Timing number input is usable.
+    //    (This is the check that the original numWidth-only assertions above
+    //    missed: a squeezed, overflowing input in an overflowing row still
+    //    satisfied both of them.)
+    assertNoOverflowOrOverlap(measures)
+
+    // 6. REP-UI7-1: re-check at a second, wider viewport — the old fixed
+    //    300px track floor reproduced the overflow at 1400px, 1920px and
+    //    2560px alike, so a single width isn't enough to prove the fix.
+    await host.page.setViewportSize({ width: 1920, height: 1080 })
+    const wideMeasures = await measureRulesLayout(host.page)
+    assertNoOverflowOrOverlap(wideMeasures)
+    const wideTopCounts = wideMeasures.sectionTops.reduce((acc, t) => {
+      acc[t] = (acc[t] || 0) + 1
+      return acc
+    }, {})
+    expect(Math.max(...Object.values(wideTopCounts))).toBeGreaterThanOrEqual(2)
   } finally {
     await host.context.close()
     await second.context.close()
