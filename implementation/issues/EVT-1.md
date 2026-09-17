@@ -1,6 +1,6 @@
 # EVT-1 — Server-side game event logging (first-party analytics)
 
-- **Status:** In progress (Wave 11). The event list and prop schema below are a starting point to refine during implementation.
+- **Status:** Done (Wave 11, `f92d07c`; initial review passed after recording the event-list refinements). The event list and prop schema below are a starting point to refine during implementation.
 - **Priority:** medium
 - **Guarantee:** The server records the key lifecycle and feature-use events of a game into an append-only local table, so questions like "do groups finish?", "where do people drop off?", and "is feature X used?" can be answered from data instead of guesswork.
 
