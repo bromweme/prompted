@@ -8,6 +8,7 @@ const { createAuthMiddleware } = require('./auth');
 const { searchVideos, isValidVideoId } = require('./youtube');
 const { getOrCreateProfile, updateProfile, AVATAR_CHOICES } = require('./profiles');
 const { PersistentStore } = require('./db');
+const { logEvent, settingsSnapshot, changedSettingKeys } = require('./events');
 
 // The origins the app is actually served from, resolved from the
 // ALLOWED_ORIGINS env var (see config.js) with a localhost dev fallback.
@@ -381,6 +382,7 @@ function advanceIfExpired(group) {
   // history, persists and broadcasts, so this returns true for the existing
   // callsites to broadcast the reveal too.
   if (theme.status === 'voting') {
+    logEvent('round_expired', { groupId: group.id, round: group.currentRound, phase: 'voting', outcome: 'reveal' });
     calculateGroupResults(group);
     return true;
   }
@@ -389,6 +391,13 @@ function advanceIfExpired(group) {
   // submitted simply misses this round rather than holding everyone else.
   if (theme.submissions.length > 0) {
     openVoting(theme, group);
+    logEvent('round_expired', {
+      groupId: group.id, round: group.currentRound, phase: 'submission', outcome: 'voting',
+      submissions: theme.submissions.length
+    });
+    logEvent('voting_opened', {
+      groupId: group.id, round: group.currentRound, trigger: 'deadline', submissions: theme.submissions.length
+    });
     console.log('Submission deadline passed for group:', group.id, '- opening voting with',
       theme.submissions.length, 'submission(s)');
     return true;
@@ -404,6 +413,8 @@ function advanceIfExpired(group) {
     addHostNotice(group, 'round_stalled',
       `Nobody submitted a video after ${MAX_AUTO_REARMS} attempts, so "${theme.title}" is waiting for you. Start it again when the group is ready.`);
     console.log('Auto re-arm limit reached for group:', group.id);
+    logEvent('round_expired', { groupId: group.id, round: group.currentRound, phase: 'submission', outcome: 'stalled' });
+    logEvent('round_stalled', { groupId: group.id, round: group.currentRound, attempts: MAX_AUTO_REARMS });
     return true;
   }
 
@@ -413,6 +424,8 @@ function advanceIfExpired(group) {
   addHostNotice(group, 'round_restarted',
     `Nobody submitted a video in time, so "${theme.title}" has restarted with the same Judge and topic. Attempt ${attempts} of ${MAX_AUTO_REARMS}.`);
   console.log('Round re-armed for group:', group.id, '- attempt', attempts);
+  logEvent('round_expired', { groupId: group.id, round: group.currentRound, phase: 'submission', outcome: 'rearmed' });
+  logEvent('round_rearmed', { groupId: group.id, round: group.currentRound, attempt: attempts, maxAttempts: MAX_AUTO_REARMS });
   return true;
 }
 
@@ -680,6 +693,17 @@ function calculateGroupResults(group) {
 
   groups.set(group.id, group);
   console.log('Round resolved for group:', group.id, 'winner:', winnerUsername);
+  logEvent('round_completed', {
+    groupId: group.id,
+    round: group.currentRound,
+    submissions: theme.submissions.length,
+    votes: theme.votes.length,
+    downvotes: theme.votes.filter(v => v.isDownvote).length,
+    voters: new Set(theme.votes.map(v => v.voterUserId)).size,
+    players: group.players.length,
+    wonBy: winner ? winner.wonBy : null,
+    autoRearms: theme.autoRearmCount || 0
+  });
   broadcastGroup(group);
 }
 
@@ -852,6 +876,11 @@ io.on('connection', (socket) => {
 
     groups.set(gid, group);
     console.log('Topic selected for group:', gid, '->', topic.text);
+    logEvent('topic_selected', {
+      groupId: gid, actorId: userId, round: group.currentRound,
+      ownTopic: topic.creatorId === userId, isPublic: topic.isPublic === true,
+      judgeMustPlay: theme.judgeMustPlay === true
+    });
     broadcastGroup(group);
   });
 
@@ -984,6 +1013,10 @@ io.on('connection', (socket) => {
 
     groups.set(groupId, group);
     console.log('Created group:', groupId);
+    logEvent('group_created', {
+      groupId, actorId: userId, isPrivate: group.isPrivate === true,
+      hasDescription: description !== '', settings: settingsSnapshot(settings)
+    });
 
     socket.emit('group_created', { group });
   });
@@ -1024,6 +1057,7 @@ io.on('connection', (socket) => {
 
     // Check if player already in group (identified by stable userId, not socket id)
     const existingPlayer = group.players.find(p => p.userId === userId);
+    const isNewMember = !existingPlayer;
     if (existingPlayer) {
       existingPlayer.id = socket.id;
       existingPlayer.connected = true;
@@ -1056,6 +1090,14 @@ io.on('connection', (socket) => {
 
     advanceIfExpired(group);
     groups.set(gid, group);
+
+    // Only a first-time join is a funnel step; a returning member re-joining
+    // (reconnect, re-opened invite link) is not counted again.
+    if (isNewMember) {
+      logEvent('member_joined', {
+        groupId: gid, actorId: userId, players: group.players.length, groupStatus: group.status
+      });
+    }
 
     // Tell the joiner directly (they navigate off this) and update everyone
     // else already viewing the group so the new player shows up live. The
@@ -1190,6 +1232,10 @@ io.on('connection', (socket) => {
     groups.set(gid, group);
     broadcastGroup(group);
     console.log('Host closed submissions early for group:', gid);
+    logEvent('voting_opened', {
+      groupId: gid, actorId: userId, round: group.currentRound, trigger: 'host_closed',
+      submissions: theme.submissions.length
+    });
   });
 
   // Host hands the Judge role to someone else while the round is still waiting
@@ -1228,6 +1274,7 @@ io.on('connection', (socket) => {
     groups.set(gid, group);
     broadcastGroup(group);
     console.log('Judge reassigned for group:', gid);
+    logEvent('judge_reassigned', { groupId: gid, actorId: userId, round: group.currentRound });
   });
 
   // A Judge who does not want to hold the role can skip their turn while the
@@ -1289,6 +1336,9 @@ io.on('connection', (socket) => {
 
     groups.set(gid, group);
     broadcastGroup(group);
+    logEvent('judge_skipped', {
+      groupId: gid, actorId: userId, round: group.currentRound, fullCycle: theme.judgeMustPlay === true
+    });
   });
 
   // Update group settings
@@ -1340,9 +1390,16 @@ io.on('connection', (socket) => {
     }
 
     // Update group settings
+    const previousSettings = group.settings;
     group.settings = { ...group.settings, ...settings };
     groups.set(gid, group);
     broadcastGroup(group);
+    const changedKeys = changedSettingKeys(previousSettings, group.settings);
+    if (changedKeys.length > 0) {
+      logEvent('settings_changed', {
+        groupId: gid, actorId: userId, groupStatus: group.status, keys: changedKeys
+      });
+    }
 
     console.log('Group updated:', gid);
   });
@@ -1383,6 +1440,10 @@ io.on('connection', (socket) => {
       groups.set(gid, group);
       broadcastGroup(group);
       console.log('Player left group:', { userId, groupId: gid });
+      logEvent('member_left', {
+        groupId: gid, actorId: userId, players: group.players.length,
+        groupStatus: group.status, roundsPlayed: (group.history || []).length
+      });
     }
 
     // Always confirm so the caller navigates home, even in the no-op case.
@@ -1418,6 +1479,10 @@ io.on('connection', (socket) => {
 
     groups.delete(gid);
     console.log('Group deleted:', gid);
+    logEvent('group_deleted', {
+      groupId: gid, actorId: userId, players: group.players.length,
+      groupStatus: group.status, roundsPlayed: (group.history || []).length
+    });
 
     connectedSockets.forEach(socketId => {
       io.to(socketId).emit('group_deleted', { groupId: gid });
@@ -1460,6 +1525,9 @@ io.on('connection', (socket) => {
         votes: {}
       };
       console.log('Host election opened for group:', gid, 'by', userId);
+      logEvent('host_election_started', {
+        groupId: gid, actorId: userId, electorate: electionElectorate(group)
+      });
     }
 
     groups.set(gid, group);
@@ -1507,6 +1575,8 @@ io.on('connection', (socket) => {
     }
 
     group.election.votes[userId] = candidate.userId;
+    const electionOpenedAt = Date.parse(group.election.openedAt);
+    const votesCast = Object.keys(group.election.votes).length;
     console.log('Host election vote for group:', gid, 'by', userId, '->', candidate.userId);
 
     // Majority check: a candidate wins with > 50% of the current non-host
@@ -1525,6 +1595,10 @@ io.on('connection', (socket) => {
       group.players.forEach(p => { p.isHost = p.userId === winnerId; });
       group.election = null;
       console.log('Host election resolved for group:', gid, '-> new host:', winnerId, '(old host:', oldHost + ')');
+      logEvent('host_election_resolved', {
+        groupId: gid, actorId: userId, votes: votesCast,
+        needed, durationMs: Number.isFinite(electionOpenedAt) ? Date.now() - electionOpenedAt : null
+      });
     }
 
     groups.set(gid, group);
@@ -1595,6 +1669,10 @@ io.on('connection', (socket) => {
     const roundLeader = beginRound(group, cleanId(czarUserId));
     groups.set(gid, group);
     console.log('Group started, round 1 created:', gid, 'round leader:', roundLeader.username);
+    logEvent('round_started', {
+      groupId: gid, actorId: userId, round: group.currentRound, players: group.players.length,
+      judgeHandPicked: !!czarUserId && roundLeader.userId === cleanId(czarUserId), afterStall: false
+    });
     broadcastGroup(group);
   });
 
@@ -1649,6 +1727,10 @@ io.on('connection', (socket) => {
     const roundLeader = beginRound(group, cleanId(czarUserId));
     groups.set(gid, group);
     console.log('Round started for group:', gid, 'round leader:', roundLeader.username);
+    logEvent('round_started', {
+      groupId: gid, actorId: userId, round: group.currentRound, players: group.players.length,
+      judgeHandPicked: !!czarUserId && roundLeader.userId === cleanId(czarUserId), afterStall: stalled
+    });
     broadcastGroup(group);
   });
 
@@ -1736,9 +1818,16 @@ io.on('connection', (socket) => {
       channelTitle: channel
     });
 
+    logEvent('submission_made', {
+      groupId: gid, actorId: userId, round: group.currentRound, submissionNumber: theme.submissions.length
+    });
+
     const eligiblePlayers = group.players.filter(p => p.connected !== false && p.userId !== theme.czarId);
     if (eligiblePlayers.length > 0 && theme.submissions.length >= eligiblePlayers.length) {
       openVoting(theme, group);
+      logEvent('voting_opened', {
+        groupId: gid, round: group.currentRound, trigger: 'all_submitted', submissions: theme.submissions.length
+      });
     } else {
       // Everyone present has not finished, but the window may have closed
       // while this submission was in flight. Checked after the push so this
@@ -1867,6 +1956,12 @@ io.on('connection', (socket) => {
     theme.voteBudgetUsed = { ...(theme.voteBudgetUsed || {}), [userId]: used + cost };
 
     groups.set(gid, group);
+    logEvent('vote_cast', {
+      groupId: gid, actorId: userId, round: group.currentRound,
+      points: isDown ? -downvoteCost : points, isDownvote: isDown,
+      budgetUsed: used + cost, budget, isJudge: userId === theme.czarId,
+      hasComment: !!voteComment
+    });
 
     // Voting always runs to its deadline (see openVoting): a round does NOT
     // resolve just because every eligible voter has voted. The reveal happens
@@ -1904,6 +1999,7 @@ io.on('connection', (socket) => {
 
     theme.czarSelection = subId;
     groups.set(gid, group);
+    logEvent('winner_selected', { groupId: gid, actorId: userId, round: group.currentRound });
     calculateGroupResults(group);
   });
 

@@ -36,6 +36,18 @@ Product decisions in this backlog (enforce `maxPlayers`/`totalRounds`? wire or c
 | e2e / unit | A check that completing a round writes the expected rows; that a logging error is swallowed. |
 | `PRIV-1` | Disclose this collection in the privacy policy (first-party, no third party, no cookie). |
 
+## Implementation notes (Wave 11)
+
+- **Module:** `server/events.js` (same SQLite file as `db.js`; `PROMPTED_DB_PATH` overrides the path, default unchanged). Indexes on `(name, ts)`, `(group_id)` and `(ts)` (the last one serves the prune).
+- **actor_id:** pseudonymous HMAC-SHA256 of the user id. Secret from `EVENTS_HASH_SECRET`, else generated once and kept in a `meta` table in the same DB. Because the secret and the raw ids in `groups` share one file, the data is **pseudonymous, not anonymous** — `PRIV-1` must say so; set `EVENTS_HASH_SECRET` in production to keep the secret out of the DB (changing it changes every hash).
+- **Retention:** 12 months, pruned from inside `logEvent` at most every 6 hours (and on the first event after boot). `EVENTS_DISABLED=1` turns writes off.
+- **Event list, refined from the starter set:**
+  - Logged: `group_created`, `member_joined` (first join only), `round_started`, `topic_selected`, `submission_made`, `voting_opened`, `vote_cast`, `winner_selected`, `round_completed`, `round_expired`, `round_rearmed`, `round_stalled`, `judge_skipped`, `judge_reassigned`, `host_election_started`, `host_election_resolved`, `settings_changed` (only when a setting actually changed; key names only), `member_left`, `group_deleted`.
+  - **Deferred — `invite_opened`:** the server cannot tell an invite-link join from a typed-code join today. `UI-2` adds the `/join/<code>` route and logs it there.
+  - **Deferred — `game_completed`:** the server has no "game end" (`totalRounds` is stored but never enforced; see the out-of-scope note). `group_deleted` and `round_completed.round` are the nearest signals. Add it if `totalRounds` enforcement is built.
+- **Ordering note:** `winner_selected` and the voting-deadline `round_expired` are logged just before `calculateGroupResults`, so the cause row precedes `round_completed`. If `calculateGroupResults` ever threw, the cause row would exist without a result — accepted.
+- **Tests:** `server/test/events.test.js` (`cd server && npm test`) and `web-app/e2e/event-log.spec.js`.
+
 ## Done when
 
 - The `events` table exists and `logEvent` writes rows for at least the funnel event set above.

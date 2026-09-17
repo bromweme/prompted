@@ -1,7 +1,10 @@
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const db = new Database(path.join(__dirname, 'prompted.db'));
+// PROMPTED_DB_PATH lets tests point the server at a throwaway database. Unset,
+// it is the same server/prompted.db the app has always used.
+const dbPath = process.env.PROMPTED_DB_PATH || path.join(__dirname, 'prompted.db');
+const db = new Database(dbPath);
 db.pragma('journal_mode = WAL');
 
 // Map-compatible store backed by a SQLite table (one JSON blob per row).
@@ -52,4 +55,4 @@ class PersistentStore {
   }
 }
 
-module.exports = { PersistentStore };
+module.exports = { PersistentStore, db, dbPath };
