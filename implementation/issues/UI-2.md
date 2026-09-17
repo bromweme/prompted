@@ -1,6 +1,6 @@
 # UI-2 — Group code is a guessable timestamp; shareable link is long and unpolished
 
-- **Status:** Ready — but the alphabet/length and the link scheme need a quick product sign-off (see "Decisions needed"). User-reported in the triage batch.
+- **Status:** Ready — product decisions made 2026-09-17 (see "Decisions (confirmed)"). Sequenced after `EVT-1` (both edit `server/server.js`). User-reported in the triage batch.
 - **Priority:** medium (has a real security component)
 - **Guarantee:** A group's join code must be an unguessable random string, and the shareable invite link must be short and clean.
 
@@ -49,15 +49,33 @@ Invite Players modal (`GroupView.jsx` ~2195-2225):
 | e2e | Update any test that hard-codes the `GROUP…` id shape or the `?join=true` link; add coverage for the new code format and the `/join/:code` flow. |
 | Migration | None for storage — existing `GROUP…_n` ids stay valid keys and keep working. Only newly created groups get the new format. Existing shared `?join=true` links keep working if the legacy alias is kept. |
 
-## Decisions needed (before a wave picks this up)
+## Decisions (confirmed by the user, 2026-09-17)
 
-1. Alphabet and length — confirm `A-Z` × 20, or choose another point.
-2. Link scheme — confirm `/join/<code>` clean path is enough, or is an actual short-link service wanted.
-3. Unified id+code (minimal) vs. split internal-id / rotatable-invite (larger).
+1. **Code format:** CSPRNG, alphabet `A-Z`, length **20** (~94 bits). Displayed grouped `XXXXX-XXXXX-XXXXX-XXXXX`; input is normalised (upper-case, strip spaces/dashes) on both client and server.
+2. **Link scheme:** clean `origin/join/<CODE>` path (no query tail). No short-link service. `/group/:id?join=true` stays working as a legacy alias.
+3. **Split id and invite code** (the larger option). Details below.
+
+## Design for the split (follows from decision 3)
+
+- **Internal group id:** opaque and unguessable too (e.g. `crypto.randomUUID()`), never used as a join secret. Existing `GROUP…_n` ids stay valid keys — no storage migration of ids.
+- **Invite code:** new `group.inviteCode` field (20 letters). The server keeps an in-memory `inviteCode -> groupId` index, built at startup from the groups store and updated on create / reset / delete.
+- **Legacy groups** (no `inviteCode`): treated as if their invite code is their existing id, so old codes and old `?join=true` links keep working until the host resets the code. (A reset gives them a new random code and retires the legacy one.)
+- **Joining is by code only.** `join_group` takes `{ inviteCode }` (normalised); an unknown code gets the generic "Invite code not found" error. Add a light per-socket/user throttle on failed attempts. A current member re-joining by code is a reconnect, as today.
+- **Access by id now requires membership.** Because the id is no longer the secret, `get_group` (and any other handler that returns group data or acts on a group by id) must refuse non-members with a generic error and leak nothing. Audit every `on(...)` handler that takes `groupId` (`server.js` ~766-2000) for a membership check; most already have one.
+- **Rotate / revoke:** host-only `reset_invite_code` handler that issues a fresh code, invalidating the old one (existing members are unaffected). The Invite modal gets a host-only "Reset code" button (with a confirm step that is not a native `confirm()` dialog).
+- **Who sees the code:** only members receive `inviteCode` in the group payload (`publicizeGroup` is only sent to members once the membership gate is in place).
+- **Client:**
+  - `/join/:code` route (`App.jsx`): emits `join_group` with the code, then `navigate('/group/<id>', { replace: true })` on `group_joined`; shows a clear error for a bad code. Must work when signed out (log in, then resume the join).
+  - Dashboard "Join Group" sends the normalised code, not an id.
+  - `GroupView` Invite modal shows the grouped code and the `/join/<code>` link; `?join=true` on `/group/:id` stays as a legacy alias (it joins using the id as the code, which only matches legacy groups).
+  - A non-member opening `/group/:id` sees a "you're not a member of this group" state instead of the group.
+- **EVT-1:** if `EVT-1` has landed, log `invite_opened` from the `/join` path (server side, on a join attempt by code) and `invite_code_reset`; no code values in props.
 
 ## Done when
 
 - New groups get a CSPRNG code from the agreed alphabet/length; no `Date.now()` in the code.
+- The internal group id is not the invite code; `join_group` accepts only an invite code; `get_group` and every other group-scoped handler refuse non-members.
+- The host can reset the invite code; the old code stops working immediately and existing members are unaffected.
 - The Invite modal shows the formatted code and a `/join/<code>`-style link with no query-string tail.
 - Entering the code on the Dashboard "Join Group" flow works regardless of separators/case.
 - Opening the shareable link joins the group and lands on `/group/:groupId`.
@@ -67,4 +85,4 @@ Invite Players modal (`GroupView.jsx` ~2195-2225):
 
 ## Depends on
 
-None (but blocked on the three decisions above).
+None. Sequence after `EVT-1` (shared `server/server.js`).
