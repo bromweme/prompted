@@ -1,6 +1,6 @@
 # UI-2 — Group code is a guessable timestamp; shareable link is long and unpolished
 
-- **Status:** Ready — product decisions made 2026-09-17 (see "Decisions (confirmed)"). Sequenced after `EVT-1` (both edit `server/server.js`). User-reported in the triage batch.
+- **Status:** In progress (Wave 12). Product decisions made 2026-09-17 (see "Decisions (confirmed)"). User-reported in the triage batch.
 - **Priority:** medium (has a real security component)
 - **Guarantee:** A group's join code must be an unguessable random string, and the shareable invite link must be short and clean.
 
