@@ -1,6 +1,6 @@
 # UI-5 — Remove the "Quick Theme Inspiration" section from the My Topics page
 
-- **Status:** Ready (triage batch; not yet in a wave). JSX + CSS delete, no product decision.
+- **Status:** In progress (Wave 10). JSX + CSS delete, no product decision.
 - **Priority:** low
 - **Guarantee:** The My Topics page (`/topics`) no longer shows the "Quick Theme Inspiration" grid. The rest of the page (header, Add Theme, the theme list, the add/edit modal) is unchanged.
 

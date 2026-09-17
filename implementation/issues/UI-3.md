@@ -1,6 +1,6 @@
 # UI-3 — "Start Group" button: rename to "Start Round" and use the active (primary) style
 
-- **Status:** Ready (triage batch; not yet in a wave). Small, JSX + CSS-class only, no product decision needed.
+- **Status:** In progress (Wave 10). Small, JSX + CSS-class only, no product decision needed.
 - **Priority:** low
 - **Guarantee:** On the host's Group Setup panel, the call-to-action reads "Start Round" and looks like an enabled primary action when the group can start.
 

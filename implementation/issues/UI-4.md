@@ -1,6 +1,6 @@
 # UI-4 — "Current Theme" section shows an empty theme and boilerplate before a theme is picked
 
-- **Status:** Ready (triage batch; not yet in a wave). JSX + CSS only, no product decision — but confirm the heading wording (options below).
+- **Status:** In progress (Wave 10). JSX + CSS only, no product decision — but confirm the heading wording (options below).
 - **Priority:** low
 - **Guarantee:** During a round's `topic_selection` phase, the Current Theme section (Overview card and Round tab) must not present an empty theme title or generic boilerplate as if a theme were set.
 
