@@ -48,12 +48,17 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | `RT-3` | Judge can skip their turn, fair no-repeat rotation (Wave 7 + REP-RT3-1) |
 | `REP-RT3-1` | No-repeat rotation records Judges by play, not assignment (Wave 7 repair) |
 
+## In progress
+
+| Id | Issue | Notes |
+|---|---|---|
+| `EVT-1` | Server-side game event logging (first-party analytics) | Wave 11. actor ids stored as a keyed hash (HMAC-SHA256), not raw; 12-month retention with opportunistic prune. Append-only `events` table + `logEvent` helper; fire-and-forget calls in the existing `server.js` socket handlers for the funnel (group_created → … → game_completed) and feature use (vote_cast, judge_skipped, settings_changed). No third party, no cookie, not ad-blocked; disclosure only (`PRIV-1`). No PII/free-text in props. See `implementation/issues/EVT-1.md`. |
+
 ## Ready
 
 | Id | Issue | Notes |
 |---|---|---|
 | `UI-2` | Group code is a guessable `GROUP<timestamp>_<n>`; shareable link is long / unpolished | Triage batch (user-reported). Server + client. Replace the timestamp id with a CSPRNG letter code (proposed `A-Z`×20); serve a clean `/join/<code>` link. Has a security component (the id is also the only join secret). Needs a quick product sign-off on alphabet/length and link scheme before a wave. See `implementation/issues/UI-2.md`. |
-| `EVT-1` | Server-side game event logging (first-party analytics) | Infra (user-requested). Append-only `events` table + `logEvent` helper; fire-and-forget calls in the existing `server.js` socket handlers for the funnel (group_created → … → game_completed) and feature use (vote_cast, judge_skipped, settings_changed). No third party, no cookie, not ad-blocked; disclosure only (`PRIV-1`). No PII/free-text in props. See `implementation/issues/EVT-1.md`. |
 
 ## Blocked
 
@@ -62,7 +67,7 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | `UI-6` | Rename "topic" **and "theme"** → "prompt" (page, route, references) | Product decision — surface-only vs full rename (wire events + `topic_selection` phase + `topics` DB table + persisted keys; ~430 "topic" + ~280 "theme" sites + a `prompted.db` migration), and docs scope. "theme" → "prompt" is **confirmed in scope** (user); visible-string inventory in the issue. Sequence with `UI-4`/`UI-5`. |
 | `PRIV-1` | Privacy policy page + consent management (CMP) | Product/legal decision — data-controller identity, jurisdictions, deletion-path scope, CMP choice. `Login.jsx:89` already claims a Privacy Policy that doesn't exist. Part A (policy page reflecting current data practices) is draftable now and pairs with `EVT-1`; Part B (CMP) is a prerequisite for GA4 / ads. Not legal advice — needs a lawyer's review. See `implementation/issues/PRIV-1.md`. |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election) and its `REP-RT3-1` repair are all `Done`. Wave 8 (`RT-4`, deadline-display null guard) is `Done` (initial review passed). Wave 9 (`UI-1` + `UI-7`) and its `REP-UI7-1` repair are all `Done`. All prior waves are `Done`. Wave 10 (`UI-3` + `UI-4` + `UI-5`) is `Done` (initial review passed). Remaining triage batch: `Ready` — `UI-2`, `EVT-1`; `Blocked` — `UI-6` (topic/theme→prompt rename, scope decision) and `PRIV-1` (privacy policy + CMP, product/legal decision). See also the monetization note below.
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election) and its `REP-RT3-1` repair are all `Done`. Wave 8 (`RT-4`, deadline-display null guard) is `Done` (initial review passed). Wave 9 (`UI-1` + `UI-7`) and its `REP-UI7-1` repair are all `Done`. All prior waves are `Done`. Wave 10 (`UI-3` + `UI-4` + `UI-5`) is `Done` (initial review passed). **Wave 11 is `In progress`: `EVT-1`** (server-side event logging). Remaining triage batch: `Ready` — `UI-2` (awaiting product sign-off); `Blocked` — `UI-6` (topic/theme→prompt rename, scope decision) and `PRIV-1` (privacy policy + CMP, product/legal decision). See also the monetization note below.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 
