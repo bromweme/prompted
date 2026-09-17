@@ -45,7 +45,7 @@ test.describe('YouTube titles render decoded, not as HTML entities', () => {
     await guest.goto(`/group/${groupId}?join=true`)
     await expect(guest.locator('.group-info-card')).toBeVisible()
 
-    await page.getByRole('button', { name: 'Start Group' }).click()
+    await page.getByRole('button', { name: 'Start Round', exact: true }).click()
     await page.getByRole('dialog').getByRole('button', { name: /Randomly Assign/ }).click()
 
     const pages = [page, guest]
@@ -99,7 +99,7 @@ test.describe('YouTube titles render decoded, not as HTML entities', () => {
     }
     await expect(host.page.getByText('3 players')).toBeVisible()
 
-    await host.page.getByRole('button', { name: 'Start Group' }).click()
+    await host.page.getByRole('button', { name: 'Start Round', exact: true }).click()
     await host.page.getByRole('dialog').getByRole('button', { name: /Randomly Assign/ }).click()
 
     const pages = players.map((p) => p.page)

@@ -406,7 +406,8 @@ function GroupView() {
     }
   }
 
-  // Start Group now opens the same prompt instead of silently assigning a
+  // The setup panel's Start Round button (handleStartGroup) opens the same
+  // Select-Judge prompt instead of silently assigning a
   // random Judge. The old success alert is gone: the round view shows the
   // topic-selection phase directly, and a blocking dialog on a normal flow
   // just gets in the way.
@@ -795,7 +796,7 @@ function GroupView() {
                 
                 {group.status === 'setup' && isHost && (
                   /* Setup State - host prepares the group before round 1.
-                     Host-only: it carries Start Group, which the server
+                     Host-only: it carries Start Round, which the server
                      refuses for anyone else, and it used to render alongside
                      the non-host "Waiting for Host" panel. The invite action
                      now lives in the Group Info card above. */
@@ -806,11 +807,11 @@ function GroupView() {
 
                     <div className="setup-actions">
                       <button
-                        className="setup-button secondary"
+                        className="setup-button primary"
                         onClick={handleStartGroup}
                         disabled={!canStartRound}
                       >
-                        Start Group
+                        Start Round
                       </button>
                     </div>
 
@@ -846,7 +847,9 @@ function GroupView() {
                   /* Current Round */
                   <div className="current-theme-card">
                     <div className="theme-header">
-                      <h3>Current Theme</h3>
+                      {/* UI-4: until the Judge picks a theme (title is null in
+                          topic_selection), say so instead of "Current Theme". */}
+                      <h3>{group.currentTheme.title ? 'Current Theme' : "Choosing This Round's Theme"}</h3>
                       <div className="theme-meta">
                         <span className="theme-status">
                           {group.currentTheme.status === 'topic_selection' ? 'Choosing a topic'
@@ -865,8 +868,12 @@ function GroupView() {
                       </div>
                     </div>
                     <div className="theme-body">
-                      <h4>{group.currentTheme.title}</h4>
-                      <p className="theme-description">{group.currentTheme.description}</p>
+                      {group.currentTheme.title && (
+                        <>
+                          <h4>{group.currentTheme.title}</h4>
+                          <p className="theme-description">{group.currentTheme.description}</p>
+                        </>
+                      )}
 
                       <div className="theme-stats">
                         <div className="theme-stat">
@@ -981,7 +988,7 @@ function GroupView() {
                   {/* Round Info Card */}
                   <div className="round-info-card">
                     <div className="round-info-header">
-                      <h3>Current Theme</h3>
+                      <h3>{group.currentTheme.title ? 'Current Theme' : "Choosing This Round's Theme"}</h3>
                       <span className="round-leader-badge">
                         {isRoundLeader
                           ? 'You are the Judge'
@@ -991,8 +998,12 @@ function GroupView() {
                       </span>
                     </div>
                     <div className="round-info-body">
-                      <h4>{group.currentTheme.title}</h4>
-                      <p className="round-description">{group.currentTheme.description}</p>
+                      {group.currentTheme.title && (
+                        <>
+                          <h4>{group.currentTheme.title}</h4>
+                          <p className="round-description">{group.currentTheme.description}</p>
+                        </>
+                      )}
                       <div className="round-stats">
                         <div className="round-stat">
                           <span className="stat-label">Submissions</span>

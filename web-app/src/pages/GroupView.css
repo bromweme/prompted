@@ -243,6 +243,20 @@
   text-align: center;
 }
 
+/* UI-4: stack each stat's label above its value so they don't run together
+   ("SUBMISSIONS0"). Scoped to these cards; .history-stat and the Dashboard
+   stats have their own layout. */
+.theme-stat .stat-label,
+.round-stat .stat-label {
+  display: block;
+  margin-bottom: var(--space-1);
+}
+
+.theme-stat .stat-value,
+.round-stat .stat-value {
+  display: block;
+}
+
 .stat-label {
   font-size: var(--text-caption);
   color: var(--color-text-secondary);

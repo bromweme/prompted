@@ -178,58 +178,6 @@
   font-weight: 500;
 }
 
-/* Quick Ideas Section */
-.quick-ideas-section {
-  background: white;
-  border: 1px solid var(--color-border);
-  border-radius: 12px;
-  padding: 2rem;
-  box-shadow: var(--shadow-sm);
-}
-
-.quick-ideas-section h3 {
-  font-size: 1.25rem;
-  color: var(--color-text-primary);
-  margin: 0 0 1.5rem 0;
-  font-weight: 600;
-}
-
-.quick-ideas-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 1rem;
-}
-
-.quick-idea-card {
-  background: var(--color-bg);
-  border: 2px dashed var(--color-border);
-  border-radius: 8px;
-  padding: 1.5rem;
-  text-align: center;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-
-.quick-idea-card:hover {
-  border-color: var(--color-accent);
-  border-style: solid;
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-sm);
-}
-
-.idea-icon {
-  font-size: 2rem;
-  margin-bottom: 0.5rem;
-  display: block;
-}
-
-.quick-idea-card h4 {
-  font-size: 0.95rem;
-  color: var(--color-text-primary);
-  margin: 0;
-  font-weight: 600;
-}
-
 /* Modal Styles */
 .modal-overlay {
   position: fixed;
@@ -345,10 +293,6 @@
   .themes-grid {
     grid-template-columns: 1fr;
   }
-
-  .quick-ideas-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
 }
 
 @media (min-width: 1280px) {
@@ -358,9 +302,5 @@
 
   .themes-grid {
     grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  }
-
-  .quick-ideas-grid {
-    grid-template-columns: repeat(3, 1fr);
   }
 }

@@ -97,7 +97,11 @@ test.describe('round phases', () => {
 
     // UI: the action is disabled and says why. A solo round would consume a
     // topic and then stall, because nobody can submit.
-    const startButton = page.getByRole('button', { name: 'Start Group' })
+    const startButton = page.getByRole('button', { name: 'Start Round', exact: true })
+    // Styled as the primary action; the :disabled rule is what mutes it here.
+    await expect(startButton).toHaveClass(/\bsetup-button\b/)
+    await expect(startButton).toHaveClass(/\bprimary\b/)
+    await expect(startButton).not.toHaveClass(/\bsecondary\b/)
     await expect(startButton).toBeDisabled()
     await expect(page.getByText(/at least 2 players/)).toBeVisible()
     await expect(page.getByText('Group can start with 1 player for testing')).toHaveCount(0)
@@ -180,7 +184,7 @@ test.describe('round phases', () => {
     await expect(target.page.locator('.group-info-card')).toBeVisible()
 
     // Round 1 now prompts too — it used to assign randomly with no choice.
-    await host.page.getByRole('button', { name: 'Start Group' }).click()
+    await host.page.getByRole('button', { name: 'Start Round', exact: true }).click()
     const prompt = host.page.getByRole('dialog')
     await expect(prompt.getByRole('heading', { name: 'Select Judge' })).toBeVisible()
     await expect(prompt.getByRole('button', { name: /Randomly Assign/ })).toBeVisible()

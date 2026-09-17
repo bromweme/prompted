@@ -110,35 +110,6 @@ function ThemeIdeas() {
             )}
           </section>
 
-          <section className="quick-ideas-section">
-            <h3>Quick Theme Inspiration</h3>
-            <div className="quick-ideas-grid">
-              <div className="quick-idea-card" onClick={() => { setNewTheme('Songs from your childhood'); setShowAddModal(true); }}>
-                <span className="idea-icon" aria-hidden="true">👶</span>
-                <h4>Childhood Favorites</h4>
-              </div>
-              <div className="quick-idea-card" onClick={() => { setNewTheme('Songs for a rainy day'); setShowAddModal(true); }}>
-                <span className="idea-icon" aria-hidden="true">🌧️</span>
-                <h4>Rainy Day Vibes</h4>
-              </div>
-              <div className="quick-idea-card" onClick={() => { setNewTheme('Feel-good summer songs'); setShowAddModal(true); }}>
-                <span className="idea-icon" aria-hidden="true">☀️</span>
-                <h4>Summer Hits</h4>
-              </div>
-              <div className="quick-idea-card" onClick={() => { setNewTheme('Late night study music'); setShowAddModal(true); }}>
-                <span className="idea-icon" aria-hidden="true">📚</span>
-                <h4>Study Focus</h4>
-              </div>
-              <div className="quick-idea-card" onClick={() => { setNewTheme('Songs that get you pumped up'); setShowAddModal(true); }}>
-                <span className="idea-icon" aria-hidden="true">💪</span>
-                <h4>Energy Boosters</h4>
-              </div>
-              <div className="quick-idea-card" onClick={() => { setNewTheme('Relaxing evening songs'); setShowAddModal(true); }}>
-                <span className="idea-icon" aria-hidden="true">🌙</span>
-                <h4>Evening Wind Down</h4>
-              </div>
-            </div>
-          </section>
         </div>
       </main>
 

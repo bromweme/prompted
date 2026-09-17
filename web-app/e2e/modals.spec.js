@@ -81,7 +81,7 @@ test.describe('modal accessibility', () => {
     await scanOpenModal(page, 'invite players')
     await page.keyboard.press('Escape')
 
-    // A second member: Start Group stays disabled below two, so without one
+    // A second member: Start Round stays disabled below two, so without one
     // the Judge modals are unreachable.
     const guest = await browser.newContext()
     await seedTestUser(guest, { id: `modal-grp2-${runId}`, name: 'Second Player' })
@@ -89,7 +89,7 @@ test.describe('modal accessibility', () => {
     await guestPage.goto(`/group/${page.url().split('/group/')[1]}?join=true`)
     await expect(guestPage.locator('.group-info-card')).toBeVisible()
 
-    await page.getByRole('button', { name: 'Start Group' }).click()
+    await page.getByRole('button', { name: 'Start Round', exact: true }).click()
     await scanOpenModal(page, 'select Judge')
 
     await page.getByRole('button', { name: /Pick Judge/ }).click()
@@ -116,7 +116,7 @@ test.describe('modal accessibility', () => {
     await second.page.goto(`/group/${groupId}?join=true`)
     await expect(second.page.locator('.group-info-card')).toBeVisible()
 
-    await host.page.getByRole('button', { name: 'Start Group' }).click()
+    await host.page.getByRole('button', { name: 'Start Round', exact: true }).click()
     await host.page.getByRole('dialog').getByRole('button', { name: /Randomly Assign/ }).click()
     for (const p of players) await p.page.getByRole('button', { name: 'Round', exact: true }).click()
 

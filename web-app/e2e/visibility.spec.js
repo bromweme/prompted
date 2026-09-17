@@ -56,7 +56,7 @@ test.describe('site-wide element visibility', () => {
   test('every group tab and modal has no invisible controls', async ({ browser }) => {
     const runId = testRunId()
     // Two members, not one: starting a round needs a Judge plus a contestant,
-    // so a solo group leaves Start Group disabled and the Judge modals
+    // so a solo group leaves Start Round disabled and the Judge modals
     // unreachable. This test previously created the group alone and so never
     // actually opened them.
     const host = await browser.newContext()
@@ -96,7 +96,7 @@ test.describe('site-wide element visibility', () => {
 
     // The Judge-selection prompt: modals whose controls were styled long
     // before anything actually rendered them.
-    await page.getByRole('button', { name: 'Start Group' }).click()
+    await page.getByRole('button', { name: 'Start Round', exact: true }).click()
     await expect(page.getByRole('heading', { name: 'Select Judge' })).toBeVisible()
     await auditVisible(page, 'select Judge modal')
 

@@ -61,6 +61,29 @@ test.describe('topic library', () => {
     await filler.context.close()
   })
 
+  test('the library page has no preset inspiration grid, and Add Theme still works', async ({ page, context }) => {
+    const runId = testRunId()
+    await seedTestUser(context, { id: `noquick-${runId}`, name: 'No Quick Ideas' })
+
+    await page.goto('/topics')
+    await expect(page.getByRole('heading', { name: 'My Topics' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Add new theme idea' })).toBeVisible()
+
+    // UI-5: the "Quick Theme Inspiration" presets were removed from this page.
+    await expect(page.getByText('Quick Theme Inspiration')).toHaveCount(0)
+    await expect(page.locator('.quick-ideas-section')).toHaveCount(0)
+
+    // The Add Theme modal still opens empty (no preset prefill) and saves.
+    await page.getByRole('button', { name: 'Add new theme idea' }).click()
+    await expect(page.getByRole('dialog').getByRole('textbox').first()).toHaveValue('')
+    await page.getByRole('dialog').getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    const topicText = `No presets needed ${runId}`
+    await addTopicToLibrary(page, topicText)
+    await expect(page.getByText('Quick Theme Inspiration')).toHaveCount(0)
+  })
+
   test('a topic used in one group is marked there but stays fresh elsewhere', async ({ browser }) => {
     const runId = testRunId()
     const owner = await newPlayer(browser, { id: `used-own-${runId}`, name: 'Reuse Owner' })
