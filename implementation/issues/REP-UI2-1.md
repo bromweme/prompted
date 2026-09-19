@@ -1,6 +1,6 @@
 # REP-UI2-1 — Legacy `?join=true` member locked out after an invite-code reset (UI-2 repair)
 
-- **Status:** In progress (Wave 12 repair).
+- **Status:** Done (Wave 12 repair, `54f818e`; closure review passed).
 - **Priority:** high (blocks `UI-2`)
 - **Found by:** Wave 12 initial review — change-reviewer (BLOCKING), independently confirmed by the adversarial reviewer.
 - **Guarantee (from UI-2):** "The host can reset the invite code; the old code stops working immediately and **existing members are unaffected**."

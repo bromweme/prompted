@@ -1,6 +1,6 @@
 # UI-2 — Group code is a guessable timestamp; shareable link is long and unpolished
 
-- **Status:** Implemented (Wave 12, `d94de54`); blocked by repair `REP-UI2-1` (legacy `?join=true` member locked out after a reset). Product decisions made 2026-09-17 (see "Decisions (confirmed)").
+- **Status:** Done (Wave 12 `d94de54` + repair `REP-UI2-1` `54f818e`; closure review passed). Product decisions made 2026-09-17 (see "Decisions (confirmed)").
 - **Priority:** medium (has a real security component)
 - **Guarantee:** A group's join code must be an unguessable random string, and the shareable invite link must be short and clean.
 
@@ -70,6 +70,16 @@ Invite Players modal (`GroupView.jsx` ~2195-2225):
   - `GroupView` Invite modal shows the grouped code and the `/join/<code>` link; `?join=true` on `/group/:id` stays as a legacy alias (it joins using the id as the code, which only matches legacy groups).
   - A non-member opening `/group/:id` sees a "you're not a member of this group" state instead of the group.
 - **EVT-1:** if `EVT-1` has landed, log `invite_opened` from the `/join` path (server side, on a join attempt by code) and `invite_code_reset`; no code values in props.
+
+## Implementation notes (Wave 12)
+
+- **Throttle:** 10 failed joins per rolling 60 s per authenticated user, in memory (`server/invites.js`). Checked before the code lookup, so a throttled user is refused even with a valid code until it clears.
+- **Uniform refusals:** every group-scoped handler answers a non-member exactly like a missing group ("Group not found"); `leave_group` answers both with the same no-op `left_group`. The old "You are not a member of this group" message is gone.
+- **Dashboard** join errors now show inline in the modal (no `alert()`).
+- **Events (EVT-1):** `invite_opened {via: 'link'|'code', outcome: 'joined'|'rejoined'|'not_found'|'throttled'}` on every join attempt; `invite_code_reset {wasLegacy}`. No code values are logged.
+- **Test-only hook:** `test_create_legacy_group` (AUTH_TEST_MODE only, which refuses to boot in production).
+- **Legacy alias (REP-UI2-1):** `/group/:id?join=true` loads with `get_group` first and joins only if the caller is not a member; the query is stripped once the group loads. A non-member on a retired legacy link sees "Couldn't join this group — Invite code not found" (same page as a bad `/join/<code>`).
+- **Tests:** `server/test/invites.test.js`, `web-app/e2e/invite-code.spec.js`; other specs join via the `inviteCodeFor` / `inviteJoinPath` helpers in `e2e/helpers.js` — new specs should use them, not `?join=true` or `{ groupId }`.
 
 ## Done when
 
