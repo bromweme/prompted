@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { createGroupThroughWizard, fillGroupName, goToNextWizardStep, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, waitForJudgeIndex, startRoundAsHost, testRunId } from './helpers.js'
+import { createGroupThroughWizard, fillGroupName, goToNextWizardStep, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, waitForJudgeIndex, startRoundAsHost, testRunId, inviteJoinPath } from './helpers.js'
 
 // Automated WCAG 2.1 A/AA scan for the main pages, so accessibility
 // regressions get caught the same way the game-loop test catches functional
@@ -102,7 +102,6 @@ test.describe('accessibility (WCAG 2.1 AA)', () => {
 
     await createGroupThroughWizard(host.page, `A11y Round ${runId}`)
     await expect(host.page).toHaveURL(/\/group\/.+/)
-    const groupId = host.page.url().split('/group/')[1]
 
     // Comments on, so the voting phase is scanned with its full markup.
     await host.page.getByRole('button', { name: 'Rules', exact: true }).click()
@@ -113,7 +112,7 @@ test.describe('accessibility (WCAG 2.1 AA)', () => {
     await host.page.getByRole('button', { name: 'Overview', exact: true }).click()
 
     for (const p of rest) {
-      await p.page.goto(`/group/${groupId}?join=true`)
+      await p.page.goto(await inviteJoinPath(host.page))
       await expect(p.page.locator('.group-info-card')).toBeVisible()
     }
     await startRoundAsHost(host.page)

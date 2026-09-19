@@ -61,7 +61,7 @@ async function rawGroup(host, members, { name, settings = {} } = {}) {
   host.socket.emit('create_group', { groupData: { name, settings } })
   const { group } = await once(host.socket, 'group_created')
   for (const m of members) {
-    m.socket.emit('join_group', { groupId: group.id })
+    m.socket.emit('join_group', { inviteCode: group.inviteCode })
     await once(m.socket, 'group_joined')
   }
   return group.id

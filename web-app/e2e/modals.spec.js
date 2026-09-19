@@ -2,7 +2,12 @@ import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
 import { auditVisible, auditHover } from './a11y-audit.js'
 import {
-  createGroupThroughWizard, seedTestUser, testRunId, selectTopicAsJudge, waitForJudgeIndex
+  createGroupThroughWizard,
+  seedTestUser,
+  testRunId,
+  selectTopicAsJudge,
+  waitForJudgeIndex,
+  inviteJoinPath,
 } from './helpers.js'
 
 // Every modal in the app, opened and checked three ways:
@@ -86,7 +91,7 @@ test.describe('modal accessibility', () => {
     const guest = await browser.newContext()
     await seedTestUser(guest, { id: `modal-grp2-${runId}`, name: 'Second Player' })
     const guestPage = await guest.newPage()
-    await guestPage.goto(`/group/${page.url().split('/group/')[1]}?join=true`)
+    await guestPage.goto(await inviteJoinPath(page))
     await expect(guestPage.locator('.group-info-card')).toBeVisible()
 
     await page.getByRole('button', { name: 'Start Round', exact: true }).click()
@@ -111,9 +116,8 @@ test.describe('modal accessibility', () => {
 
     await createGroupThroughWizard(host.page, `Modal Round ${runId}`)
     await expect(host.page).toHaveURL(/\/group\/.+/)
-    const groupId = host.page.url().split('/group/')[1]
 
-    await second.page.goto(`/group/${groupId}?join=true`)
+    await second.page.goto(await inviteJoinPath(host.page))
     await expect(second.page.locator('.group-info-card')).toBeVisible()
 
     await host.page.getByRole('button', { name: 'Start Round', exact: true }).click()

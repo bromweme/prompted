@@ -74,7 +74,7 @@ async function runToSubmission(runId, { submissionTime = ONE_SECOND, votingTime 
   const groupId = created.group.id
 
   for (const o of others) {
-    o.socket.emit('join_group', { groupId })
+    o.socket.emit('join_group', { inviteCode: created.group.inviteCode })
     await once(o.socket, 'group_joined')
   }
 
@@ -360,7 +360,7 @@ test.describe('host controls for a stuck round', () => {
 
     host.socket.emit('create_group', { groupData: { name: `Reassign ${runId}`, settings: {} } })
     const { group } = await once(host.socket, 'group_created')
-    other.socket.emit('join_group', { groupId: group.id })
+    other.socket.emit('join_group', { inviteCode: group.inviteCode })
     await once(other.socket, 'group_joined')
 
     // Host takes the Judge role, then hands it over without a topic chosen.

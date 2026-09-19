@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, seedTestUser, selectTopicAsJudge, startRoundAsHost, testRunId } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, selectTopicAsJudge, startRoundAsHost, testRunId, inviteJoinPath } from './helpers.js'
 
 // RT-4: a round in its topic_selection phase has no deadline yet — the server
 // sets currentTheme.deadline only when the Judge picks a topic. The Overview
@@ -24,11 +24,10 @@ test('deadline readouts show a placeholder before a topic is picked, real values
   try {
     await createGroupThroughWizard(page, `Deadline Display ${runId}`)
     await expect(page).toHaveURL(/\/group\/.+/)
-    const groupId = page.url().split('/group/')[1]
 
     // A second member is needed only so the host's Start control is enabled
     // (the UI needs one judge + one submitter).
-    await second.page.goto(`/group/${groupId}?join=true`)
+    await second.page.goto(await inviteJoinPath(page))
     await expect(second.page.locator('.group-info-card')).toBeVisible()
     await expect(page.getByText('2 players')).toBeVisible()
 

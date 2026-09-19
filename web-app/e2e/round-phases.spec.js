@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { io } from 'socket.io-client'
-import { createGroupThroughWizard, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, waitForJudgeIndex, startRoundAsHost, testRunId } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, waitForJudgeIndex, startRoundAsHost, testRunId, inviteJoinPath } from './helpers.js'
 
 const API_URL = 'http://localhost:5000'
 
@@ -61,7 +61,7 @@ async function startThreePlayerRound(browser, runId, { allowVotingComments = fal
   }
 
   for (const p of [p2, p3]) {
-    await p.page.goto(`/group/${groupId}?join=true`)
+    await p.page.goto(await inviteJoinPath(host.page))
     await expect(p.page.locator('.group-info-card')).toBeVisible()
   }
   await expect(host.page.getByText('3 players')).toBeVisible()
@@ -93,7 +93,6 @@ test.describe('round phases', () => {
 
     await createGroupThroughWizard(page, `Solo Group ${runId}`)
     await expect(page).toHaveURL(/\/group\/.+/)
-    const groupId = page.url().split('/group/')[1]
 
     // UI: the action is disabled and says why. A solo round would consume a
     // topic and then stall, because nobody can submit.
@@ -114,7 +113,7 @@ test.describe('round phases', () => {
     const second = await browser.newContext()
     await seedTestUser(second, { id: `solo-two-${runId}`, name: 'Second Player' })
     const secondPage = await second.newPage()
-    await secondPage.goto(`/group/${groupId}?join=true`)
+    await secondPage.goto(await inviteJoinPath(page))
     await expect(secondPage.locator('.group-info-card')).toBeVisible()
 
     await expect(startButton).toBeEnabled()
@@ -138,7 +137,7 @@ test.describe('round phases', () => {
     host.socket.emit('create_group', { groupData: { name: `Offline ${runId}`, settings: {} } })
     const { group } = await once(host.socket, 'group_created')
 
-    away.socket.emit('join_group', { groupId: group.id })
+    away.socket.emit('join_group', { inviteCode: group.inviteCode })
     await once(away.socket, 'group_joined')
 
     // The second member goes offline, leaving the host alone on the wire.
@@ -178,9 +177,8 @@ test.describe('round phases', () => {
 
     await createGroupThroughWizard(host.page, `Judge Pick ${runId}`)
     await expect(host.page).toHaveURL(/\/group\/.+/)
-    const groupId = host.page.url().split('/group/')[1]
 
-    await target.page.goto(`/group/${groupId}?join=true`)
+    await target.page.goto(await inviteJoinPath(host.page))
     await expect(target.page.locator('.group-info-card')).toBeVisible()
 
     // Round 1 now prompts too — it used to assign randomly with no choice.
@@ -314,7 +312,7 @@ test.describe('round phases', () => {
     const groupId = group.id
 
     for (const p of [second, third]) {
-      p.socket.emit('join_group', { groupId })
+      p.socket.emit('join_group', { inviteCode: group.inviteCode })
       await once(p.socket, 'group_joined')
     }
 

@@ -68,7 +68,7 @@ async function runToVoting(runId, settings = {}) {
   const groupId = created.group.id
 
   for (const o of others) {
-    o.socket.emit('join_group', { groupId })
+    o.socket.emit('join_group', { inviteCode: created.group.inviteCode })
     await once(o.socket, 'group_joined')
   }
 

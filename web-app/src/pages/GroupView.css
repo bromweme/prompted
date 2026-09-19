@@ -1446,3 +1446,79 @@
 .group-view-page .host-election-candidate .action-button {
   margin-left: auto;
 }
+
+
+/* Invite modal (UI-2): the code sits beside its own copy button, and the
+   host-only reset lives under an in-page confirm step. */
+.group-view-page .invite-field-row {
+  display: flex;
+  gap: var(--space-2);
+  align-items: stretch;
+}
+
+.group-view-page .invite-field-row .invite-code-input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  letter-spacing: 0.04em;
+}
+
+.group-view-page .invite-reset {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.group-view-page .invite-reset-text {
+  margin: 0 0 var(--space-2);
+  color: var(--color-text-primary);
+  font-size: var(--text-caption);
+}
+
+.group-view-page .invite-reset-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.group-view-page .invite-reset-error {
+  margin: var(--space-2) 0 0;
+  color: var(--color-danger);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+}
+
+/* Shown instead of the group when the server will not reveal it (UI-2):
+   the group is missing, or this player is not a member. */
+.group-view-page .group-access-main {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: var(--space-6) var(--space-3);
+}
+
+.group-view-page .group-access-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.group-view-page .group-access-title {
+  margin: 0;
+  font-size: var(--text-heading);
+  color: var(--color-text-primary);
+}
+
+.group-view-page .group-access-message {
+  margin: 0;
+  color: var(--color-text-secondary);
+}

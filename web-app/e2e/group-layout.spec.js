@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, seedTestUser, testRunId } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, testRunId, inviteJoinPath } from './helpers.js'
 
 // Covers the GroupView reorganisation: the shared app nav replacing the old
 // bespoke header, the Group Info card that absorbed its contents, and the
@@ -102,12 +102,12 @@ test.describe('group view layout', () => {
     const member = await newPlayer(browser, { id: `inv-member-${runId}`, name: 'Invite Member' })
 
     // Default is off — host-only invites.
-    const groupId = await hostCreatesGroup(host.page, `Invite Group ${runId}`)
+    await hostCreatesGroup(host.page, `Invite Group ${runId}`)
 
     const inviteButton = (page) => page.getByRole('button', { name: 'Invite players to group' })
     await expect(inviteButton(host.page)).toBeVisible()
 
-    await member.page.goto(`/group/${groupId}?join=true`)
+    await member.page.goto(await inviteJoinPath(host.page))
     await expect(member.page.locator('.group-info-card')).toBeVisible()
     await expect(inviteButton(member.page)).toHaveCount(0)
 

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, seedTestUser, testRunId, selectTopicAsJudge, waitForJudgeIndex } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, testRunId, selectTopicAsJudge, waitForJudgeIndex, inviteJoinPath } from './helpers.js'
 
 // The YouTube Data API returns snippet text HTML-escaped, so a video really
 // titled  Smash Mouth - "All Star" (Steve's Remix) & More  arrives as
@@ -37,12 +37,11 @@ test.describe('YouTube titles render decoded, not as HTML entities', () => {
     // second member is needed before the round can start.
     await createGroupThroughWizard(page, `Entity Group ${runId}`)
     await expect(page).toHaveURL(/\/group\/.+/)
-    const groupId = page.url().split('/group/')[1]
 
     const guestContext = await context.browser().newContext()
     await seedTestUser(guestContext, { id: `ent-search2-${runId}`, name: 'Second Player' })
     const guest = await guestContext.newPage()
-    await guest.goto(`/group/${groupId}?join=true`)
+    await guest.goto(await inviteJoinPath(page))
     await expect(guest.locator('.group-info-card')).toBeVisible()
 
     await page.getByRole('button', { name: 'Start Round', exact: true }).click()
@@ -91,10 +90,9 @@ test.describe('YouTube titles render decoded, not as HTML entities', () => {
 
     await createGroupThroughWizard(host.page, `Entity List ${runId}`)
     await expect(host.page).toHaveURL(/\/group\/.+/)
-    const groupId = host.page.url().split('/group/')[1]
 
     for (const p of players.slice(1)) {
-      await p.page.goto(`/group/${groupId}?join=true`)
+      await p.page.goto(await inviteJoinPath(host.page))
       await expect(p.page.locator('.group-info-card')).toBeVisible()
     }
     await expect(host.page.getByText('3 players')).toBeVisible()

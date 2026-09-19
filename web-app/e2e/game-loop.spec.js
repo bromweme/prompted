@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, startRoundAsHost, testRunId } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, startRoundAsHost, testRunId, inviteCodeFor } from './helpers.js'
 
 // This test drives the real, merged group game loop end to end over real
 // socket.io traffic (see server/server.js): create a group, join it as a
@@ -79,9 +79,11 @@ test('two players play a full round: join, assign, submit, vote, resolve, next r
   })
 
   await test.step('second player joins the same group via a separate session', async () => {
+    // The code is the group's invite code, not its id (UI-2).
+    const inviteCode = await inviteCodeFor(`e2e-host-${runId}`, groupId)
     await player2.page.goto('/dashboard')
     await player2.page.getByRole('button', { name: 'Join existing group' }).click()
-    await player2.page.getByLabel('Group Code').fill(groupId)
+    await player2.page.getByLabel('Group Code').fill(inviteCode)
     await player2.page.getByRole('button', { name: 'Join Group', exact: true }).click()
 
     await expect(player2.page).toHaveURL(new RegExp(`/group/${groupId}$`))

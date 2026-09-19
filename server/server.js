@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -9,6 +10,7 @@ const { searchVideos, isValidVideoId } = require('./youtube');
 const { getOrCreateProfile, updateProfile, AVATAR_CHOICES } = require('./profiles');
 const { PersistentStore } = require('./db');
 const { logEvent, settingsSnapshot, changedSettingKeys } = require('./events');
+const { createInviteIndex, createJoinThrottle } = require('./invites');
 
 // The origins the app is actually served from, resolved from the
 // ALLOWED_ORIGINS env var (see config.js) with a localhost dev fallback.
@@ -47,7 +49,22 @@ app.get('/', (req, res) => {
 
 // Group state storage, backed by SQLite (see db.js) so it survives a server restart
 const topics = new PersistentStore('topics'); // Global topic bank: id -> { id, text, creatorId, isPublic, createdAt }
-const groups = new PersistentStore('groups'); // id -> { id, name, description, settings, host, players, status, currentRound, currentTheme, history }
+const groups = new PersistentStore('groups'); // id -> { id, inviteCode, name, description, settings, host, players, status, currentRound, currentTheme, history }
+
+// inviteCode -> groupId (UI-2). Built once from the store here and kept in step
+// by create_group, reset_invite_code and delete_group. Legacy groups with no
+// inviteCode are indexed under their own id (see invites.js), so their old
+// codes and ?join=true links keep working until the host resets the code.
+const inviteIndex = createInviteIndex();
+groups.forEach((group) => inviteIndex.add(group));
+
+// Brake on invite-code guessing: failed join_group attempts per authenticated
+// user, in memory (see invites.js).
+const joinThrottle = createJoinThrottle();
+
+// A join attempt says how it arrived, for the invite_opened event. Only these
+// literal values are recorded; anything else is treated as a typed code.
+const JOIN_VIA_VALUES = new Set(['link', 'code']);
 
 // Every socket payload comes from an untrusted client, so handlers validate
 // the fields they use instead of trusting the shape. Caps sit comfortably
@@ -760,6 +777,23 @@ io.on('connection', (socket) => {
     withRateLimit(socket, eventName, takeToken, withErrorHandling(socket, eventName, handler))
   );
 
+  // The membership gate (UI-2). A group id is no longer a secret, so every
+  // handler that reads or changes a group by id looks it up through here.
+  // Returns { gid, group } only when the group exists AND the caller is a
+  // current member; otherwise it answers with the same "Group not found" a
+  // missing group gets, so a non-member learns nothing about the group —
+  // not even that it exists — and returns null.
+  const NOT_FOUND = 'Group not found';
+  const findMemberGroup = (groupId, { silent = false } = {}) => {
+    const gid = cleanId(groupId);
+    const group = gid && groups.get(gid);
+    if (!group || !group.players.some(p => p.userId === userId)) {
+      if (!silent) socket.emit('error', { message: NOT_FOUND });
+      return null;
+    }
+    return { gid, group };
+  };
+
   // Submit topic to the global topic bank. Ownership is keyed to the
   // authenticated userId, so it survives reconnects and cannot be claimed
   // on someone else's behalf.
@@ -803,16 +837,9 @@ io.on('connection', (socket) => {
   // The topics this player can choose from inside a group, each flagged with
   // whether it has already been played here.
   on('get_group_topics', ({ groupId }) => {
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
-    if (!group.players.some(p => p.userId === userId)) {
-      socket.emit('error', { message: 'You are not a member of this group' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
 
     socket.emit('group_topics_list', { groupId: gid, topics: topicsForGroup(group, userId) });
   });
@@ -823,12 +850,9 @@ io.on('connection', (socket) => {
   on('select_topic', ({ groupId, topicId }) => {
     console.log('Select topic request:', { groupId, topicId, socketId: socket.id, userId });
 
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
 
     const theme = group.currentTheme;
     if (!theme || theme.status !== 'topic_selection') {
@@ -944,13 +968,16 @@ io.on('connection', (socket) => {
     }
 
     // The id is always generated here. Honouring a client-supplied one let
-    // any client overwrite an existing group -- ids double as the invite
-    // code, so a shared invite link was enough to seize someone's group.
+    // any client overwrite an existing group.
     //
-    // uniqueId rather than a bare timestamp: two groups created in the same
-    // millisecond would otherwise share an id, and groups.set() would
-    // silently overwrite the first one.
-    const groupId = uniqueId('GROUP');
+    // UI-2: the id is an opaque random UUID and is no longer the invite code.
+    // It used to be GROUP<Date.now()>_<counter>, which was both guessable and
+    // the only join secret. Joining now goes through the separate, rotatable
+    // inviteCode, and access by id requires membership (findMemberGroup).
+    // Existing GROUP... ids stay valid store keys.
+    let groupId = crypto.randomUUID();
+    while (groups.has(groupId)) groupId = crypto.randomUUID();
+    const inviteCode = inviteIndex.issue();
 
     const settings = { ...(data.settings || {}) };
     if (settings.overrideThreshold !== undefined && !isValidOverrideThreshold(settings.overrideThreshold)) {
@@ -986,6 +1013,7 @@ io.on('connection', (socket) => {
 
     const group = {
       id: groupId,
+      inviteCode,
       name,
       description,
       isPrivate: data.isPrivate || false,
@@ -1012,6 +1040,7 @@ io.on('connection', (socket) => {
     };
 
     groups.set(groupId, group);
+    inviteIndex.add(group);
     console.log('Created group:', groupId);
     logEvent('group_created', {
       groupId, actorId: userId, isPrivate: group.isPrivate === true,
@@ -1039,21 +1068,36 @@ io.on('connection', (socket) => {
     socket.emit('groups_list', { groups: listed });
   });
 
-  // Join group
-  on('join_group', ({ groupId }) => {
-    console.log('Join group request:', { groupId, socketId: socket.id, userId });
+  // Join group by invite code (UI-2).
+  //
+  // The payload carries { inviteCode } (normalised in the index, so case,
+  // spaces and dashes never matter). A legacy { groupId } is still read, but
+  // only ever as an invite code: it resolves through the same index, which
+  // matches a pre-UI-2 group whose code is its id and never a modern group's
+  // id. There is deliberately no raw-id join.
+  //
+  // `via` ('link' from /join/<code> and the legacy ?join=true alias, 'code'
+  // from the Dashboard) only feeds the invite_opened event.
+  on('join_group', ({ inviteCode, groupId, via }) => {
+    const joinVia = JOIN_VIA_VALUES.has(via) ? via : 'code';
+    const rawCode = inviteCode !== undefined ? inviteCode : groupId;
+    console.log('Join group request:', { via: joinVia, socketId: socket.id, userId });
 
-    const gid = cleanId(groupId);
-    if (!gid) {
-      socket.emit('error', { message: 'A group id is required to join' });
+    if (joinThrottle.isBlocked(userId)) {
+      logEvent('invite_opened', { actorId: userId, via: joinVia, outcome: 'throttled' });
+      socket.emit('error', { message: 'Too many attempts, try again shortly' });
       return;
     }
 
-    const group = groups.get(gid);
+    const resolvedId = inviteIndex.resolve(rawCode);
+    const group = resolvedId && groups.get(resolvedId);
     if (!group) {
-      socket.emit('error', { message: 'Group not found' });
+      joinThrottle.recordFailure(userId);
+      logEvent('invite_opened', { actorId: userId, via: joinVia, outcome: 'not_found' });
+      socket.emit('error', { message: 'Invite code not found' });
       return;
     }
+    const gid = group.id;
 
     // Check if player already in group (identified by stable userId, not socket id)
     const existingPlayer = group.players.find(p => p.userId === userId);
@@ -1091,6 +1135,10 @@ io.on('connection', (socket) => {
     advanceIfExpired(group);
     groups.set(gid, group);
 
+    logEvent('invite_opened', {
+      groupId: gid, actorId: userId, via: joinVia, outcome: isNewMember ? 'joined' : 'rejoined'
+    });
+
     // Only a first-time join is a funnel step; a returning member re-joining
     // (reconnect, re-opened invite link) is not counted again.
     if (isNewMember) {
@@ -1119,33 +1167,25 @@ io.on('connection', (socket) => {
   on('get_group', ({ groupId }) => {
     console.log('Get group request:', { groupId, socketId: socket.id, userId });
 
-    const gid = cleanId(groupId);
-    if (!gid) {
-      socket.emit('error', { message: 'A group id is required' });
-      return;
-    }
-
-    const group = groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    // Members only (UI-2): a non-member gets exactly the reply a missing group
+    // gets, so the id alone reveals nothing, not even that the group exists.
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
 
     // Refresh this player's socket mapping so server -> client broadcasts
     // (group_updated) still reach them after a reconnect or page refresh.
     const player = group.players.find(p => p.userId === userId);
-    if (player) {
-      player.id = socket.id;
-      player.connected = true;
-      // Durable presence (HG-1): opening the group is a low-cost heartbeat.
-      touchPlayer(group, userId);
-      // A returning host cancels an in-flight election (HG-1).
-      if (group.host === userId && group.election && group.election.open) {
-        group.election = null;
-        console.log('Host returned; host election cancelled for group:', gid);
-      }
-      groups.set(gid, group);
+    player.id = socket.id;
+    player.connected = true;
+    // Durable presence (HG-1): opening the group is a low-cost heartbeat.
+    touchPlayer(group, userId);
+    // A returning host cancels an in-flight election (HG-1).
+    if (group.host === userId && group.election && group.election.open) {
+      group.election = null;
+      console.log('Host returned; host election cancelled for group:', gid);
     }
+    groups.set(gid, group);
 
     // Opening a group is one of the natural moments a stale deadline gets
     // noticed. Broadcast first so everyone already in the round sees the phase
@@ -1171,10 +1211,9 @@ io.on('connection', (socket) => {
   // deadline has genuinely passed, so a skewed or dishonest client gains
   // nothing by sending it early or often.
   on('check_round_deadline', ({ groupId }) => {
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) return;
-    if (!group.players.some(p => p.userId === userId)) return;
+    const found = findMemberGroup(groupId, { silent: true });
+    if (!found) return;
+    const { gid, group } = found;
 
     if (advanceIfExpired(group)) {
       groups.set(gid, group);
@@ -1184,12 +1223,9 @@ io.on('connection', (socket) => {
 
   // Host clears a notice once they have read it.
   on('acknowledge_notice', ({ groupId, noticeId }) => {
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
     if (group.host !== userId) {
       socket.emit('error', { message: 'Only the host can dismiss these' });
       return;
@@ -1205,12 +1241,9 @@ io.on('connection', (socket) => {
   // present has submitted and the group would rather not wait out the window
   // for someone who is not coming.
   on('close_submissions', ({ groupId }) => {
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
     if (group.host !== userId) {
       socket.emit('error', { message: 'Only the host can close submissions' });
       return;
@@ -1243,12 +1276,9 @@ io.on('connection', (socket) => {
   // would otherwise hold the round open with no deadline to expire, because
   // topic selection has no clock by design.
   on('reassign_judge', ({ groupId, czarUserId }) => {
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
     if (group.host !== userId) {
       socket.emit('error', { message: 'Only the host can change the Judge' });
       return;
@@ -1286,12 +1316,9 @@ io.on('connection', (socket) => {
   // the role reverts to the first-assigned Judge, who is then not offered the
   // pass again — they must pick a topic.
   on('judge_skip', ({ groupId }) => {
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
 
     const theme = group.currentTheme;
     if (!theme || theme.status !== 'topic_selection') {
@@ -1345,12 +1372,9 @@ io.on('connection', (socket) => {
   on('update_group', ({ groupId, settings }) => {
     console.log('Update group request:', { groupId, settings, socketId: socket.id, userId });
 
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
 
     // Only host can update group settings, compared against the identity the
     // auth middleware bound to this socket.
@@ -1419,12 +1443,16 @@ io.on('connection', (socket) => {
   on('leave_group', ({ groupId }) => {
     console.log('Leave group request:', { groupId, socketId: socket.id, userId });
 
+    // A missing group and one the caller is not in get the same idempotent
+    // confirmation, so leave_group cannot be used to probe which ids exist
+    // (UI-2), and a client racing a reconnect still navigates home.
     const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
+    const found = findMemberGroup(groupId, { silent: true });
+    if (!found) {
+      socket.emit('left_group', { groupId: gid });
       return;
     }
+    const { group } = found;
 
     // A current member who is not the host may leave freely. A host may not:
     // they are the group's sole point of management, and letting them out
@@ -1456,12 +1484,9 @@ io.on('connection', (socket) => {
   on('delete_group', ({ groupId }) => {
     console.log('Delete group request:', { groupId, socketId: socket.id, userId });
 
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
 
     // Host check against the authenticated identity, never the payload.
     if (group.host !== userId) {
@@ -1478,6 +1503,8 @@ io.on('connection', (socket) => {
       .map(p => p.id);
 
     groups.delete(gid);
+    // The code dies with the group: it must not resolve to a missing id.
+    inviteIndex.remove(group);
     console.log('Group deleted:', gid);
     logEvent('group_deleted', {
       groupId: gid, actorId: userId, players: group.players.length,
@@ -1496,16 +1523,9 @@ io.on('connection', (socket) => {
   // affected. Opening when one is already in flight is a no-op that just
   // re-broadcasts the current state.
   on('host_election_open', ({ groupId }) => {
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
-    if (!group.players.some(p => p.userId === userId)) {
-      socket.emit('error', { message: 'You are not a member of this group' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
     if (group.host === userId) {
       socket.emit('error', { message: 'The host cannot start an election' });
       return;
@@ -1540,22 +1560,15 @@ io.on('connection', (socket) => {
   // reaches a strict majority (> 50%) of the current non-host members, hostship
   // transfers to them and the election closes.
   on('host_vote', ({ groupId, candidateId }) => {
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
     if (!group.election || !group.election.open) {
       socket.emit('error', { message: 'No host election is open' });
       return;
     }
     if (group.host === userId) {
       socket.emit('error', { message: 'The host cannot vote in an election' });
-      return;
-    }
-    if (!group.players.some(p => p.userId === userId)) {
-      socket.emit('error', { message: 'You are not a member of this group' });
       return;
     }
 
@@ -1605,6 +1618,65 @@ io.on('connection', (socket) => {
     broadcastGroup(group);
   });
 
+  // Host replaces the group's invite code (UI-2). The old code stops resolving
+  // immediately; members are untouched. A legacy group (no inviteCode, so its
+  // id was its code) gets its first random code here, which retires the id as
+  // a way in, including any old ?join=true link.
+  on('reset_invite_code', ({ groupId }) => {
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can reset the invite code' });
+      return;
+    }
+
+    const wasLegacy = !group.inviteCode;
+    inviteIndex.remove(group);
+    group.inviteCode = inviteIndex.issue();
+    inviteIndex.add(group);
+    groups.set(gid, group);
+    console.log('Invite code reset for group:', gid);
+    logEvent('invite_code_reset', { groupId: gid, actorId: userId, wasLegacy });
+
+    socket.emit('invite_code_reset', { groupId: gid, inviteCode: group.inviteCode });
+    broadcastGroup(group);
+  });
+
+  // Test-only hook (UI-2): create a pre-UI-2 style group (a GROUP<ts>_<n> id
+  // and no inviteCode) so the suite can prove legacy codes and links still
+  // join. Only available under AUTH_TEST_MODE, which refuses to coexist with
+  // production (config.js).
+  on('test_create_legacy_group', ({ name }) => {
+    if (!config.authTestMode) {
+      socket.emit('error', { message: 'Not available' });
+      return;
+    }
+    const groupName = cleanText(name, LIMITS.groupName) || 'Legacy group';
+    const gid = uniqueId('GROUP');
+    const group = {
+      id: gid,
+      name: groupName,
+      description: '',
+      isPrivate: false,
+      host: userId,
+      players: [{
+        id: socket.id, userId, username: socket.data.username, score: 0,
+        isHost: true, connected: true, lastSeenAt: new Date().toISOString()
+      }],
+      settings: { voteBudget: DEFAULT_VOTE_BUDGET, shareTheWealth: true },
+      status: 'setup',
+      currentRound: 0,
+      currentTheme: null,
+      history: [],
+      usedTopicIds: [],
+      createdAt: new Date().toISOString()
+    };
+    groups.set(gid, group);
+    inviteIndex.add(group);
+    socket.emit('test_legacy_group_created', { group });
+  });
+
   // Test-only hook (HG-1): backdate a player's lastSeenAt so the suite can
   // simulate an abandoned host without waiting 30 real days. Only available
   // under AUTH_TEST_MODE, which refuses to coexist with production (config.js).
@@ -1634,12 +1706,9 @@ io.on('connection', (socket) => {
   on('start_group', ({ groupId, czarUserId }) => {
     console.log('Start group request:', { groupId, socketId: socket.id, userId });
 
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
 
     if (group.host !== userId) {
       socket.emit('error', { message: 'Only host can start the group' });
@@ -1683,12 +1752,9 @@ io.on('connection', (socket) => {
   on('start_round', ({ groupId, czarUserId }) => {
     console.log('Start round request:', { groupId, socketId: socket.id, userId, czarUserId });
 
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
 
     if (group.host !== userId) {
       socket.emit('error', { message: 'Only host can start a round' });
@@ -1757,12 +1823,9 @@ io.on('connection', (socket) => {
   on('submit_video', ({ groupId, videoId, title, thumbnail, channelTitle }) => {
     console.log('Submit video request:', { groupId, socketId: socket.id, userId });
 
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
 
     const theme = group.currentTheme;
     if (!theme || theme.status !== 'submission') {
@@ -1843,12 +1906,9 @@ io.on('connection', (socket) => {
   on('cast_vote', ({ groupId, submissionId, points, isDownvote, comment }) => {
     console.log('Cast vote request:', { groupId, submissionId, socketId: socket.id, userId });
 
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
 
     const theme = group.currentTheme;
     if (!theme || theme.status !== 'voting') {
@@ -1973,12 +2033,9 @@ io.on('connection', (socket) => {
   on('czar_select_winner', ({ groupId, submissionId }) => {
     console.log('Czar select winner request:', { groupId, submissionId, socketId: socket.id, userId });
 
-    const gid = cleanId(groupId);
-    const group = gid && groups.get(gid);
-    if (!group) {
-      socket.emit('error', { message: 'Group not found' });
-      return;
-    }
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
 
     const theme = group.currentTheme;
     if (!theme || theme.status !== 'voting') {

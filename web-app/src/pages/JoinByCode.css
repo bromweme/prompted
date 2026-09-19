@@ -1,0 +1,60 @@
+/* /join/:code landing (UI-2). Page-specific classes only: shared button
+   classes (.submit-button, ...) are styled in index.css and must not be
+   restyled here, because page stylesheets are global once imported. */
+
+.join-page {
+  min-height: 100vh;
+  background: var(--color-bg);
+  display: flex;
+  flex-direction: column;
+}
+
+.join-main {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: var(--space-6) var(--space-3);
+}
+
+.join-card {
+  width: 100%;
+  max-width: 480px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  padding: var(--space-5);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+
+.join-title {
+  margin: 0;
+  font-size: var(--text-heading);
+  color: var(--color-text-primary);
+}
+
+.join-error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-subtle);
+  color: var(--color-danger);
+  font-weight: var(--weight-semibold);
+}
+
+.join-hint,
+.join-code {
+  margin: 0;
+  color: var(--color-text-secondary);
+  font-size: var(--text-body);
+}
+
+.join-code-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { io } from 'socket.io-client'
-import { createGroupThroughWizard, seedTestUser, testRunId } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, testRunId, inviteCodeFor, inviteJoinPath } from './helpers.js'
 
 const API_URL = 'http://localhost:5000'
 
@@ -36,7 +36,7 @@ async function rawGroup(host, members, { name } = {}) {
   host.socket.emit('create_group', { groupData: { name, settings: {} } })
   const { group } = await once(host.socket, 'group_created')
   for (const m of members) {
-    m.socket.emit('join_group', { groupId: group.id })
+    m.socket.emit('join_group', { inviteCode: group.inviteCode })
     await once(m.socket, 'group_joined')
   }
   return group.id
@@ -55,7 +55,7 @@ test.describe('leave and delete group', () => {
 
     const leaver = connect(`ld-leaver-${runId}`, 'Leaver')
     await leaver.ready
-    leaver.socket.emit('join_group', { groupId })
+    leaver.socket.emit('join_group', { inviteCode: await inviteCodeFor(`ld-host-${runId}`, groupId) })
     await once(leaver.socket, 'group_joined')
 
     // The host page sees the new member live on the roster.
@@ -163,7 +163,7 @@ test.describe('leave and delete group', () => {
     await once(member.socket, 'left_group')
     expect(await fetchPlayers(host.socket, groupId)).toHaveLength(1)
 
-    member.socket.emit('join_group', { groupId })
+    member.socket.emit('join_group', { inviteCode: await inviteCodeFor(host.id, groupId) })
     await once(member.socket, 'group_joined')
 
     // Back on the roster as a full member before the host.
@@ -192,14 +192,13 @@ test.describe('leave and delete group', () => {
     const hostPage = await hostContext.newPage()
     await createGroupThroughWizard(hostPage, `Browser Leave ${runId}`)
     await expect(hostPage).toHaveURL(/\/group\/.+/)
-    const groupId = hostPage.url().split('/group/')[1]
 
     // Non-host member joins through the real invite link, landing in the Group
     // View as an ordinary (non-host) member.
     const memberContext = await browser.newContext()
     await seedTestUser(memberContext, { id: `ld-br-member-${runId}`, name: 'Browser Member' })
     const memberPage = await memberContext.newPage()
-    await memberPage.goto(`/group/${groupId}?join=true`)
+    await memberPage.goto(await inviteJoinPath(hostPage))
     await expect(memberPage.locator('.group-info-card')).toBeVisible()
 
     // The member's page shows the Leave Group button and must NOT be the host:

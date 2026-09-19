@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, seedTestUser, selectTopicAsJudge, submitVideoThroughSearch, waitForJudgeIndex, startRoundAsHost, testRunId } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, selectTopicAsJudge, submitVideoThroughSearch, waitForJudgeIndex, startRoundAsHost, testRunId, inviteJoinPath } from './helpers.js'
 
 // Covers the personal topic library, group-scoped sharing, and per-group
 // usage marking.
@@ -15,11 +15,12 @@ async function newPlayer(browser, { id, name }) {
  * Joins a second player to a group. A round needs at least two connected
  * players (one to judge, one to submit), so a solo group can no longer start.
  */
-async function addFillerPlayer(browser, groupId, { id, name }) {
+async function addFillerPlayer(browser, hostPage, { id, name }) {
+  const joinPath = await inviteJoinPath(hostPage)
   const context = await browser.newContext()
   await seedTestUser(context, { id, name })
   const page = await context.newPage()
-  await page.goto(`/group/${groupId}?join=true`)
+  await page.goto(joinPath)
   await expect(page.locator('.group-info-card')).toBeVisible()
   return { context, page, name }
 }
@@ -50,8 +51,7 @@ test.describe('topic library', () => {
     // The same library backs every group the owner plays in.
     await createGroupThroughWizard(page, `Lib Group A ${runId}`)
     await expect(page).toHaveURL(/\/group\/.+/)
-    const groupId = page.url().split('/group/')[1]
-    const filler = await addFillerPlayer(browser, groupId, { id: `lib-fill-${runId}`, name: 'Filler One' })
+    const filler = await addFillerPlayer(browser, page, { id: `lib-fill-${runId}`, name: 'Filler One' })
 
     // Hand-picking the owner as Judge makes the picker deterministically theirs.
     await startRoundAsHost(page, { pickPlayer: 'Library Owner' })
@@ -97,9 +97,8 @@ test.describe('topic library', () => {
     // --- Group A: play a full round using the topic ---
     await createGroupThroughWizard(owner.page, `Reuse A ${runId}`)
     await expect(owner.page).toHaveURL(/\/group\/.+/)
-    const groupA = owner.page.url().split('/group/')[1]
 
-    await mate.page.goto(`/group/${groupA}?join=true`)
+    await mate.page.goto(await inviteJoinPath(owner.page))
     await expect(mate.page.locator('.group-info-card')).toBeVisible()
     await startRoundAsHost(owner.page)
 
@@ -138,9 +137,8 @@ test.describe('topic library', () => {
     // --- Group B: the same topic is untouched, because usage is per group ---
     await createGroupThroughWizard(owner.page, `Reuse B ${runId}`)
     await expect(owner.page).toHaveURL(/\/group\/.+/)
-    const groupB = owner.page.url().split('/group/')[1]
 
-    await mate.page.goto(`/group/${groupB}?join=true`)
+    await mate.page.goto(await inviteJoinPath(owner.page))
     await expect(mate.page.locator('.group-info-card')).toBeVisible()
 
     await startRoundAsHost(owner.page, { pickPlayer: 'Reuse Owner' })
@@ -189,9 +187,8 @@ test.describe('topic library', () => {
     // in the library view.
     await createGroupThroughWizard(owner.page, `Shared Route ${runId}`)
     await expect(owner.page).toHaveURL(/\/group\/.+/)
-    const groupId = owner.page.url().split('/group/')[1]
 
-    await stranger.page.goto(`/group/${groupId}?join=true`)
+    await stranger.page.goto(await inviteJoinPath(owner.page))
     await expect(stranger.page.locator('.group-info-card')).toBeVisible()
 
     await startRoundAsHost(owner.page, { pickPlayer: 'Library Owner' })
@@ -221,9 +218,8 @@ test.describe('topic library', () => {
 
     await createGroupThroughWizard(host.page, `Share Group ${runId}`)
     await expect(host.page).toHaveURL(/\/group\/.+/)
-    const groupId = host.page.url().split('/group/')[1]
 
-    await mate.page.goto(`/group/${groupId}?join=true`)
+    await mate.page.goto(await inviteJoinPath(host.page))
     await expect(mate.page.locator('.group-info-card')).toBeVisible()
 
     // Force the host to be the Judge so the picker is theirs, by starting the
@@ -259,8 +255,7 @@ test.describe('topic library', () => {
 
     await createGroupThroughWizard(page, `Blank Group ${runId}`)
     await expect(page).toHaveURL(/\/group\/.+/)
-    const groupId = page.url().split('/group/')[1]
-    const filler = await addFillerPlayer(browser, groupId, { id: `blank-fill-${runId}`, name: 'Filler Two' })
+    const filler = await addFillerPlayer(browser, page, { id: `blank-fill-${runId}`, name: 'Filler Two' })
 
     await startRoundAsHost(page, { pickPlayer: 'Blank Host' })
     await page.getByRole('button', { name: 'Round', exact: true }).click()

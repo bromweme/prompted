@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { io } from 'socket.io-client'
-import { testRunId } from './helpers.js'
+import { testRunId, inviteCodeFor } from './helpers.js'
 
 // HG-1: when a host abandons the group (gone > 30 days and not present), the
 // remaining members may leave or vote for a new host; a majority elects the
@@ -53,7 +53,7 @@ async function rawGroup(host, members, { name } = {}) {
   host.socket.emit('create_group', { groupData: { name, settings: {} } })
   const { group } = await once(host.socket, 'group_created')
   for (const m of members) {
-    m.socket.emit('join_group', { groupId: group.id })
+    m.socket.emit('join_group', { inviteCode: group.inviteCode })
     await once(m.socket, 'group_joined')
   }
   return group.id
@@ -211,9 +211,10 @@ test.describe('host abandonment election', () => {
     // helper closed the original socket, so the host reconnects fresh.
     const returning = connect(`he-host-${runId}`, 'Returning Host')
     await returning.ready
+    const inviteCode = await inviteCodeFor(host.id, groupId)
     const rejoined = new Promise((resolve) => {
       returning.socket.once('group_joined', resolve)
-      returning.socket.emit('join_group', { groupId })
+      returning.socket.emit('join_group', { inviteCode })
     })
     await rejoined
 

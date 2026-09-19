@@ -1,5 +1,8 @@
 // Shared helpers for signing in and driving the Create Group wizard from tests.
 import { expect } from '@playwright/test'
+import { io } from 'socket.io-client'
+
+export const API_URL = 'http://localhost:5000'
 
 /**
  * A collision-proof suffix for per-test identities, group names and topics.
@@ -161,4 +164,55 @@ export async function advanceToFinalWizardStep(page, groupName) {
 export async function createGroupThroughWizard(page, groupName) {
   await advanceToFinalWizardStep(page, groupName)
   await page.getByRole('button', { name: 'Create Group' }).click()
+}
+
+/**
+ * A raw, authenticated socket.io client for the same test identity seam the
+ * browser uses. `ready` resolves with the server's session payload.
+ */
+export function connectAs(id, name = 'Test Player') {
+  const socket = io(API_URL, {
+    transports: ['websocket'], forceNew: true, reconnection: false,
+    auth: { testUser: { userId: id, name, avatar: '🎵' } }
+  })
+  const ready = new Promise((resolve, reject) => {
+    socket.once('session', resolve)
+    socket.once('connect_error', reject)
+  })
+  return { id, socket, ready }
+}
+
+/**
+ * A group's invite code (UI-2), read as one of its members over a short-lived
+ * raw socket. Uses get_groups rather than get_group on purpose: get_group
+ * re-points the member's broadcast socket at the caller, which would starve
+ * that member's open browser page of live updates.
+ */
+export async function inviteCodeFor(memberId, groupId) {
+  const member = connectAs(memberId)
+  try {
+    await member.ready
+    const listed = new Promise((resolve) => member.socket.once('groups_list', resolve))
+    member.socket.emit('get_groups')
+    const { groups } = await listed
+    const group = groups.find((g) => g.id === groupId)
+    if (!group) throw new Error(`${memberId} is not a member of ${groupId}`)
+    // A pre-UI-2 group has no inviteCode; its id is its code.
+    return group.inviteCode || group.id
+  } finally {
+    member.socket.close()
+  }
+}
+
+/**
+ * The /join/<code> path for the group a signed-in page is currently showing,
+ * read as that page's own test identity. Replaces the old
+ * `/group/<id>?join=true` pattern, which no longer joins a new group because
+ * its id is not its invite code.
+ */
+export async function inviteJoinPath(memberPage) {
+  const groupId = new URL(memberPage.url()).pathname.split('/group/')[1]
+  if (!groupId) throw new Error(`not on a group page: ${memberPage.url()}`)
+  const memberId = await memberPage.evaluate(() => JSON.parse(window.localStorage.getItem('testUser')).userId)
+  return `/join/${await inviteCodeFor(memberId, groupId)}`
 }

@@ -9,6 +9,7 @@ import YouTubeEmbed from '../components/YouTubeEmbed'
 import RoundVideoList from '../components/RoundVideoList'
 import TopicPicker from '../components/TopicPicker'
 import { WINDOW_UNITS, windowValueToHours, hoursToWindowValue } from '../utils/windowLengths'
+import { formatInviteCode, inviteLinkFor } from '../utils/inviteCode'
 import './GroupView.css'
 
 // A round in its topic_selection phase has no deadline yet: the server sets
@@ -61,6 +62,9 @@ function mapPlayers(players, host) {
 function normalizeGroupData(group) {
   return {
     id: group.id,
+    // Only members ever receive this (UI-2). Absent on a pre-UI-2 group, whose
+    // code is still its id until the host resets it.
+    inviteCode: group.inviteCode || null,
     name: group.name,
     description: group.description,
     host: group.host,
@@ -150,6 +154,17 @@ function GroupView() {
   // during an offline spell is still waiting on the next connection.
   const [hostNotices, setHostNotices] = useState([])
   const [linkCopied, setLinkCopied] = useState(false)
+  const [codeCopied, setCodeCopied] = useState(false)
+  // Host-only invite code reset (UI-2): an in-page confirm step rather than a
+  // native confirm(), plus the in-flight flag and any refusal to show.
+  const [confirmingReset, setConfirmingReset] = useState(false)
+  const [resettingCode, setResettingCode] = useState(false)
+  const [resetError, setResetError] = useState(null)
+  // Why this group could not be shown: the server refused get_group (missing
+  // group, or not a member; it deliberately answers both the same way) or
+  // refused the legacy ?join=true join. Replaces the page instead of leaving
+  // a spinner up forever.
+  const [accessError, setAccessError] = useState(null)
   // True while a Leave Group / Delete Group request is in flight so the button
   // disables and a double click can't fire the emit twice.
   const [leaving, setLeaving] = useState(false)
@@ -168,7 +183,13 @@ function GroupView() {
   useModalA11y(showSubmitModal, submitModalRef, closeSubmitModal)
   useModalA11y(showRoundLeaderModal, roundLeaderModalRef, () => setShowRoundLeaderModal(false))
   useModalA11y(showPlayerSelection, playerSelectionModalRef, () => setShowPlayerSelection(false))
-  useModalA11y(showInviteModal, inviteModalRef, () => setShowInviteModal(false))
+  const closeInviteModal = () => {
+    setShowInviteModal(false)
+    setConfirmingReset(false)
+    setResetError(null)
+  }
+
+  useModalA11y(showInviteModal, inviteModalRef, closeInviteModal)
 
   useEffect(() => {
     // Countdown timer for round deadline.
@@ -269,40 +290,41 @@ function GroupView() {
       setGroup(fullGroupData)
     }
 
-    if (new URLSearchParams(location.search).get('join') === 'true') {
-      // Arrived via a shared invite link — join automatically. This is safe
-      // to call even for an existing member (the server treats it as a
-      // reconnect rather than adding a duplicate).
-      socket.emit('join_group', { groupId })
+    setAccessError(null)
 
-      socket.once('group_joined', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, voteBudgetRemaining, notices }) => {
-        setGroup(normalizeGroupData(group))
-        setIsRoundLeader(!!youAreRoundLeader)
-        setOwnSubmissionId(yourSubmissionId || null)
-        if (typeof voteBudgetRemaining === 'number') setRemainingBudget(voteBudgetRemaining)
-        setHostNotices(notices || [])
-      })
+    // Exactly one of the success/failure listeners below answers the initial
+    // load; each removes the other, so a later, unrelated error (a refused
+    // vote, say) can never be mistaken for "this group can't be shown".
+    const applyGroupPayload = ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, voteBudgetRemaining, notices }) => {
+      setGroup(normalizeGroupData(group))
+      setIsRoundLeader(!!youAreRoundLeader)
+      setOwnSubmissionId(yourSubmissionId || null)
+      if (typeof voteBudgetRemaining === 'number') setRemainingBudget(voteBudgetRemaining)
+      setHostNotices(notices || [])
+    }
+    const isLegacyJoin = new URLSearchParams(location.search).get('join') === 'true'
+    const loadedEvent = isLegacyJoin ? 'group_joined' : 'group_details'
+    const onLoaded = (payload) => {
+      socket.off('error', onLoadError)
+      applyGroupPayload(payload)
+    }
+    const onLoadError = ({ message }) => {
+      socket.off(loadedEvent, onLoaded)
+      console.error(isLegacyJoin ? 'Error joining group:' : 'Error fetching group:', message)
+      setAccessError(message || 'Group not found')
+    }
+    socket.once(loadedEvent, onLoaded)
+    socket.once('error', onLoadError)
 
-      socket.once('error', ({ message }) => {
-        console.error('Error joining group:', message)
-        alert(`Failed to join group: ${message}`)
-      })
+    if (isLegacyJoin) {
+      // Legacy alias for invite links made before /join/<code> (UI-2). The id
+      // in the path is sent as an invite code, which only ever matches a
+      // pre-UI-2 group whose code is still its id. Safe for an existing
+      // member: the server treats it as a reconnect.
+      socket.emit('join_group', { inviteCode: groupId, via: 'link' })
     } else {
-      // Fetch group data from server
+      // Members only: a non-member gets "Group not found" (UI-2).
       socket.emit('get_group', { groupId })
-
-      socket.once('group_details', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, voteBudgetRemaining, notices }) => {
-        setGroup(normalizeGroupData(group))
-        setIsRoundLeader(!!youAreRoundLeader)
-        setOwnSubmissionId(yourSubmissionId || null)
-        if (typeof voteBudgetRemaining === 'number') setRemainingBudget(voteBudgetRemaining)
-        setHostNotices(notices || [])
-      })
-
-      socket.once('error', ({ message }) => {
-        console.error('Error fetching group:', message)
-        alert(`Failed to load group: ${message}`)
-      })
     }
 
     // Listen for group updates
@@ -351,6 +373,7 @@ function GroupView() {
       socket.off('group_updated')
       socket.off('player_joined_group')
       socket.off('group_details')
+      socket.off(loadedEvent, onLoaded)
       socket.off('left_group')
       socket.off('group_deleted')
       socket.off('error')
@@ -569,26 +592,61 @@ function GroupView() {
     .filter(v => v.comment)
     .map(v => ({ submissionId: v.submissionId, text: v.comment, voterUserId: v.voterUserId }))
   // Who is offered the invite action. This is a UI affordance only: it decides
-  // who is shown the link, not who may join. Anyone holding a group link can
-  // still join, because joining is keyed on the group id alone and there is no
-  // separate access-control layer behind it.
+  // who is shown the code, not who may join. Anyone holding the invite code
+  // (or its /join link) can join; the host can reset the code to cut that off.
   const canInvite = !!group && (isHost || group.settings.allowMemberInvites === true)
 
-  const inviteLink = `${window.location.origin}/group/${groupId}?join=true`
+  // The group's invite code (UI-2). A pre-UI-2 group has none yet, and its id
+  // still works as its code until the host resets it.
+  const inviteCode = group ? (group.inviteCode || group.id) : ''
+  const inviteLink = inviteCode ? inviteLinkFor(inviteCode) : ''
 
   const handleInvitePlayer = () => {
     setShowInviteModal(true)
   }
 
-  const handleCopyInviteLink = async () => {
+  const copyToClipboard = async (text, setCopied, what) => {
     try {
-      await navigator.clipboard.writeText(inviteLink)
-      setLinkCopied(true)
-      setTimeout(() => setLinkCopied(false), 2000)
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
     } catch (err) {
-      console.error('Failed to copy invite link:', err)
-      alert('Could not copy the link automatically. Please copy it manually.')
+      console.error(`Failed to copy invite ${what}:`, err)
+      alert(`Could not copy the ${what} automatically. Please copy it manually.`)
     }
+  }
+
+  const handleCopyInviteLink = () => copyToClipboard(inviteLink, setLinkCopied, 'link')
+  const handleCopyInviteCode = () => copyToClipboard(formatInviteCode(inviteCode), setCodeCopied, 'code')
+
+  // Host replaces the invite code (UI-2). The old code and link stop working at
+  // once; members are unaffected. The server answers the host directly with
+  // the new code (and broadcasts it to members through group_updated).
+  const handleResetInviteCode = () => {
+    if (resettingCode) return
+    if (!socket || !isConnected) {
+      setResetError('Please wait for the server connection')
+      return
+    }
+    setResettingCode(true)
+    setResetError(null)
+
+    const onReset = ({ groupId: resetId, inviteCode: freshCode }) => {
+      if (resetId !== groupId) return
+      socket.off('invite_code_reset', onReset)
+      socket.off('error', onError)
+      setGroup(prev => (prev ? { ...prev, inviteCode: freshCode } : prev))
+      setResettingCode(false)
+      setConfirmingReset(false)
+    }
+    const onError = ({ message }) => {
+      socket.off('invite_code_reset', onReset)
+      setResettingCode(false)
+      setResetError(message || 'Could not reset the invite code')
+    }
+    socket.on('invite_code_reset', onReset)
+    socket.once('error', onError)
+    socket.emit('reset_invite_code', { groupId })
   }
 
   const handleSubmitVideo = () => {
@@ -715,6 +773,33 @@ function GroupView() {
     const newDistinct = myVotedSubmissionIds.has(selectedSubmissionId) ? myVotedSubmissionIds.size : myVotedSubmissionIds.size + 1
     return newDistinct < 2 && afterRemaining <= 0
   })()
+
+  if (accessError) {
+    // The server answers "Group not found" both for a missing group and for
+    // one this player is not in, so the copy covers both without guessing.
+    const notFound = accessError === 'Group not found'
+    return (
+      <div className="group-view-page">
+        <a href="#main-content" className="skip-link">Skip to main content</a>
+        <AppNav />
+        <main id="main-content" className="group-access-main">
+          <section className="group-access-card" aria-labelledby="group-access-title">
+            <h1 id="group-access-title" className="group-access-title">
+              {notFound ? "You're not a member of this group" : "Couldn't join this group"}
+            </h1>
+            <p className="group-access-message" role="alert">
+              {notFound
+                ? "This group doesn't exist, or you haven't joined it. Ask the host for an invite link or code."
+                : accessError}
+            </p>
+            <button className="submit-button" onClick={() => navigate('/dashboard')}>
+              Back to Dashboard
+            </button>
+          </section>
+        </main>
+      </div>
+    )
+  }
 
   if (!group) {
     return <div className="loading">Loading group...</div>
@@ -2194,14 +2279,14 @@ function GroupView() {
           aria-modal="true"
           aria-labelledby="invite-modal-title"
           ref={inviteModalRef}
-          onClick={() => setShowInviteModal(false)}
+          onClick={closeInviteModal}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="invite-modal-title">Invite Players</h2>
               <button
                 className="close-button"
-                onClick={() => setShowInviteModal(false)}
+                onClick={closeInviteModal}
                 aria-label="Close modal"
               >
                 ×
@@ -2211,13 +2296,23 @@ function GroupView() {
             <div className="modal-body">
               <div className="form-group">
                 <label htmlFor="invite-code">Group Code</label>
-                <input
-                  id="invite-code"
-                  type="text"
-                  value={groupId}
-                  readOnly
-                  onFocus={(e) => e.target.select()}
-                />
+                <div className="invite-field-row">
+                  <input
+                    id="invite-code"
+                    className="invite-code-input"
+                    type="text"
+                    value={formatInviteCode(inviteCode)}
+                    readOnly
+                    onFocus={(e) => e.target.select()}
+                  />
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm invite-copy-code"
+                    onClick={handleCopyInviteCode}
+                  >
+                    {codeCopied ? 'Copied!' : 'Copy Code'}
+                  </button>
+                </div>
                 <small className="form-hint">Friends can enter this on the Dashboard's "Join Group" button.</small>
               </div>
 
@@ -2232,12 +2327,52 @@ function GroupView() {
                 />
                 <small className="form-hint">Opening this link joins the group automatically.</small>
               </div>
+
+              {isHost && (
+                <div className="invite-reset">
+                  {confirmingReset ? (
+                    <div className="invite-reset-confirm" role="group" aria-labelledby="invite-reset-question">
+                      <p id="invite-reset-question" className="invite-reset-text">
+                        Reset the invite code? The current code and link will stop working immediately.
+                        Current members stay in the group.
+                      </p>
+                      <div className="invite-reset-actions">
+                        <button
+                          type="button"
+                          className="btn btn-secondary btn-sm"
+                          onClick={() => { setConfirmingReset(false); setResetError(null) }}
+                          disabled={resettingCode}
+                        >
+                          Keep current code
+                        </button>
+                        <button
+                          type="button"
+                          className="btn btn-danger btn-sm"
+                          onClick={handleResetInviteCode}
+                          disabled={resettingCode}
+                        >
+                          {resettingCode ? 'Resetting…' : 'Yes, reset code'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => setConfirmingReset(true)}
+                    >
+                      Reset code
+                    </button>
+                  )}
+                  {resetError && <p className="invite-reset-error" role="alert">{resetError}</p>}
+                </div>
+              )}
             </div>
 
             <div className="modal-actions">
               <button
                 className="cancel-button"
-                onClick={() => setShowInviteModal(false)}
+                onClick={closeInviteModal}
               >
                 Close
               </button>

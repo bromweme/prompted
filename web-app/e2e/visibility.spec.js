@@ -1,7 +1,12 @@
 import { test, expect } from '@playwright/test'
 import { auditVisible, auditHover } from './a11y-audit.js'
 import {
-  createGroupThroughWizard, seedTestUser, testRunId, fillGroupName, goToNextWizardStep
+  createGroupThroughWizard,
+  seedTestUser,
+  testRunId,
+  fillGroupName,
+  goToNextWizardStep,
+  inviteJoinPath,
 } from './helpers.js'
 
 // Site-wide sweep for elements that are present but cannot be seen.
@@ -68,11 +73,10 @@ test.describe('site-wide element visibility', () => {
     await auditVisible(page, 'group overview')
     await auditHover(page, 'group overview')
 
-    const groupId = page.url().split('/group/')[1]
     const guest = await browser.newContext()
     await seedTestUser(guest, { id: `vis-grp2-${runId}`, name: 'Second Player' })
     const guestPage = await guest.newPage()
-    await guestPage.goto(`/group/${groupId}?join=true`)
+    await guestPage.goto(await inviteJoinPath(page))
     await expect(guestPage.locator('.group-info-card')).toBeVisible()
 
     for (const tab of ['Participants', 'History', 'Rules']) {

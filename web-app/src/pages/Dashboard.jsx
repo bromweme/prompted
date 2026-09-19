@@ -5,19 +5,29 @@ import { useUser } from '../context/UserContext'
 import { useModalA11y } from '../hooks/useModalA11y'
 import ProfileSetupModal from '../components/ProfileSetupModal'
 import AppNav from '../components/AppNav'
+import { normalizeInviteCode } from '../utils/inviteCode'
 import './Dashboard.css'
 
 function Dashboard() {
   const [groups, setGroups] = useState([])
   const [showJoinModal, setShowJoinModal] = useState(false)
   const [joinCode, setJoinCode] = useState('')
+  // The server's reason a typed code was refused, shown in the modal rather
+  // than a browser alert. `joining` stops a double submit.
+  const [joinError, setJoinError] = useState(null)
+  const [joining, setJoining] = useState(false)
   const { socket, isConnected } = useSocket()
   const { user, needsProfileSetup } = useUser()
   const navigate = useNavigate()
   const location = useLocation()
   const joinModalRef = useRef(null)
 
-  useModalA11y(showJoinModal, joinModalRef, () => setShowJoinModal(false))
+  const closeJoinModal = () => {
+    setShowJoinModal(false)
+    setJoinError(null)
+  }
+
+  useModalA11y(showJoinModal, joinModalRef, closeJoinModal)
 
   useEffect(() => {
     if (!socket || !isConnected || !user) return
@@ -126,27 +136,38 @@ function Dashboard() {
     })
   }
 
+  // Joins by invite code (UI-2). The typed code is normalised the same way the
+  // server does (case, spaces and dashes don't matter) and sent as a code,
+  // never as a group id.
   const handleJoinGroupByCode = () => {
-    if (!joinCode.trim()) return
+    const inviteCode = normalizeInviteCode(joinCode)
+    if (!inviteCode || joining) return
 
     if (!socket || !isConnected) {
-      alert('Please wait for server connection')
+      setJoinError('Please wait for the server connection')
       return
     }
 
-    const groupId = joinCode.trim().toUpperCase()
-    socket.emit('join_group', { groupId })
+    setJoining(true)
+    setJoinError(null)
 
-    socket.once('group_joined', ({ group }) => {
+    // Exactly one of these answers the request; each removes the other so no
+    // listener outlives it.
+    const onJoined = ({ group }) => {
+      socket.off('error', onError)
+      setJoining(false)
       setShowJoinModal(false)
       setJoinCode('')
       navigate(`/group/${group.id}`, { state: { groupData: group } })
-    })
-
-    socket.once('error', ({ message }) => {
-      console.error('Error joining group:', message)
-      alert(`Failed to join group: ${message}`)
-    })
+    }
+    const onError = ({ message }) => {
+      socket.off('group_joined', onJoined)
+      setJoining(false)
+      setJoinError(message || 'Could not join that group')
+    }
+    socket.once('group_joined', onJoined)
+    socket.once('error', onError)
+    socket.emit('join_group', { inviteCode, via: 'code' })
   }
 
   if (!user) {
@@ -267,14 +288,14 @@ function Dashboard() {
           aria-modal="true"
           aria-labelledby="join-modal-title"
           ref={joinModalRef}
-          onClick={() => setShowJoinModal(false)}
+          onClick={closeJoinModal}
         >
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <h2 id="join-modal-title">Join Group</h2>
               <button 
                 className="close-button"
-                onClick={() => setShowJoinModal(false)}
+                onClick={closeJoinModal}
                 aria-label="Close modal"
               >
                 ×
@@ -288,25 +309,35 @@ function Dashboard() {
                   id="join-code"
                   type="text"
                   value={joinCode}
-                  onChange={(e) => setJoinCode(e.target.value)}
-                  placeholder="Enter group code"
+                  onChange={(e) => { setJoinCode(e.target.value); setJoinError(null) }}
+                  placeholder="XXXXX-XXXXX-XXXXX-XXXXX"
+                  autoComplete="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  aria-describedby={joinError ? 'join-code-hint join-code-error' : 'join-code-hint'}
+                  aria-invalid={joinError ? true : undefined}
                   required
                 />
-                <small className="form-hint">Get the group code from the host</small>
+                <small id="join-code-hint" className="form-hint">
+                  Get the group code from the host. Capitals, spaces and dashes don't matter.
+                </small>
+                {joinError && (
+                  <p id="join-code-error" className="join-form-error" role="alert">{joinError}</p>
+                )}
               </div>
 
               <div className="modal-actions">
                 <button 
                   type="button"
                   className="cancel-button"
-                  onClick={() => setShowJoinModal(false)}
+                  onClick={closeJoinModal}
                 >
                   Cancel
                 </button>
                 <button 
                   type="submit"
                   className="submit-button"
-                  disabled={!joinCode.trim()}
+                  disabled={!normalizeInviteCode(joinCode) || joining}
                 >
                   Join Group
                 </button>

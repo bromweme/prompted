@@ -1,11 +1,23 @@
 import { useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useUser } from '../context/UserContext'
 import { useGoogleSignIn } from '../hooks/useGoogleSignIn'
 import './Login.css'
 
+// Where to go once signed in: the protected address RequireAuth bounced the
+// visitor from, if it is a same-app path, otherwise the Dashboard. Only a path
+// starting with a single "/" is honoured, so router state can never send a
+// signed-in user off-site.
+function destinationAfterSignIn(state) {
+  const from = state && typeof state.from === 'string' ? state.from : ''
+  if (from.startsWith('/') && !from.startsWith('//') && from !== '/') return from
+  return '/dashboard'
+}
+
 function Login() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const destination = destinationAfterSignIn(location.state)
   const { isAuthenticated, signInWithGoogle, authError } = useUser()
   const { buttonRef, status, error } = useGoogleSignIn(signInWithGoogle)
 
@@ -14,9 +26,11 @@ function Login() {
   // the user become authenticated. That confirmation is what routes onward.
   useEffect(() => {
     if (isAuthenticated) {
-      navigate('/dashboard')
+      // replace: the sign-in screen should not sit between the visitor and
+      // the page they were after in the Back history.
+      navigate(destination, { replace: destination !== '/dashboard' })
     }
-  }, [isAuthenticated, navigate])
+  }, [isAuthenticated, navigate, destination])
 
   return (
     <div className="login-page">

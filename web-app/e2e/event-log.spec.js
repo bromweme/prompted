@@ -72,7 +72,7 @@ test('playing a round writes the funnel events, with no PII', async () => {
     const { group } = await once(host.socket, 'group_created')
     const groupId = group.id
 
-    guest.socket.emit('join_group', { groupId })
+    guest.socket.emit('join_group', { inviteCode: group.inviteCode })
     await once(guest.socket, 'group_joined')
 
     // Host picks themselves as Judge so the rest of the round is deterministic.
@@ -111,6 +111,8 @@ test('playing a round writes the funnel events, with no PII', async () => {
       return rows.map((r) => r.name)
     }).toEqual([
       'group_created',
+      // UI-2: every join attempt records how the invite arrived.
+      'invite_opened',
       'member_joined',
       'round_started',
       'topic_selected',
@@ -129,6 +131,8 @@ test('playing a round writes the funnel events, with no PII', async () => {
       round: 1, submissions: 1, votes: 1, voters: 1, players: 2, wonBy: 'czar_selection'
     })
     expect(byName.group_created.props.settings).toMatchObject({ voteBudget: 10 })
+    expect(byName.invite_opened.props).toEqual({ via: 'code', outcome: 'joined' })
+    expect(byName.invite_opened.actor_id).toBe(byName.member_joined.actor_id)
 
     // Actors are hashed, stable per user, and distinct between users.
     expect(byName.group_created.actor_id).toMatch(/^[0-9a-f]{64}$/)
@@ -139,7 +143,7 @@ test('playing a round writes the funnel events, with no PII', async () => {
 
     // Nothing identifying or free-text reaches the log.
     const stored = JSON.stringify(rows)
-    for (const forbidden of [host.id, guest.id, 'Event Host', 'Event Guest', groupName, topicText, videoTitle, 'EventLog channel', 'ccccccccccc']) {
+    for (const forbidden of [host.id, guest.id, group.inviteCode, 'Event Host', 'Event Guest', groupName, topicText, videoTitle, 'EventLog channel', 'ccccccccccc']) {
       expect(stored).not.toContain(forbidden)
     }
   } finally {

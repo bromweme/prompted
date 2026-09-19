@@ -234,3 +234,11 @@
   gap: var(--space-3);
   flex-wrap: wrap;
 }
+
+/* Join Group modal: the server's reason a code was refused (UI-2). */
+.join-form-error {
+  margin: var(--space-2) 0 0;
+  color: var(--color-danger);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+}
