@@ -183,11 +183,28 @@ function GroupView() {
   useModalA11y(showSubmitModal, submitModalRef, closeSubmitModal)
   useModalA11y(showRoundLeaderModal, roundLeaderModalRef, () => setShowRoundLeaderModal(false))
   useModalA11y(showPlayerSelection, playerSelectionModalRef, () => setShowPlayerSelection(false))
+  // Detaches the listeners of an in-flight invite code reset, if any.
+  const abandonResetRef = useRef(null)
+  const abandonPendingReset = () => {
+    if (abandonResetRef.current) abandonResetRef.current()
+    abandonResetRef.current = null
+    setResettingCode(false)
+  }
+
   const closeInviteModal = () => {
+    // Closing gives up on a reset still waiting for its reply, so reopening
+    // never finds the button stuck on "Resetting…". A reset the server did
+    // apply still reaches this page through group_updated.
+    abandonPendingReset()
     setShowInviteModal(false)
     setConfirmingReset(false)
     setResetError(null)
   }
+
+  // Leaving the page drops a pending reset's listeners with it.
+  useEffect(() => () => {
+    if (abandonResetRef.current) abandonResetRef.current()
+  }, [])
 
   useModalA11y(showInviteModal, inviteModalRef, closeInviteModal)
 
@@ -303,36 +320,73 @@ function GroupView() {
       setHostNotices(notices || [])
     }
     const isLegacyJoin = new URLSearchParams(location.search).get('join') === 'true'
-    const loadedEvent = isLegacyJoin ? 'group_joined' : 'group_details'
+
+    // Once a legacy ?join=true visit has shown the group, drop the query so a
+    // reload, reconnect or re-opened tab takes the plain member path. The
+    // effect re-runs for the new URL and re-reads the group with get_group;
+    // `group` is kept, so the page does not blink.
+    const stripLegacyQuery = () => {
+      if (isLegacyJoin) navigate(`/group/${groupId}`, { replace: true })
+    }
+
+    // Stage 2 of a legacy ?join=true visit, used only when get_group says this
+    // player is not a member (REP-UI2-1). The id in the path is sent as an
+    // invite code, which only ever matches a pre-UI-2 group whose code is
+    // still its id. Its refusal (e.g. a code retired by a reset) is what the
+    // page shows.
+    const onJoined = (payload) => {
+      socket.off('error', onJoinError)
+      applyGroupPayload(payload)
+      stripLegacyQuery()
+    }
+    const onJoinError = ({ message }) => {
+      // join_group never answers "Group not found"; that is the reply to an
+      // earlier get_group still in flight from a previous run of this effect
+      // (it re-runs as the session settles). Keep waiting for the join.
+      if (message === 'Group not found') {
+        socket.once('error', onJoinError)
+        return
+      }
+      socket.off('group_joined', onJoined)
+      console.error('Error joining group:', message)
+      setAccessError(message || 'Invite code not found')
+    }
+
     const onLoaded = (payload) => {
       socket.off('error', onLoadError)
       applyGroupPayload(payload)
+      stripLegacyQuery()
     }
     const onLoadError = ({ message }) => {
-      socket.off(loadedEvent, onLoaded)
-      console.error(isLegacyJoin ? 'Error joining group:' : 'Error fetching group:', message)
+      socket.off('group_details', onLoaded)
+      if (isLegacyJoin && message === 'Group not found') {
+        // Not a member (yet): fall back to the legacy join. No access error
+        // is set here, so the not-a-member page never flashes before the
+        // join attempt answers.
+        socket.once('group_joined', onJoined)
+        socket.once('error', onJoinError)
+        socket.emit('join_group', { inviteCode: groupId, via: 'link' })
+        return
+      }
+      console.error('Error fetching group:', message)
       setAccessError(message || 'Group not found')
     }
-    socket.once(loadedEvent, onLoaded)
+    socket.once('group_details', onLoaded)
     socket.once('error', onLoadError)
 
-    if (isLegacyJoin) {
-      // Legacy alias for invite links made before /join/<code> (UI-2). The id
-      // in the path is sent as an invite code, which only ever matches a
-      // pre-UI-2 group whose code is still its id. Safe for an existing
-      // member: the server treats it as a reconnect.
-      socket.emit('join_group', { inviteCode: groupId, via: 'link' })
-    } else {
-      // Members only: a non-member gets "Group not found" (UI-2).
-      socket.emit('get_group', { groupId })
-    }
+    // Members only: a non-member gets "Group not found" (UI-2). This comes
+    // first even on a legacy ?join=true link, so an existing member never
+    // re-sends a join with a code a reset may since have retired (REP-UI2-1).
+    socket.emit('get_group', { groupId })
 
     // Listen for group updates
     socket.on('group_updated', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, voteBudgetRemaining, notices }) => {
       if (yourSubmissionId !== undefined) setOwnSubmissionId(yourSubmissionId || null)
       if (typeof voteBudgetRemaining === 'number') setRemainingBudget(voteBudgetRemaining)
       if (notices !== undefined) setHostNotices(notices || [])
-      setGroup(prev => ({
+      // A broadcast can land before this page's own load reply (e.g. the one
+      // that follows a join); the load reply carries the full group anyway.
+      setGroup(prev => (prev ? {
         ...prev,
         ...group,
         players: mapPlayers(group.players, group.host),
@@ -340,17 +394,17 @@ function GroupView() {
           ...prev.settings,
           ...group.settings
         }
-      }))
+      } : prev))
       if (typeof youAreRoundLeader === 'boolean') {
         setIsRoundLeader(youAreRoundLeader)
       }
     })
 
     socket.on('player_joined_group', ({ players }) => {
-      setGroup(prev => ({
+      setGroup(prev => (prev ? {
         ...prev,
         players: mapPlayers(players, prev.host)
-      }))
+      } : prev))
     })
 
     // Server confirmation that this player was removed from the group. This —
@@ -373,7 +427,7 @@ function GroupView() {
       socket.off('group_updated')
       socket.off('player_joined_group')
       socket.off('group_details')
-      socket.off(loadedEvent, onLoaded)
+      socket.off('group_joined', onJoined)
       socket.off('left_group')
       socket.off('group_deleted')
       socket.off('error')
@@ -631,21 +685,37 @@ function GroupView() {
     setResettingCode(true)
     setResetError(null)
 
-    const onReset = ({ groupId: resetId, inviteCode: freshCode }) => {
-      if (resetId !== groupId) return
+    const detach = () => {
       socket.off('invite_code_reset', onReset)
       socket.off('error', onError)
+      socket.off('disconnect', onDrop)
+      abandonResetRef.current = null
+    }
+    const onReset = ({ groupId: resetId, inviteCode: freshCode }) => {
+      if (resetId !== groupId) return
+      detach()
       setGroup(prev => (prev ? { ...prev, inviteCode: freshCode } : prev))
       setResettingCode(false)
       setConfirmingReset(false)
     }
     const onError = ({ message }) => {
-      socket.off('invite_code_reset', onReset)
+      detach()
       setResettingCode(false)
       setResetError(message || 'Could not reset the invite code')
     }
+    // The connection dropped before the reply: that reply will never come on
+    // this socket, so release the button and back out of the confirm step to
+    // let the host try again (REP-UI2-1). If the server did apply the reset,
+    // the new code arrives with the next group load.
+    const onDrop = () => {
+      detach()
+      setResettingCode(false)
+      setConfirmingReset(false)
+    }
+    abandonResetRef.current = detach
     socket.on('invite_code_reset', onReset)
     socket.once('error', onError)
+    socket.once('disconnect', onDrop)
     socket.emit('reset_invite_code', { groupId })
   }
 

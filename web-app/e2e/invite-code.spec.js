@@ -348,7 +348,126 @@ test.describe('resetting the invite code', () => {
       await host.context.close()
     }
   })
+
+  // REP-UI2-1: a connection lost between the request and its reply used to
+  // leave the button on "Resetting…" for good.
+  test('the reset button recovers when the connection drops mid-reset', async ({ browser }) => {
+    const runId = testRunId()
+    const hostId = `ic-rdrop-host-${runId}`
+    const host = await newPlayer(browser, { id: hostId, name: 'Drop Host' })
+    const hostSocket = await routeAppSocket(host.page)
+
+    try {
+      await createGroupThroughWizard(host.page, `Reset Drop ${runId}`)
+      await expect(host.page).toHaveURL(/\/group\/.+/)
+      const groupId = host.page.url().split('/group/')[1]
+      const oldCode = await inviteCodeFor(hostId, groupId)
+      const grouped = (code) => code.match(/.{5}/g).join('-')
+
+      await host.page.getByRole('button', { name: 'Invite players to group' }).click()
+      const dialog = host.page.getByRole('dialog')
+      const codeField = dialog.getByRole('textbox', { name: 'Group Code' })
+
+      // The request never reaches the server, so no reply ever comes.
+      hostSocket.state.drop = 'reset_invite_code'
+      await dialog.getByRole('button', { name: 'Reset code' }).click()
+      await dialog.getByRole('button', { name: 'Yes, reset code' }).click()
+      await expect(dialog.getByRole('button', { name: 'Resetting…' })).toBeDisabled()
+      await expect.poll(() => hostSocket.state.dropped.length).toBe(1)
+
+      // The connection drops: the button is released and the confirm step
+      // backed out, with the code unchanged.
+      hostSocket.state.drop = null
+      await hostSocket.cutAndAwaitReconnect()
+      await expect(dialog.getByRole('button', { name: 'Resetting…' })).toHaveCount(0)
+      await expect(dialog.getByText('Reset the invite code?')).toHaveCount(0)
+      await expect(codeField).toHaveValue(grouped(oldCode))
+      expect(await inviteCodeFor(hostId, groupId)).toBe(oldCode)
+
+      // The host can try again, and this time it goes through.
+      await dialog.getByRole('button', { name: 'Reset code' }).click()
+      await dialog.getByRole('button', { name: 'Yes, reset code' }).click()
+      await expect(codeField).not.toHaveValue(grouped(oldCode))
+      await expect(dialog.getByText('Reset the invite code?')).toHaveCount(0)
+      const newCode = (await codeField.inputValue()).replace(/-/g, '')
+      expect(newCode).toBe(await inviteCodeFor(hostId, groupId))
+
+      // Closing the modal mid-reset releases the button too.
+      hostSocket.state.drop = 'reset_invite_code'
+      await dialog.getByRole('button', { name: 'Reset code' }).click()
+      await dialog.getByRole('button', { name: 'Yes, reset code' }).click()
+      await expect(dialog.getByRole('button', { name: 'Resetting…' })).toBeDisabled()
+      await dialog.getByRole('button', { name: 'Close', exact: true }).click()
+      await expect(host.page.getByRole('dialog')).toHaveCount(0)
+      hostSocket.state.drop = null
+      await host.page.getByRole('button', { name: 'Invite players to group' }).click()
+      await expect(dialog.getByRole('button', { name: 'Reset code' })).toBeEnabled()
+      await expect(dialog.getByRole('button', { name: 'Resetting…' })).toHaveCount(0)
+      await expect(codeField).toHaveValue(grouped(newCode))
+    } finally {
+      await host.context.close()
+    }
+  })
 })
+
+// Every invite_opened outcome for the one player who joined `groupId` by
+// invite, across all groups. Actor ids are stored hashed and a refused join
+// (not_found, throttled) carries no group id, so the hash is read off the
+// player's own row in this group and then matched everywhere.
+function inviteOutcomesOfJoiner(groupId) {
+  const db = new Database(dbPath, { readonly: true, fileMustExist: true })
+  try {
+    const actors = db
+      .prepare(`SELECT DISTINCT actor_id FROM events WHERE name = 'invite_opened' AND group_id = ?`)
+      .all(groupId)
+    expect(actors).toHaveLength(1)
+    return db
+      .prepare(`SELECT props FROM events WHERE name = 'invite_opened' AND actor_id = ? ORDER BY ts, rowid`)
+      .all(actors[0].actor_id)
+      .map((row) => JSON.parse(row.props).outcome)
+  } finally {
+    db.close()
+  }
+}
+
+// Proxies a page's socket.io websocket through the test so it can drop one
+// outgoing event, or cut the connection to force a real disconnect and the
+// client's own reconnect. Must be installed before the page first connects.
+async function routeAppSocket(page) {
+  const state = { connections: [], drop: null, dropped: [] }
+  await page.routeWebSocket(/localhost:5000\/socket\.io\//, (ws) => {
+    const server = ws.connectToServer()
+    const connection = { ws, server, upgraded: false }
+    ws.onMessage((message) => {
+      // engine.io's "upgrade" packet: from here on this websocket is the live
+      // transport. Before it, it is only a probe, and closing a probe just
+      // leaves the client on polling with no disconnect at all.
+      if (message === '5') connection.upgraded = true
+      if (state.drop && typeof message === 'string' && message.includes(`"${state.drop}"`)) {
+        state.dropped.push(message)
+        return
+      }
+      server.send(message)
+    })
+    state.connections.push(connection)
+  })
+  const upgradedCount = () => state.connections.filter((c) => c.upgraded).length
+  return {
+    state,
+    // Waits until the client's current connection is a live websocket, closes
+    // it (and any older ones, both ends), then waits until the client has
+    // reconnected and upgraded again.
+    async cutAndAwaitReconnect() {
+      await expect.poll(() => state.connections.at(-1)?.upgraded, { timeout: 15_000 }).toBe(true)
+      const before = upgradedCount()
+      for (const { ws, server } of state.connections) {
+        await server.close().catch(() => {})
+        await ws.close().catch(() => {})
+      }
+      await expect.poll(upgradedCount, { timeout: 15_000 }).toBeGreaterThan(before)
+    },
+  }
+}
 
 test.describe('legacy groups', () => {
   test('a pre-UI-2 group is still joinable by its id as a code, until the host resets it', async ({ browser }) => {
@@ -373,6 +492,8 @@ test.describe('legacy groups', () => {
       // An old shared ?join=true link still joins.
       await linkUser.page.goto(`/group/${group.id}?join=true`)
       await expect(linkUser.page.getByRole('button', { name: 'Leave Group' })).toBeVisible()
+      // ...and then drops the query, so later visits take the member path.
+      await expect(linkUser.page).toHaveURL(new RegExp(`/group/${group.id}$`))
 
       // The new link shape works with a legacy code too, and the modal shows
       // the legacy code as-is.
@@ -401,6 +522,77 @@ test.describe('legacy groups', () => {
       late.socket.close()
       await linkUser.context.close()
       await pathUser.context.close()
+    }
+  })
+
+  // REP-UI2-1: the reset retires the legacy id as a code, which must not lock
+  // out someone who already joined through the old ?join=true link.
+  test('a member who joined by a legacy ?join=true link keeps the group after a reset', async ({ browser }) => {
+    const runId = testRunId()
+    const host = connectAs(`ic-lgm-host-${runId}`, 'Legacy Keep Host')
+    await host.ready
+    const member = await newPlayer(browser, { id: `ic-lgm-member-${runId}`, name: 'Legacy Keeper' })
+    const outsider = await newPlayer(browser, { id: `ic-lgm-out-${runId}`, name: 'Legacy Outsider' })
+    const memberSocket = await routeAppSocket(member.page)
+
+    try {
+      host.socket.emit('test_create_legacy_group', { name: `Legacy Keep ${runId}` })
+      const { group } = await once(host.socket, 'test_legacy_group_created')
+      const plainUrl = new RegExp(`/group/${group.id}$`)
+      const leave = member.page.getByRole('button', { name: 'Leave Group' })
+      const accessHeading = member.page.locator('#group-access-title')
+
+      await member.page.goto(`/group/${group.id}?join=true`)
+      await expect(leave).toBeVisible()
+      await expect(member.page).toHaveURL(plainUrl)
+
+      host.socket.emit('reset_invite_code', { groupId: group.id })
+      await once(host.socket, 'invite_code_reset')
+
+      // A reload after the reset.
+      await member.page.reload()
+      await expect(leave).toBeVisible()
+      await expect(accessHeading).toHaveCount(0)
+      await expect(member.page).toHaveURL(plainUrl)
+
+      // A dropped connection: the client reconnects and re-loads the group.
+      await memberSocket.cutAndAwaitReconnect()
+      await expect(leave).toBeVisible()
+      await expect(accessHeading).toHaveCount(0)
+      await expect(member.page).toHaveURL(plainUrl)
+
+      // The old bookmark, opened again and again, still shows the group, with
+      // no join attempt refused and so nothing counted toward the throttle.
+      for (let i = 0; i < 3; i++) {
+        await member.page.goto(`/group/${group.id}?join=true`)
+        await expect(leave, `visit ${i + 1}`).toBeVisible()
+        await expect(member.page).toHaveURL(plainUrl)
+        await expect(accessHeading).toHaveCount(0)
+        await expect(member.page.getByText('Too many attempts')).toHaveCount(0)
+      }
+      await memberSocket.cutAndAwaitReconnect()
+      await expect(leave).toBeVisible()
+      await expect(accessHeading).toHaveCount(0)
+
+      // The member's only invite_opened is the original join: no refused
+      // (not_found) or throttled attempt was ever recorded for them.
+      expect(inviteOutcomesOfJoiner(group.id)).toEqual(['joined'])
+
+      // A genuine non-member with the retired link is refused, and sees
+      // nothing of the group.
+      await outsider.page.goto(`/group/${group.id}?join=true`)
+      await expect(outsider.page.getByRole('heading', { name: "Couldn't join this group" })).toBeVisible()
+      await expect(outsider.page.getByRole('alert')).toHaveText('Invite code not found')
+      await expect(outsider.page.getByText(`Legacy Keep ${runId}`)).toHaveCount(0)
+      await expect(outsider.page.getByRole('button', { name: 'Leave Group' })).toHaveCount(0)
+
+      host.socket.emit('get_group', { groupId: group.id })
+      const { group: after } = await once(host.socket, 'group_details')
+      expect(after.players.map((p) => p.userId).sort()).toEqual([host.id, member.id].sort())
+    } finally {
+      host.socket.close()
+      await member.context.close()
+      await outsider.context.close()
     }
   })
 })
