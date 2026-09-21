@@ -1,0 +1,81 @@
+name: Tests
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  unit:
+    name: Backend unit tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: server/package-lock.json
+      - run: npm ci
+      - run: npm test
+
+  e2e:
+    # One job per Playwright project, so the four browser/device
+    # configurations run side by side and each installs only its own browser.
+    name: E2E (${{ matrix.project }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - project: chromium
+            browser: chromium
+          - project: mobile-chrome
+            browser: chromium
+          - project: webkit
+            browser: webkit
+          - project: mobile-safari
+            browser: webkit
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            web-app/package-lock.json
+
+      # The suite boots the real backend itself, so it needs server deps too.
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+      - name: Install web-app dependencies
+        run: npm ci
+        working-directory: web-app
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps ${{ matrix.browser }}
+        working-directory: web-app
+
+      - name: Run Playwright tests
+        run: npx playwright test --project=${{ matrix.project }} --reporter=list,html
+        working-directory: web-app
+
+      # Traces are kept only for failures (retain-on-failure in the config),
+      # so a red run can be downloaded and stepped through in the trace viewer.
+      - name: Upload report and traces
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-${{ matrix.project }}
+          path: |
+            web-app/playwright-report/
+            web-app/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
