@@ -37,18 +37,28 @@ jobs:
     timeout-minutes: 45
     strategy:
       fail-fast: false
+      # WebKit jobs run with 2 workers instead of the config's default 4. On a
+      # 4-core runner, four workers (some driving three browser contexts each)
+      # starved mobile-safari until clicks timed out waiting for elements to be
+      # "visible, enabled and stable": the same machine-load failure the
+      # config's workers comment describes, not a product bug.
       matrix:
         include:
           - project: api
             browser: ''
+            workers: ''
           - project: chromium
             browser: chromium
+            workers: ''
           - project: mobile-chrome
             browser: chromium
+            workers: ''
           - project: webkit
             browser: webkit
+            workers: 2
           - project: mobile-safari
             browser: webkit
+            workers: 2
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -74,6 +84,9 @@ jobs:
       - name: Run Playwright tests
         run: npx playwright test --project=${{ matrix.project }} --reporter=list,html
         working-directory: web-app
+        env:
+          # Empty means "use the config default" (Number('') || 4).
+          PW_WORKERS: ${{ matrix.workers }}
 
       # Traces are kept only for failures (retain-on-failure in the config),
       # so a red run can be downloaded and stepped through in the trace viewer.
