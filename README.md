@@ -6,9 +6,15 @@ Built with React, Node.js/Express, Socket.io, and SQLite, and tested end to end 
 
 ## Testing
 
-The test suite is the main focus of this repository.
+The test suite is the main focus of this repository. Tests are split into layers, so each check runs at the lowest level that can prove it:
 
-**119 Playwright end-to-end tests**, each run across **4 browser/device projects**, for **476 test runs per suite**.
+| Layer | Tests | Runs | Tool |
+|---|---|---|---|
+| **Unit** (backend and frontend logic) | 15 | once | Node test runner |
+| **API** (game rules, driven over socket.io with no browser) | 41 | once | Playwright `api` project |
+| **End-to-end** (real browsers) | 74 | x 4 projects | Playwright |
+
+That's **337 Playwright runs per suite**, plus the unit tests. The end-to-end tests run across four browser/device projects:
 
 | Project | Engine | Viewport |
 |---|---|---|
@@ -17,9 +23,9 @@ The test suite is the main focus of this repository.
 | `webkit` | Safari's WebKit | Desktop |
 | `mobile-safari` | Safari's WebKit | iPhone 14 (touch) |
 
-The projects form a 2x2 grid of engine and screen size, so a failure in one cell points at either a browser difference or a layout/touch difference. The mobile projects are emulated mobile browsers, not native apps.
+The projects form a 2x2 grid of engine and screen size, so a failure in one cell points at either a browser difference or a layout/touch difference. The mobile projects are emulated mobile browsers, not native apps. Tests that never open a page run once in the `api` project instead, since the browser can't change their result.
 
-Plus **11 backend unit tests** using Node's built-in test runner.
+Every push runs all of it on GitHub Actions, with each Playwright project as its own parallel job.
 
 ### What the suite covers
 
@@ -27,7 +33,8 @@ Plus **11 backend unit tests** using Node's built-in test runner.
 - **Live updates.** When one player acts, tests confirm the other players' open pages update without a refresh.
 - **What the server sends, not just what the screen shows.** Tests listen to the raw WebSocket traffic and check that the judge's identity never appears in any message before the reveal, even though the UI already hides it.
 - **Accessibility.** Pages are checked against WCAG 2.1 AA with axe-core, including hover states. Tests locate elements by role and accessible name (`getByRole`, `getByLabel`), so an unlabeled control fails the test.
-- **Game rules.** Round deadlines, per-round vote budgets, judge skips, host election when a host leaves, invite codes and links, and leaving or deleting a group.
+- **Game rules, at the API level.** Round deadlines, per-round vote budgets, judge skips, and host election when a host leaves, tested by driving the server directly over socket.io.
+- **Logic and styling guards, at the unit level.** Time-window conversions round-trip exactly, and no stylesheet references an undefined CSS token or restyles a shared button app-wide.
 
 ### Design choices
 
@@ -48,12 +55,13 @@ npx playwright install
 npm run test:e2e
 ```
 
-No credentials are needed; the suite runs on fixtures and test-mode sign-in.
+No credentials are needed; the suite runs on fixtures and test-mode sign-in. To run one layer or browser, add `-- --project=api` or `-- --project=webkit`.
 
-Backend unit tests:
+Unit tests:
 
 ```bash
 cd server && npm test
+cd web-app && npm test
 ```
 
 ## Features
@@ -89,7 +97,8 @@ The server starts without any configuration. Missing credentials put it in a deg
 ```
 server/          Express + Socket.io backend, SQLite storage, unit tests
 web-app/         React frontend
-web-app/e2e/     Playwright end-to-end suite
+web-app/e2e/     Playwright API and end-to-end suites
+web-app/test/    Frontend unit tests
 docs/            Discovery, design, and planning documents
 implementation/  Issue specs and review notes
 .design/         Feature design explorations

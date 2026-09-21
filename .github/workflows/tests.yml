@@ -8,32 +8,39 @@ on:
 
 jobs:
   unit:
-    name: Backend unit tests
+    name: Unit tests (${{ matrix.package }})
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [server, web-app]
     defaults:
       run:
-        working-directory: server
+        working-directory: ${{ matrix.package }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 26
           cache: npm
-          cache-dependency-path: server/package-lock.json
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
       - run: npm ci
       - run: npm test
 
   e2e:
-    # One job per Playwright project, so the four browser/device
-    # configurations run side by side and each installs only its own browser.
-    name: E2E (${{ matrix.project }})
+    # One job per Playwright project, so the configurations run side by side
+    # and each installs only the browser it needs. The `api` project drives
+    # the server over socket.io and needs no browser at all.
+    name: Playwright (${{ matrix.project }})
     runs-on: ubuntu-latest
     timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
         include:
+          - project: api
+            browser: ''
           - project: chromium
             browser: chromium
           - project: mobile-chrome
@@ -60,6 +67,7 @@ jobs:
         run: npm ci
         working-directory: web-app
       - name: Install Playwright browser
+        if: ${{ matrix.browser != '' }}
         run: npx playwright install --with-deps ${{ matrix.browser }}
         working-directory: web-app
 

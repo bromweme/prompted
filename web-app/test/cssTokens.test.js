@@ -1,4 +1,5 @@
-import { test, expect } from '@playwright/test'
+import { describe, test } from 'node:test'
+import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -33,10 +34,10 @@ function definedTokens(text) {
   return new Set([...text.matchAll(/(--[\w-]+)\s*:/g)].map((m) => m[1]))
 }
 
-test.describe('css design tokens', () => {
+describe('css design tokens', () => {
   test('no stylesheet references a token that is not defined', () => {
     const files = cssFiles(SRC)
-    expect(files.length, 'expected to find stylesheets under src/').toBeGreaterThan(0)
+    assert.ok(files.length > 0, 'expected to find stylesheets under src/')
 
     const global = new Set()
     for (const name of GLOBAL_TOKEN_FILES) {
@@ -69,13 +70,14 @@ test.describe('css design tokens', () => {
       })
     }
 
-    expect(
+    assert.deepEqual(
       offenders,
+      [],
       'Undefined CSS token(s) — the whole declaration is dropped at computed-value ' +
       'time, so the property silently falls back to its initial value ' +
       '(background -> transparent, border-color -> currentColor):\n' +
       JSON.stringify(offenders, null, 2)
-    ).toEqual([])
+    )
   })
 
   test('no page stylesheet restyles a shared button or form class', () => {
@@ -123,11 +125,12 @@ test.describe('css design tokens', () => {
       }
     }
 
-    expect(
+    assert.deepEqual(
       offenders,
+      [],
       'Page stylesheet(s) restyling a shared button or form class. These load after ' +
       'index.css and apply app-wide, so they override every page:\n' +
       JSON.stringify(offenders, null, 2)
-    ).toEqual([])
+    )
   })
 })

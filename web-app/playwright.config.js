@@ -7,6 +7,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const WEB_PORT = 5173
 const API_PORT = 5000
 
+// Specs that drive the server directly over socket.io and never open a page.
+// The browser can't change their result, so they run once in the `api`
+// project instead of once per browser project.
+const API_SPECS = [
+  '**/event-log.spec.js',
+  '**/host-election.spec.js',
+  '**/host-leave.spec.js',
+  '**/judge-skip.spec.js',
+  '**/round-deadline.spec.js',
+  '**/vote-budget.spec.js',
+]
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 60_000,
@@ -14,8 +26,8 @@ export default defineConfig({
   // Parallelism is at file level (fullyParallel stays off): tests within a
   // file share carefully sequenced state — a round's phases, a group's
   // members — and running those against each other buys nothing.
-  // 7 spec files x 4 projects = 28 independent jobs, so workers scale well
-  // past the file count.
+  // Many spec files x 4 browser projects gives plenty of independent jobs,
+  // so workers scale well past the file count.
   //
   // 4, not the 6-8 the wall clock alone would suggest. The heaviest tests
   // drive three browser contexts each, and several of those in flight at once
@@ -33,18 +45,20 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // Server-level specs, run once. No device or browser settings apply.
+    { name: 'api', testMatch: API_SPECS },
+    { name: 'chromium', testIgnore: API_SPECS, use: { ...devices['Desktop Chrome'] } },
     // Mobile viewport coverage — same suites, narrow screen + touch input.
     // Pixel 7 is Chromium-based, so this isolates the variable to
     // viewport/touch rather than also swapping the rendering engine
     // (iPhone presets would pull in WebKit).
-    { name: 'mobile-chrome', use: { ...devices['Pixel 7'] } },
+    { name: 'mobile-chrome', testIgnore: API_SPECS, use: { ...devices['Pixel 7'] } },
     // WebKit coverage at both widths. WebKit is the engine behind Safari and
     // every iOS browser, and it's where engine-specific breakage actually
     // shows up (CSS support gaps, JS API differences) — Chromium desktop and
     // Chromium mobile only vary the viewport.
-    { name: 'webkit', use: { ...devices['Desktop Safari'] } },
-    { name: 'mobile-safari', use: { ...devices['iPhone 14'] } },
+    { name: 'webkit', testIgnore: API_SPECS, use: { ...devices['Desktop Safari'] } },
+    { name: 'mobile-safari', testIgnore: API_SPECS, use: { ...devices['iPhone 14'] } },
   ],
   // Boots the real backend (server.js) and the real Vite dev server so the
   // suite exercises actual socket.io traffic end to end — no mocking. Both
