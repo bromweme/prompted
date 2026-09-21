@@ -1,195 +1,100 @@
-# Prompted Game
+# Prompted
 
-A Cards Against Humanity-style music game where players submit songs based on prompts, with a Card Czar judging the submissions. Built for both web and mobile platforms.
+A real-time multiplayer music game. Each round, one player picks a topic, everyone else submits a song that fits it, and the group votes on the best pick. The round's judge stays anonymous until the reveal, when the winning video plays for everyone.
 
-## 🎮 Game Concept
+Built with React, Node.js/Express, Socket.io, and SQLite, and tested end to end with Playwright.
 
-Similar to MusicLeague but with custom "Card Czar" mechanics:
-- **Card Czar**: Anonymous judge who selects the winning song
-- **Jury**: All other players who submit songs and vote
-- **Topics**: Can be public (shared) or private (created for specific games)
-- **Scoring**: Host-configurable points for Czar picks and jury votes
-- **Override**: Public vote can override Czar's choice if overwhelming majority
-- **Skip System**: Players can skip being Card Czar
-- **Downvotes**: Cost points (host-configured penalty)
+## Testing
 
-## 🏗️ Architecture
+The test suite is the main focus of this repository.
 
-### Backend (Node.js + Socket.io)
-- Real-time multiplayer game logic
-- WebSocket communication for live updates
-- In-memory game state (production: PostgreSQL database)
-- Configurable game settings
+**119 Playwright end-to-end tests**, each run across **4 browser/device projects**, for **476 test runs per suite**.
 
-### Web App (React + Vite)
-- Modern React interface
-- Socket.io client for real-time updates
-- Responsive design
-- Game lobby and room management
+| Project | Engine | Viewport |
+|---|---|---|
+| `chromium` | Chrome | Desktop |
+| `mobile-chrome` | Chrome | Pixel 7 (touch) |
+| `webkit` | Safari's WebKit | Desktop |
+| `mobile-safari` | Safari's WebKit | iPhone 14 (touch) |
 
-### Mobile App (React Native + Expo)
-- Cross-platform mobile support
-- Native navigation
-- Mobile-optimized UI
-- Same game logic as web
+The projects form a 2x2 grid of engine and screen size, so a failure in one cell points at either a browser difference or a layout/touch difference. The mobile projects are emulated mobile browsers, not native apps.
 
-## 🚀 Getting Started
+Plus **11 backend unit tests** using Node's built-in test runner.
 
-### Prerequisites
-- Node.js installed
-- For mobile: Expo CLI and mobile dev environment
+### What the suite covers
 
-### Installation
+- **Full multiplayer rounds.** Tests open separate browser contexts to act as independent players in the same game, then drive a round from start to finish: joining a group, choosing a topic, submitting a song, voting, and the reveal.
+- **Live updates.** When one player acts, tests confirm the other players' open pages update without a refresh.
+- **What the server sends, not just what the screen shows.** Tests listen to the raw WebSocket traffic and check that the judge's identity never appears in any message before the reveal, even though the UI already hides it.
+- **Accessibility.** Pages are checked against WCAG 2.1 AA with axe-core, including hover states. Tests locate elements by role and accessible name (`getByRole`, `getByLabel`), so an unlabeled control fails the test.
+- **Game rules.** Round deadlines, per-round vote budgets, judge skips, host election when a host leaves, invite codes and links, and leaving or deleting a group.
 
-1. **Backend Server**:
+### Design choices
+
+- **Real backend, no mocks.** Playwright boots the actual server and the Vite dev server before the run and tears them down afterward, so tests exercise real Socket.io traffic.
+- **Deterministic data.** Tests use fixture results instead of the live YouTube API. Results are the same on every run, and runs cost no API quota and work offline.
+- **Test-only sign-in.** A test mode lets the suite create players without going through Google. The server refuses to start with it enabled in production.
+- **Zero retries, on purpose.** A flaky test fails visibly instead of passing on a second try. Traces are kept for every failure (`retain-on-failure`) so failures can be stepped through afterward.
+- **Tuned parallelism.** Four workers, parallel by file. Higher worker counts overloaded WebKit and produced timeouts caused by machine load rather than real bugs.
+
+### Running the tests
+
+The end-to-end suite starts the backend itself, so install both packages first:
+
 ```bash
-cd server
-npm install
-npm start
+cd server && npm install && cd ..
+cd web-app && npm install
+npx playwright install
+npm run test:e2e
 ```
 
-2. **Web App**:
+No credentials are needed; the suite runs on fixtures and test-mode sign-in.
+
+Backend unit tests:
+
 ```bash
-cd web-app
-npm install
-npm run dev
+cd server && npm test
 ```
 
-3. **Mobile App**:
+## Features
+
+- Create a group and invite players with a code or a shareable link
+- Sign in with Google, with a profile name and avatar
+- An anonymous judge, randomly assigned each round, who picks the topic
+- Song submissions through YouTube search
+- Voting with a per-round vote budget, and round deadlines
+- A reveal that names the judge and plays the winning video
+- Scoring and round history
+- Host election when the host leaves
+
+## Tech stack
+
+- **Frontend:** React, React Router, Vite, Socket.io client
+- **Backend:** Node.js, Express, Socket.io, SQLite (better-sqlite3), Helmet
+- **Auth:** Google Identity Services, with server-signed session tokens
+- **External API:** YouTube Data API v3
+- **Testing:** Playwright, axe-core, Node test runner
+
+## Running locally
+
 ```bash
-npm install
-npm start
+cd server && npm install && npm start      # http://localhost:5000
+cd web-app && npm install && npm run dev   # http://localhost:5173
 ```
 
-## 🎯 How to Play
+The server starts without any configuration. Missing credentials put it in a degraded local mode (fixture search results, sign-in disabled) and it says so in the console. To enable Google sign-in and live YouTube search, copy `server/.env.example` to `server/.env` and `web-app/.env.example` to `web-app/.env`, then fill them in. Each example file explains where to get its values.
 
-1. **Create/Join Game**: Enter username and create new game or join with code
-2. **Lobby**: Wait for players to join (minimum 2 players)
-3. **Topic Selection**: Card Czar selects a music theme/topic
-4. **Song Submission**: Players submit Spotify songs fitting the topic
-5. **Voting**: All players vote on submissions (including Card Czar)
-6. **Results**: Card Czar revealed, winner announced, points awarded
-7. **Next Round**: New Card Czar selected, repeat!
-
-## 🎴 Game Mechanics
-
-### Card Czar System
-- Randomly assigned each round
-- Identity hidden until round end
-- Can select winning song for bonus points
-- Can skip being Czar (won't be Czar until everyone else goes)
-
-### Scoring System
-- **Czar Pick**: Host-configured points (default: 5)
-- **Jury Vote**: Up to host-configured max points (default: 3)
-- **Downvote**: Costs points (default: 1)
-- **Override**: 70% public vote can override Czar's choice
-
-### Topic System
-- **Public Topics**: Available to all games
-- **Private Topics**: Created for specific games
-- **Preset Topics**: Built-in theme suggestions
-- **Custom Topics**: Players can create their own
-
-## 📁 Project Structure
+## Project structure
 
 ```
-├── server/                    # Backend server
-│   ├── server.js             # Socket.io game server
-│   └── package.json
-├── web-app/                   # React web application
-│   ├── src/
-│   │   ├── pages/
-│   │   │   ├── Home.jsx      # Landing & game creation
-│   │   │   ├── GameLobby.jsx # Game lobby
-│   │   │   └── GameRoom.jsx  # Main game interface
-│   │   └── App.jsx
-│   └── package.json
-├── src/                       # React Native mobile app
-│   ├── screens/
-│   │   ├── HomeScreen.jsx
-│   │   ├── GameLobbyScreen.jsx
-│   │   └── GameRoomScreen.jsx
-│   ├── context/
-│   │   └── AuthContext.jsx
-│   └── App.js
-├── GAME_DESIGN.md            # Detailed game design document
-└── README.md
+server/          Express + Socket.io backend, SQLite storage, unit tests
+web-app/         React frontend
+web-app/e2e/     Playwright end-to-end suite
+docs/            Discovery, design, and planning documents
+implementation/  Issue specs and review notes
+.design/         Feature design explorations
 ```
 
-## 🔧 Configuration
+## How it was built
 
-### Game Settings (in server.js)
-```javascript
-settings: {
-  czarPoints: 5,           // Points for Czar's pick
-  maxJuryPoints: 3,        // Max points per jury vote
-  downvoteCost: 1,         // Point cost for downvotes
-  overrideThreshold: 0.7   // Vote % needed to override Czar
-}
-```
-
-### Socket.io Server
-- Default port: 5000
-- CORS enabled for development
-
-## 🎵 Future Enhancements
-
-### Spotify Integration
-- Real Spotify OAuth authentication
-- Direct song search from Spotify API
-- Auto-generated playlists
-- Album art display
-
-### Database Integration
-- PostgreSQL for persistent game state
-- User accounts and profiles
-- Game history and statistics
-- Topic library management
-
-### Additional Features
-- Voice chat during rounds
-- Song preview playback
-- Custom game themes
-- Tournament mode
-- Leaderboards
-
-## 🐛 Development Notes
-
-### Current Limitations
-- In-memory game state (resets on server restart)
-- No persistent user accounts
-- Manual Spotify URI entry
-- No real Spotify API integration
-
-### Testing
-- Web app: http://localhost:5173
-- Mobile: Run with Expo Go app
-- Backend: http://localhost:5000
-
-### Socket Events
-- `join_game` - Join a game lobby
-- `start_game` - Start the game
-- `select_topic` - Card Czar selects topic
-- `submit_song` - Submit a song
-- `cast_vote` - Vote on submissions
-- `czar_select_winner` - Card Czar picks winner
-- `skip_czar` - Skip being Card Czar
-- `next_round` - Start next round
-
-## 📄 License
-
-MIT License - feel free to use and modify for your own projects!
-
-## 🤝 Contributing
-
-This is a demonstration project. For production use, consider:
-- Adding proper authentication
-- Implementing database persistence
-- Adding error handling and validation
-- Implementing proper Spotify API integration
-- Adding comprehensive testing
-
-## 🎮 Game Inspiration
-
-Inspired by [MusicLeague](https://musicleague.com) with custom "Card Czar" mechanics similar to Cards Against Humanity, creating a unique music discovery and competition experience.
+Built with Claude Code as a development accelerator. The planning, design, and review documents in `docs/`, `implementation/`, and `.design/` show how features moved from idea to implementation to review.
