@@ -28,6 +28,15 @@ const API_PORT = 5000
 // Specs that drive the server directly over socket.io and never open a page.
 // The browser can't change their result, so they run once in the `api`
 // project instead of once per browser project.
+// Reloads every store from the database mid-run to prove the data really came
+// back, which by its nature affects the whole server process — including any
+// other spec talking to it at that moment. It therefore runs as its own
+// project that every other project waits on, rather than alongside them. Found
+// the hard way: on Postgres, where the reload window is a round trip rather
+// than sub-millisecond, it clobbered an in-flight write in game-rules and that
+// spec stalled waiting for an update that never came.
+const PERSISTENCE_SPEC = '**/persistence.spec.js'
+
 const API_SPECS = [
   '**/event-log.spec.js',
   '**/game-rules.spec.js',
@@ -36,7 +45,7 @@ const API_SPECS = [
   '**/join-requests.spec.js',
   '**/judge-skip.spec.js',
   '**/open-groups.spec.js',
-  '**/persistence.spec.js',
+  PERSISTENCE_SPEC,
   '**/round-deadline.spec.js',
   '**/video-search-api.spec.js',
   '**/vote-budget.spec.js',
@@ -68,14 +77,16 @@ export default defineConfig({
     trace: 'retain-on-failure',
   },
   projects: [
+    // Runs first, alone. See PERSISTENCE_SPEC above.
+    { name: 'persistence', testMatch: [PERSISTENCE_SPEC] },
     // Server-level specs, run once. No device or browser settings apply.
-    { name: 'api', testMatch: API_SPECS },
-    { name: 'chromium', testIgnore: API_SPECS, use: { ...devices['Desktop Chrome'] } },
+    { name: 'api', testMatch: API_SPECS.filter((spec) => spec !== PERSISTENCE_SPEC), dependencies: ['persistence'] },
+    { name: 'chromium', testIgnore: API_SPECS, dependencies: ['persistence'], use: { ...devices['Desktop Chrome'] } },
     // Mobile viewport coverage — same suites, narrow screen + touch input.
     // Pixel 7 is Chromium-based, so this isolates the variable to
     // viewport/touch rather than also swapping the rendering engine
     // (iPhone presets would pull in WebKit).
-    { name: 'mobile-chrome', testIgnore: API_SPECS, use: { ...devices['Pixel 7'] } },
+    { name: 'mobile-chrome', testIgnore: API_SPECS, dependencies: ['persistence'], use: { ...devices['Pixel 7'] } },
     // WebKit coverage at both widths. WebKit is the engine behind Safari and
     // every iOS browser, and it's where engine-specific breakage actually
     // shows up (CSS support gaps, JS API differences) — Chromium desktop and
@@ -90,8 +101,8 @@ export default defineConfig({
     // same reason these two projects already run with half the workers.
     // Deliberately not solved with retries: retries: 0 above is what makes a
     // flake visible instead of silently swallowed.
-    { name: 'webkit', testIgnore: API_SPECS, timeout: 120_000, use: { ...devices['Desktop Safari'] } },
-    { name: 'mobile-safari', testIgnore: API_SPECS, timeout: 120_000, use: { ...devices['iPhone 14'] } },
+    { name: 'webkit', testIgnore: API_SPECS, timeout: 120_000, dependencies: ['persistence'], use: { ...devices['Desktop Safari'] } },
+    { name: 'mobile-safari', testIgnore: API_SPECS, timeout: 120_000, dependencies: ['persistence'], use: { ...devices['iPhone 14'] } },
   ],
   // Boots the real backend (server.js) and the real Vite dev server so the
   // suite exercises actual socket.io traffic end to end — no mocking. Both

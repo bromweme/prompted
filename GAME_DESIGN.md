@@ -65,7 +65,7 @@ Kept per player on the server, capped at 100, delivered to every tab that player
 ## Architecture as built
 
 - **Backend**: Node.js, Express, Socket.io. Nearly all gameplay is socket events rather than REST.
-- **Storage**: SQLite via `better-sqlite3` (`server/db.js`), wrapped in a small `PersistentStore` key-value layer — stores for `groups`, `topics` and `notifications`, plus profiles, sessions and an append-only event log (`EVT-1`).
+- **Storage**: Postgres when `DATABASE_URL` is set, SQLite via `better-sqlite3` otherwise, behind one driver interface (`server/db.js`, `server/drivers/`). A small `PersistentStore` layer keeps every read in memory and writes through to whichever database is configured — stores for `groups`, `topics` and `notifications`, plus profiles, sessions and an append-only event log (`EVT-1`). Production must use Postgres: a hosted filesystem is ephemeral, so a local file is destroyed on every restart, redeploy and idle spin-down (`DB-1`).
 - **Frontend**: React with React Router, built by Vite. Responsive web only; the mobile experience is the same app, tested against emulated mobile browsers. There is no native app.
 - **Sign-in**: Google. Without credentials the server runs in a degraded local mode (fixture search, sign-in disabled) and says so.
 - **Music**: the YouTube Data API for search; videos are embedded for playback. Tests use fixtures, never the live API.
@@ -73,4 +73,4 @@ Kept per player on the server, capped at 100, delivered to every tab that player
 
 ## Not built
 
-Named here only because earlier drafts of this document promised them: Spotify (the app uses YouTube), PostgreSQL (SQLite), a React Native mobile app, in-game chat, song preview, and auto-start. The inert settings that remain in the UI are tracked as notes in `implementation-queue.md`.
+Named here only because earlier drafts of this document promised them: Spotify (the app uses YouTube), a React Native mobile app, in-game chat, song preview, and auto-start. The inert settings that remain in the UI are tracked as notes in `implementation-queue.md`.

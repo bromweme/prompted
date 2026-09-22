@@ -2,7 +2,7 @@
 
 A real-time multiplayer music game. Each round, one player picks a topic, everyone else submits a song that fits it, and the group votes on the best pick. The round's judge stays anonymous until the reveal, when the winning video plays for everyone.
 
-Built with React, Node.js/Express, Socket.io, and SQLite, and tested end to end with Playwright.
+Built with React, Node.js/Express, Socket.io and Postgres, and tested end to end with Playwright. A checkout runs on SQLite with no setup; production sets `DATABASE_URL` and the same code runs on Postgres.
 
 Games are asynchronous — rounds run on deadlines measured in hours, not while everyone waits in a lobby. A group plays a set number of rounds and then finishes with final standings, and the host can start another game.
 
@@ -19,11 +19,12 @@ The test suite is the main focus of this repository. Tests are split into layers
 
 | Layer | Tests | Runs | Tool |
 |---|---|---|---|
-| **Unit** (backend and frontend logic) | 15 | once | Node test runner |
-| **API** (game rules, driven over socket.io with no browser) | 88 | once | Playwright `api` project |
-| **End-to-end** (real browsers) | 99 | x 4 projects | Playwright |
+| **Unit** (backend and frontend logic) | 28 | once | Node test runner |
+| **Persistence** (state survives its cache being dropped) | 3 | once | Playwright `persistence` project |
+| **API** (game rules, driven over socket.io with no browser) | 92 | once | Playwright `api` project |
+| **End-to-end** (real browsers) | 102 | x 4 projects | Playwright |
 
-That's **484 Playwright runs per suite**, plus the unit tests. The end-to-end tests run across four browser/device projects:
+That's **503 Playwright runs per suite**, plus the unit tests. The persistence layer runs first and alone: it reloads every store from the database mid-run to prove the data really came back, which affects the whole server process, so every other project waits on it. The end-to-end tests run across four browser/device projects:
 
 | Project | Engine | Viewport |
 |---|---|---|
@@ -113,7 +114,7 @@ cd web-app && npm test
 ## Tech stack
 
 - **Frontend:** React, React Router, Vite, Socket.io client
-- **Backend:** Node.js, Express, Socket.io, SQLite (better-sqlite3), Helmet
+- **Backend:** Node.js, Express, Socket.io, Postgres (`pg`) or SQLite (better-sqlite3), Helmet
 - **Auth:** Google Identity Services, with server-signed session tokens
 - **External API:** YouTube Data API v3
 - **Testing:** Playwright, axe-core, Node test runner
@@ -130,7 +131,7 @@ The server starts without any configuration. Missing credentials put it in a deg
 ## Project structure
 
 ```
-server/          Express + Socket.io backend, SQLite storage, unit tests
+server/          Express + Socket.io backend, Postgres/SQLite storage, unit tests
 web-app/         React frontend
 web-app/e2e/     Playwright API and end-to-end suites
 web-app/test/    Frontend unit tests
