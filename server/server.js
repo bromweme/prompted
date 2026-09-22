@@ -2457,6 +2457,38 @@ io.on('connection', (socket) => {
     socket.emit('test_backdated', { groupId: gid });
   });
 
+  // Test-only hook (DB-1): throw away every store's in-memory cache and read
+  // it back from the database, which is as close to a restart as a running
+  // process gets — PersistentStore.load() replaces the cache outright (db.js),
+  // so anything that only ever lived in memory is gone the moment this
+  // returns. That is the whole point: without it every test in the suite
+  // passes against a cache-only store, which is exactly how production came to
+  // be destroying its data on every restart unnoticed.
+  //
+  // Only available under AUTH_TEST_MODE, which refuses to coexist with
+  // production (config.js).
+  on('test_reload_stores', async () => {
+    if (!config.authTestMode) {
+      socket.emit('error', { message: 'Not available' });
+      return;
+    }
+    try {
+      // Writes are fire-and-forget behind a per-key queue (db.js), so a reload
+      // issued straight after one would race it and read back the row as it
+      // was before. Flushing first makes "reload" mean "everything written so
+      // far is in the database".
+      await flushStores();
+      const reloaded = await initStores();
+      // Derived from the groups, exactly as start() does it: the loaded group
+      // objects are new ones, and the index has to point at those.
+      groups.forEach((group) => inviteIndex.add(group));
+      socket.emit('test_stores_reloaded', { stores: reloaded });
+    } catch (err) {
+      console.error('Store reload failed:', err);
+      socket.emit('error', { message: 'Store reload failed' });
+    }
+  });
+
   // Start group: transitions out of setup and creates the first round
   on('start_group', ({ groupId, czarUserId, startWithoutPending }) => {
     console.log('Start group request:', { groupId, socketId: socket.id, userId });
