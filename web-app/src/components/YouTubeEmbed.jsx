@@ -13,16 +13,32 @@ function YouTubeEmbed({ videoId, title }) {
 
   return (
     <div className="youtube-embed">
-      <iframe
-        src={`https://www.youtube-nocookie.com/embed/${videoId}`}
-        title={title ? `${title} — YouTube video player` : 'YouTube video player'}
-        loading="lazy"
-        // Deliberately narrow: enough for playback and fullscreen, nothing
-        // that would let an embedded page reach the camera, mic or location.
-        allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        allowFullScreen
-        referrerPolicy="strict-origin-when-cross-origin"
-      />
+      <div className="youtube-embed-frame">
+        <iframe
+          src={`https://www.youtube-nocookie.com/embed/${videoId}`}
+          title={title ? `${title} — YouTube video player` : 'YouTube video player'}
+          loading="lazy"
+          // Deliberately narrow: enough for playback and fullscreen, nothing
+          // that would let an embedded page reach the camera, mic or location.
+          allow="accelerometer; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          referrerPolicy="strict-origin-when-cross-origin"
+        />
+      </div>
+      {/* Search no longer hides embed-restricted videos, so the player can say
+          "Video unavailable" for a perfectly good song. A page can't reliably
+          detect that from outside the iframe, so the way out is always offered
+          rather than shown only on failure. */}
+      <p className="youtube-embed-fallback">
+        Player not working?{' '}
+        <a
+          href={`https://www.youtube.com/watch?v=${videoId}`}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Watch on YouTube
+        </a>
+      </p>
     </div>
   )
 }

@@ -79,7 +79,7 @@ const LIMITS = {
   videoTitle: 200,
   channelTitle: 200,
   thumbnailUrl: 500,
-  searchQuery: 120,
+  searchQuery: 300, // long enough for a pasted YouTube link with its tracking params
   voteComment: 280,
   topicText: 300
 };

@@ -1,12 +1,28 @@
 /* 16:9 box that scales with its column, so the player never forces horizontal
    overflow on a phone (see the GroupView grid fixes for why that matters). */
 .youtube-embed {
+  width: 100%;
+}
+
+/* The 16:9 box is its own element now: the "Watch on YouTube" line sits below
+   it, and would be clipped by this box's overflow: hidden. */
+.youtube-embed-frame {
   position: relative;
   width: 100%;
   aspect-ratio: 16 / 9;
   background: #000;
   border-radius: var(--radius-sm);
   overflow: hidden;
+}
+
+.youtube-embed-fallback {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-caption);
+  color: var(--color-text-secondary);
+}
+
+.youtube-embed-fallback a {
+  color: var(--color-accent);
 }
 
 .youtube-embed iframe {

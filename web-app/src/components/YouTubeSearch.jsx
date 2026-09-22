@@ -19,11 +19,17 @@ function YouTubeSearch({ selected, onSelect }) {
   // overwrite the results of a later one.
   const pendingQuery = useRef('')
 
+  // Both sides of that comparison go through this. The server echoes the query
+  // back trimmed but otherwise untouched, so comparing it against a lowercased
+  // copy silently discarded the results of every search containing a capital
+  // letter: "love" worked, "Metallica" looked like it found nothing.
+  const normalizeQuery = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, ' ')
+
   useEffect(() => {
     if (!socket) return undefined
 
     const handleResults = ({ query: forQuery, results: items }) => {
-      if (forQuery !== pendingQuery.current) return
+      if (normalizeQuery(forQuery) !== pendingQuery.current) return
       setResults(items || [])
       setIsSearching(false)
     }
@@ -57,9 +63,9 @@ function YouTubeSearch({ selected, onSelect }) {
     setSearchError(null)
 
     const timer = setTimeout(() => {
-      // The server normalises the query before echoing it back, so match that
-      // here or every response would look stale.
-      pendingQuery.current = trimmed.toLowerCase().replace(/\s+/g, ' ')
+      // Normalized on both sides (see normalizeQuery): the server echoes back
+      // what it was sent, only trimmed.
+      pendingQuery.current = normalizeQuery(trimmed)
       socket.emit('search_youtube', { query: trimmed })
     }, DEBOUNCE_MS)
 
@@ -75,18 +81,24 @@ function YouTubeSearch({ selected, onSelect }) {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Song, artist, or anything else"
-          maxLength={120}
+          placeholder="Song, artist, or paste a YouTube link"
+          maxLength={300}
           autoComplete="off"
         />
-        <small className="form-hint">Pick a result below — that video is what everyone will watch.</small>
+        <small className="form-hint">
+          Pick a result below — that video is what everyone will watch. Know the exact one?
+          Paste its YouTube link and it comes straight up.
+        </small>
       </div>
 
       <div aria-live="polite" className="youtube-search-status">
         {isSearching && <span>Searching…</span>}
         {searchError && <span className="youtube-search-error">{searchError}</span>}
         {!isSearching && !searchError && query.trim() && results.length === 0 && (
-          <span>No videos found.</span>
+          <span>
+            We are sorry, we are unable to find that video. If you know the one you want,
+            paste its YouTube link here instead.
+          </span>
         )}
       </div>
 

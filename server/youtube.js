@@ -10,7 +10,10 @@ const { decodeHtmlEntities } = require('./htmlEntities');
 // box would exhaust the day's quota in minutes.
 
 const SEARCH_ENDPOINT = 'https://www.googleapis.com/youtube/v3/search';
-const MAX_RESULTS = 8;
+// A search costs 100 units per CALL, not per result, so asking for more results
+// is free. Eight was too few: searching a band returned their eight most
+// relevant videos, and the song you actually meant was often just outside it.
+const MAX_RESULTS = 25;
 const CACHE_TTL_MS = 30 * 60 * 1000;
 const CACHE_MAX_ENTRIES = 500;
 
@@ -73,6 +76,71 @@ function thumbnailFor(videoId) {
   return `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
 }
 
+const VIDEOS_ENDPOINT = 'https://www.googleapis.com/youtube/v3/videos';
+
+// Every shape a player might paste: a watch link, a share link, a Shorts or
+// embed link, a music.youtube link, or the bare id. Search can't find every
+// song — the exact one someone means is often outside any result list — so a
+// link is the way to say "this one, precisely".
+const URL_PATTERNS = [
+  /[?&]v=([A-Za-z0-9_-]{11})(?:[&#]|$)/,          // youtube.com/watch?v=ID
+  /youtu\.be\/([A-Za-z0-9_-]{11})(?:[?&#/]|$)/,   // youtu.be/ID
+  /\/shorts\/([A-Za-z0-9_-]{11})(?:[?&#/]|$)/,    // youtube.com/shorts/ID
+  /\/embed\/([A-Za-z0-9_-]{11})(?:[?&#/]|$)/,     // youtube.com/embed/ID
+  /\/live\/([A-Za-z0-9_-]{11})(?:[?&#/]|$)/       // youtube.com/live/ID
+];
+
+/** The video id in a pasted link or bare id, or null if this is a plain search. */
+function extractVideoId(input) {
+  const text = String(input || '').trim();
+  if (!text) return null;
+  if (isValidVideoId(text)) return text;
+  if (!/youtu\.?be/i.test(text)) return null;
+  for (const pattern of URL_PATTERNS) {
+    const match = text.match(pattern);
+    if (match) return match[1];
+  }
+  return null;
+}
+
+/**
+ * One video by id. videos.list costs 1 quota unit against search.list's 100,
+ * so a pasted link is a hundred times cheaper than a search — worth preferring
+ * wherever a player already knows exactly what they want.
+ */
+async function lookupVideo(videoId) {
+  if (!youtubeSearchEnabled) {
+    // Offline and in tests: the id is real even when the metadata isn't, so
+    // the pick-and-submit flow still works without spending any quota.
+    const known = DECODED_FIXTURES.find(v => v.videoId === videoId);
+    if (known) return { ...known, thumbnail: thumbnailFor(known.videoId) };
+    return { videoId, title: `YouTube video ${videoId}`, channelTitle: 'YouTube', thumbnail: thumbnailFor(videoId) };
+  }
+
+  const url = new URL(VIDEOS_ENDPOINT);
+  url.searchParams.set('part', 'snippet');
+  url.searchParams.set('id', videoId);
+  url.searchParams.set('key', youtubeApiKey);
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(8000) });
+  if (!response.ok) {
+    const body = await response.text().catch(() => '');
+    throw new Error(`YouTube lookup failed (${response.status}): ${body.slice(0, 200)}`);
+  }
+
+  const data = await response.json();
+  const item = (data.items || [])[0];
+  // A link to a deleted or private video resolves to nothing, which the caller
+  // reports as "no results" rather than as an error.
+  if (!item || !item.snippet) return null;
+  return {
+    videoId,
+    title: decodeHtmlEntities(item.snippet.title || ''),
+    channelTitle: decodeHtmlEntities(item.snippet.channelTitle || ''),
+    thumbnail: thumbnailFor(videoId)
+  };
+}
+
 function searchFixtures(query) {
   const q = normalizeQuery(query);
   const matches = DECODED_FIXTURES.filter(
@@ -94,6 +162,18 @@ async function searchVideos(query) {
   const key = normalizeQuery(query);
   if (!key) return [];
 
+  // A pasted link resolves to exactly that video instead of being searched for
+  // as text, which would find nothing.
+  const pastedId = extractVideoId(query);
+  if (pastedId) {
+    const cachedVideo = readCache(`id:${pastedId}`);
+    if (cachedVideo) return cachedVideo;
+    const video = await lookupVideo(pastedId);
+    const results = video ? [video] : [];
+    writeCache(`id:${pastedId}`, results);
+    return results;
+  }
+
   const cached = readCache(key);
   if (cached) return cached;
 
@@ -106,7 +186,11 @@ async function searchVideos(query) {
   const url = new URL(SEARCH_ENDPOINT);
   url.searchParams.set('part', 'snippet');
   url.searchParams.set('type', 'video');
-  url.searchParams.set('videoEmbeddable', 'true'); // unembeddable results would break the reveal iframe
+  // No videoEmbeddable filter. It used to be set so the reveal's iframe could
+  // never fail, but it hid a lot of real music — plenty of official uploads are
+  // embed-restricted — and a search that can't find the song you meant is the
+  // worse failure. The reveal now offers a "Watch on YouTube" link alongside
+  // the player, so a video that refuses to embed is still reachable.
   url.searchParams.set('maxResults', String(MAX_RESULTS));
   url.searchParams.set('q', query);
   url.searchParams.set('key', youtubeApiKey);
@@ -147,4 +231,4 @@ function isValidVideoId(value) {
   return typeof value === 'string' && VIDEO_ID_PATTERN.test(value);
 }
 
-module.exports = { searchVideos, isValidVideoId, MAX_RESULTS };
+module.exports = { searchVideos, isValidVideoId, extractVideoId, MAX_RESULTS };
