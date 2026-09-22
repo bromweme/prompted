@@ -10,6 +10,10 @@ const { createPostgresDriver } = require('./drivers/postgres');
 //
 // Both are exercised: the suite runs on SQLite locally and on Postgres in CI,
 // so neither path can quietly rot.
+//
+// The event log (EVT-1) is not a PersistentStore — it is append-only and never
+// cached — but it goes through the same driver, so it lives wherever the rest
+// of the data does. See events.js.
 
 const connectionString = process.env.DATABASE_URL || null;
 const driver = connectionString
@@ -137,19 +141,9 @@ async function flushStores() {
   await Promise.all(stores.map((store) => store.flush()));
 }
 
-// events.js still speaks raw SQL to SQLite (it moves to the driver in phase 3),
-// so it keeps a SQLite handle even when the stores are on Postgres. That keeps
-// the event log working exactly as it does today rather than silently going
-// dark the moment DATABASE_URL is set — but on an ephemeral filesystem those
-// rows still don't survive a restart, which is the other half of what phase 3
-// fixes.
-const eventsDriver = driver.kind === 'sqlite' ? driver : createSqliteDriver();
-
 module.exports = {
   PersistentStore,
   initStores,
   flushStores,
-  driver,
-  db: eventsDriver.handle,
-  dbPath: eventsDriver.dbPath
+  driver
 };

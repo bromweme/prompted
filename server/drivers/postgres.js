@@ -64,12 +64,11 @@ function createPostgresDriver(connectionString) {
   });
 
   const qualified = (table) => `${schema}.${assertIdentifier(table, 'table')}`;
+  const events = qualified('events');
 
   return {
     kind: 'postgres',
     describe: () => `Postgres (schema ${schema})`,
-    handle: null,
-    dbPath: null,
 
     async ensureTable(table) {
       // Postgres's CREATE ... IF NOT EXISTS is not atomic: two of them racing
@@ -106,6 +105,74 @@ function createPostgresDriver(connectionString) {
 
     async remove(table, id) {
       await pool.query(`DELETE FROM ${qualified(table)} WHERE id = $1`, [id]);
+    },
+
+    // --- Event log (EVT-1) ---------------------------------------------------
+    // Not a PersistentStore: the log is append-only and is never read into
+    // memory, so it keeps its own columns rather than one JSON blob per row.
+
+    async ensureEventSchema() {
+      // Same serialization as ensureTable, and for the same reason.
+      ddl = ddl.catch(() => {}).then(async () => {
+        if (schema !== 'public') {
+          await ignoreAlreadyExists(pool.query(`CREATE SCHEMA IF NOT EXISTS ${schema}`));
+        }
+        // `seq` exists only to order the log. `ts` cannot do it: several events
+        // of one round are written in the same millisecond, and Postgres has no
+        // rowid to break the tie with.
+        await ignoreAlreadyExists(pool.query(`
+          CREATE TABLE IF NOT EXISTS ${events} (
+            seq BIGSERIAL,
+            id TEXT PRIMARY KEY,
+            ts BIGINT NOT NULL,
+            name TEXT NOT NULL,
+            group_id TEXT,
+            actor_id TEXT,
+            props JSONB
+          )
+        `));
+        for (const [name, columns] of [
+          ['events_name_ts', '(name, ts)'],
+          ['events_group_id', '(group_id)'],
+          ['events_ts', '(ts)']
+        ]) {
+          await ignoreAlreadyExists(
+            pool.query(`CREATE INDEX IF NOT EXISTS ${name} ON ${events} ${columns}`)
+          );
+        }
+      });
+      await ddl;
+    },
+
+    // `props` arrives already serialized, so a value JSON cannot represent
+    // fails in the caller's try block rather than halfway into a write.
+    async insertEvent(row) {
+      await pool.query(
+        `INSERT INTO ${events} (id, ts, name, group_id, actor_id, props)
+         VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+        [row.id, row.ts, row.name, row.groupId, row.actorId, row.props]
+      );
+    },
+
+    async pruneEvents(cutoffTs) {
+      await pool.query(`DELETE FROM ${events} WHERE ts < $1`, [cutoffTs]);
+    },
+
+    async readEvents({ groupId } = {}) {
+      const scoped = groupId !== undefined && groupId !== null;
+      const { rows } = await pool.query(
+        `SELECT * FROM ${events}${scoped ? ' WHERE group_id = $1' : ''} ORDER BY seq`,
+        scoped ? [groupId] : []
+      );
+      return rows.map((row) => ({
+        id: row.id,
+        // BIGINT comes back as a string; callers compare it with Date.now().
+        ts: Number(row.ts),
+        name: row.name,
+        groupId: row.group_id,
+        actorId: row.actor_id,
+        props: row.props ?? null
+      }));
     },
 
     async close() {

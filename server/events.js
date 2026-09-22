@@ -1,20 +1,24 @@
 const crypto = require('crypto');
-const { db } = require('./db');
+const config = require('./config');
+const { driver } = require('./db');
 
 // First-party game event log (EVT-1).
 //
 // An append-only table of lifecycle and feature-use events, so product
 // questions ("do groups finish a round?", "is the vote budget used?") can be
-// answered from data. It lives in the same SQLite database as everything else;
-// nothing leaves the server and no cookie or third-party script is involved.
+// answered from data. It goes through the same driver as everything else
+// (DB-1), so it lives in Postgres in production and in the local SQLite file
+// otherwise; nothing leaves the server and no cookie or third-party script is
+// involved.
 //
 // What is stored, and what is deliberately not:
 // - `name`: the event name (a fixed string from server.js).
 // - `group_id`: the group's opaque generated id.
 // - `actor_id`: HMAC-SHA256 of the acting user's id, never the raw id. The
-//   secret is EVENTS_HASH_SECRET when set, otherwise a random one generated
-//   once and kept in the `meta` table, so hashes stay stable across restarts
-//   (and can still be joined across events) without the log naming anyone.
+//   secret is EVENTS_HASH_SECRET (see config.js), so the same player hashes to
+//   the same actor id for as long as that variable is set — across restarts and
+//   across a database that was wiped underneath us — without the log naming
+//   anyone.
 // - `props`: JSON of ids, enums, numbers, booleans and lists of setting KEY
 //   names only. Never names, emails, group names, topic text, video titles or
 //   urls, or comments. Callers in server.js are responsible for passing only
@@ -27,9 +31,9 @@ const { db } = require('./db');
 // wakes up prunes them.
 //
 // Failure model: logEvent is fire-and-forget. It never throws and returns
-// nothing, so a broken log (disk full, locked db, bad props) can never change
-// the outcome of the game action that triggered it. Failures are reported with
-// a rate-limited console.warn.
+// nothing, so a broken log (database down, locked file, bad props) can never
+// change the outcome of the game action that triggered it. Failures are
+// reported with a rate-limited console.warn.
 //
 // Switches:
 // - EVENTS_DISABLED=1 skips every write (ops / tests that don't want rows).
@@ -39,50 +43,27 @@ const RETENTION_MS = 365 * 24 * 60 * 60 * 1000;
 const PRUNE_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const WARN_INTERVAL_MS = 10 * 60 * 1000;
 
-let statements = null;
-let hashSecret = null;
+let schemaReady = null;
+// The tail of the write chain; see logEvent.
+let writes = Promise.resolve();
 let lastPruneAt = 0;
 let lastWarnAt = 0;
 let suppressedWarnings = 0;
 
-function init() {
-  if (statements) return statements;
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS events (
-      id TEXT PRIMARY KEY,
-      ts INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      group_id TEXT,
-      actor_id TEXT,
-      props TEXT
-    );
-    CREATE INDEX IF NOT EXISTS events_name_ts ON events (name, ts);
-    CREATE INDEX IF NOT EXISTS events_group_id ON events (group_id);
-    CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
-    CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-  `);
-
-  hashSecret = process.env.EVENTS_HASH_SECRET || null;
-  if (!hashSecret) {
-    // INSERT OR IGNORE then read back: the first boot writes the secret, every
-    // later boot keeps the one already there.
-    db.prepare('INSERT OR IGNORE INTO meta (key, value) VALUES (?, ?)')
-      .run('events_hash_secret', crypto.randomBytes(32).toString('hex'));
-    hashSecret = db.prepare('SELECT value FROM meta WHERE key = ?').get('events_hash_secret').value;
+/** Creates the tables once, and lets a later call retry if that failed. */
+function ensureSchema() {
+  if (!schemaReady) {
+    schemaReady = driver.ensureEventSchema().catch((err) => {
+      schemaReady = null;
+      throw err;
+    });
   }
-
-  statements = {
-    insert: db.prepare('INSERT INTO events (id, ts, name, group_id, actor_id, props) VALUES (?, ?, ?, ?, ?, ?)'),
-    prune: db.prepare('DELETE FROM events WHERE ts < ?')
-  };
-  return statements;
+  return schemaReady;
 }
 
 function hashActor(userId) {
   if (userId === undefined || userId === null || userId === '') return null;
-  init();
-  return crypto.createHmac('sha256', hashSecret).update(String(userId)).digest('hex');
+  return crypto.createHmac('sha256', config.eventsHashSecret).update(String(userId)).digest('hex');
 }
 
 function warn(err) {
@@ -97,10 +78,10 @@ function warn(err) {
   console.warn(`[events] Failed to record an event: ${err && err.message}${extra}`);
 }
 
-function maybePrune(stmts, now) {
+async function maybePrune(now) {
   if (now - lastPruneAt < PRUNE_INTERVAL_MS) return;
   lastPruneAt = now;
-  stmts.prune.run(now - RETENTION_MS);
+  await driver.pruneEvents(now - RETENTION_MS);
 }
 
 /**
@@ -115,21 +96,52 @@ function logEvent(name, data) {
   if (process.env.EVENTS_DISABLED === '1') return;
   try {
     const { groupId = null, actorId = null, ...props } = data || {};
-    const stmts = init();
     const now = Date.now();
-    const propsJson = Object.keys(props).length > 0 ? JSON.stringify(props) : null;
-    stmts.insert.run(
-      crypto.randomUUID(),
-      now,
-      String(name),
-      groupId === null ? null : String(groupId),
-      hashActor(actorId),
-      propsJson
-    );
-    maybePrune(stmts, now);
+    // The row is built here, synchronously, so that a props value JSON cannot
+    // represent is caught by this try rather than surfacing much later as an
+    // unhandled rejection.
+    const row = {
+      id: crypto.randomUUID(),
+      ts: now,
+      name: String(name),
+      groupId: groupId === null ? null : String(groupId),
+      actorId: hashActor(actorId),
+      props: Object.keys(props).length > 0 ? JSON.stringify(props) : null
+    };
+    // Writes are queued behind one another rather than fired off in parallel.
+    // The order rows were written is part of what the log records — a round's
+    // events routinely land in the same millisecond, so `ts` cannot recover it
+    // and the insertion order is the only thing that can.
+    writes = writes.then(async () => {
+      await ensureSchema();
+      await driver.insertEvent(row);
+      await maybePrune(row.ts);
+    }).catch(warn);
   } catch (err) {
     warn(err);
   }
+}
+
+/** Resolves once every event queued so far has been written (or has failed). */
+async function flushEvents() {
+  let awaited = null;
+  // A write can queue another; loop until the tail stops moving.
+  while (awaited !== writes) {
+    awaited = writes;
+    await awaited.catch(() => {});
+  }
+}
+
+/**
+ * Reads the log back in insertion order, newest last. The only read path there
+ * is: the log exists to be queried, and until DB-1 nothing could.
+ *
+ * @param {object} [options] { groupId } — omit groupId for the whole log.
+ * @returns {Promise<Array>} rows as { id, ts, name, groupId, actorId, props }
+ */
+async function readEvents(options = {}) {
+  await ensureSchema();
+  return driver.readEvents(options);
 }
 
 // Group settings that are safe to name (and, for number/boolean values, to
@@ -171,6 +183,8 @@ function changedSettingKeys(before, after) {
 
 module.exports = {
   logEvent,
+  readEvents,
+  flushEvents,
   hashActor,
   settingsSnapshot,
   changedSettingKeys,

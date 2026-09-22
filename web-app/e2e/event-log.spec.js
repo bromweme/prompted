@@ -9,15 +9,17 @@ import { testRunId } from './helpers.js'
 // `events` table, and none of them carry names, topic text or video titles.
 //
 // Driven over raw sockets (the same authenticated path the browser uses) so the
-// round is deterministic, then checked by opening the server's own SQLite file
-// read-only. better-sqlite3 is a server dependency, so it is loaded from the
-// server's node_modules rather than added to the web app.
+// round is deterministic, then read back through the server's own read path
+// (DB-1) rather than by opening a database file. The spec therefore says
+// nothing about where the log is stored, and passes on SQLite and Postgres
+// alike: the modules are loaded from the server's own node_modules, and pick up
+// the same PROMPTED_DB_PATH / DATABASE_URL the webServer was given.
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const serverDir = path.resolve(__dirname, '../../server')
-const Database = createRequire(path.join(serverDir, 'package.json'))('better-sqlite3')
-// Mirrors server/db.js: PROMPTED_DB_PATH is inherited by the webServer env.
-const dbPath = process.env.PROMPTED_DB_PATH || path.join(serverDir, 'prompted.db')
+const requireFromServer = createRequire(path.join(serverDir, 'package.json'))
+const { readEvents } = requireFromServer('./events')
+const { driver } = requireFromServer('./db')
 
 const API_URL = 'http://localhost:5000'
 
@@ -46,17 +48,11 @@ function connect(id, name) {
   return { id, socket, ready }
 }
 
-function readEvents(groupId) {
-  const db = new Database(dbPath, { readonly: true, fileMustExist: true })
-  try {
-    return db
-      .prepare('SELECT name, group_id, actor_id, props FROM events WHERE group_id = ? ORDER BY ts, rowid')
-      .all(groupId)
-      .map((row) => ({ ...row, props: row.props ? JSON.parse(row.props) : null }))
-  } finally {
-    db.close()
-  }
-}
+// Reading opens a connection of its own; hand it back so a Postgres pool does
+// not keep the worker alive after the spec is done.
+test.afterAll(async () => {
+  await driver.close()
+})
 
 test('playing a round writes the funnel events, with no PII', async () => {
   const runId = testRunId()
@@ -106,8 +102,8 @@ test('playing a round writes the funnel events, with no PII', async () => {
     expect(revealed.group.currentTheme.status).toBe('reveal')
 
     let rows = []
-    await expect.poll(() => {
-      rows = readEvents(groupId)
+    await expect.poll(async () => {
+      rows = await readEvents({ groupId })
       return rows.map((r) => r.name)
     }).toEqual([
       'group_created',
@@ -132,14 +128,14 @@ test('playing a round writes the funnel events, with no PII', async () => {
     })
     expect(byName.group_created.props.settings).toMatchObject({ voteBudget: 10 })
     expect(byName.invite_opened.props).toEqual({ via: 'code', outcome: 'joined' })
-    expect(byName.invite_opened.actor_id).toBe(byName.member_joined.actor_id)
+    expect(byName.invite_opened.actorId).toBe(byName.member_joined.actorId)
 
     // Actors are hashed, stable per user, and distinct between users.
-    expect(byName.group_created.actor_id).toMatch(/^[0-9a-f]{64}$/)
-    expect(byName.round_started.actor_id).toBe(byName.group_created.actor_id)
-    expect(byName.member_joined.actor_id).toBe(byName.submission_made.actor_id)
-    expect(byName.member_joined.actor_id).not.toBe(byName.group_created.actor_id)
-    expect(byName.round_completed.actor_id).toBeNull()
+    expect(byName.group_created.actorId).toMatch(/^[0-9a-f]{64}$/)
+    expect(byName.round_started.actorId).toBe(byName.group_created.actorId)
+    expect(byName.member_joined.actorId).toBe(byName.submission_made.actorId)
+    expect(byName.member_joined.actorId).not.toBe(byName.group_created.actorId)
+    expect(byName.round_completed.actorId).toBeNull()
 
     // Nothing identifying or free-text reaches the log.
     const stored = JSON.stringify(rows)

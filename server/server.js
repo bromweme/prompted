@@ -9,7 +9,7 @@ const { createAuthMiddleware } = require('./auth');
 const { searchVideos, describeVideo, isValidVideoId, thumbnailFor } = require('./youtube');
 const { getOrCreateProfile, updateProfile, AVATAR_CHOICES } = require('./profiles');
 const { PersistentStore, initStores, flushStores, driver } = require('./db');
-const { logEvent, settingsSnapshot, changedSettingKeys } = require('./events');
+const { logEvent, flushEvents, settingsSnapshot, changedSettingKeys } = require('./events');
 const { createInviteIndex, createJoinThrottle } = require('./invites');
 
 // The origins the app is actually served from, resolved from the
@@ -2916,10 +2916,10 @@ async function start() {
   });
 }
 
-// Writes are not awaited by the handlers that make them, so a shutdown has to
-// wait for the ones still in flight. Render sends SIGTERM when a free service
-// spins down, which is exactly when the last write of a round would otherwise
-// be lost.
+// Writes are not awaited by the handlers that make them — neither the stores'
+// nor the event log's — so a shutdown has to wait for the ones still in flight.
+// Render sends SIGTERM when a free service spins down, which is exactly when
+// the last write of a round would otherwise be lost.
 let shuttingDown = false;
 for (const signal of ['SIGTERM', 'SIGINT']) {
   process.on(signal, () => {
@@ -2932,7 +2932,7 @@ for (const signal of ['SIGTERM', 'SIGINT']) {
       console.error('[db] flush timed out; exiting anyway');
       done();
     }, 5_000);
-    flushStores()
+    Promise.all([flushStores(), flushEvents()])
       .catch((error) => console.error('[db] flush failed:', error.message))
       .finally(() => {
         clearTimeout(deadline);

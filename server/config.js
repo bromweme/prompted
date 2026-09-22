@@ -36,6 +36,14 @@ const youtubeApiKey = required('YOUTUBE_API_KEY');
 let sessionSecret = process.env.SESSION_SECRET || null;
 if (!sessionSecret) missing.push('SESSION_SECRET');
 
+// Secret: pseudonymises actor ids in the event log (EVT-1). It has to outlive
+// the database, not just the process — it used to be generated into a `meta`
+// row, so a wiped database (which on an ephemeral filesystem is every restart)
+// meant a new secret and a new actor id for the same player, and nothing in the
+// log could be followed across a boundary. Changing it renames every actor.
+let eventsHashSecret = process.env.EVENTS_HASH_SECRET || null;
+if (!eventsHashSecret) missing.push('EVENTS_HASH_SECRET');
+
 if (missing.length > 0) {
   if (isProduction) {
     console.error(
@@ -59,6 +67,10 @@ if (missing.length > 0) {
   if (missing.includes('SESSION_SECRET')) {
     sessionSecret = crypto.randomBytes(32).toString('hex');
     console.warn('[config]   -> Using an ephemeral session secret; sessions die on restart.');
+  }
+  if (missing.includes('EVENTS_HASH_SECRET')) {
+    eventsHashSecret = crypto.randomBytes(32).toString('hex');
+    console.warn('[config]   -> Using an ephemeral event-log hash secret; actor ids change on restart.');
   }
   console.warn('');
 }
@@ -98,6 +110,7 @@ module.exports = {
   googleClientId,
   youtubeApiKey,
   sessionSecret,
+  eventsHashSecret,
   allowedOrigins,
   googleSignInEnabled: !!googleClientId,
   youtubeSearchEnabled: !!youtubeApiKey,

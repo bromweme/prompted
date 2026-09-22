@@ -38,8 +38,9 @@ Product decisions in this backlog (enforce `maxPlayers`/`totalRounds`? wire or c
 
 ## Implementation notes (Wave 11)
 
-- **Module:** `server/events.js` (same SQLite file as `db.js`; `PROMPTED_DB_PATH` overrides the path, default unchanged). Indexes on `(name, ts)`, `(group_id)` and `(ts)` (the last one serves the prune).
-- **actor_id:** pseudonymous HMAC-SHA256 of the user id. Secret from `EVENTS_HASH_SECRET`, else generated once and kept in a `meta` table in the same DB. Because the secret and the raw ids in `groups` share one file, the data is **pseudonymous, not anonymous** — `PRIV-1` must say so; set `EVENTS_HASH_SECRET` in production to keep the secret out of the DB (changing it changes every hash).
+- **Module:** `server/events.js` (same database as `db.js`, through the same driver since `DB-1` phase 3: Postgres when `DATABASE_URL` is set, otherwise the SQLite file `PROMPTED_DB_PATH` names). Indexes on `(name, ts)`, `(group_id)` and `(ts)` (the last one serves the prune).
+- **actor_id:** pseudonymous HMAC-SHA256 of the user id. The secret is `EVENTS_HASH_SECRET` — required in production since `DB-1` phase 3, which removed the fallback that generated it into a `meta` row (a wiped database meant a new secret, so the same player got a new actor id and nothing in the log could be followed across a restart). Changing it renames every actor. The data is **pseudonymous, not anonymous** — the raw ids live in `groups` in the same database — and `PRIV-1` must say so.
+- **Reading it back:** `readEvents({ groupId })`, added in `DB-1` phase 3; before that the log could only be written.
 - **Retention:** 12 months, pruned from inside `logEvent` at most every 6 hours (and on the first event after boot). `EVENTS_DISABLED=1` turns writes off.
 - **Event list, refined from the starter set:**
   - Logged: `group_created`, `member_joined` (first join only), `round_started`, `topic_selected`, `submission_made`, `voting_opened`, `vote_cast`, `winner_selected`, `round_completed`, `round_expired`, `round_rearmed`, `round_stalled`, `judge_skipped`, `judge_reassigned`, `host_election_started`, `host_election_resolved`, `settings_changed` (only when a setting actually changed; key names only), `member_left`, `group_deleted`.

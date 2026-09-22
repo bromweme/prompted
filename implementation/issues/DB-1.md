@@ -1,6 +1,6 @@
 # DB-1 — Move persistence off the ephemeral filesystem to managed Postgres
 
-- **Status:** In progress. Phases 1 and 2 implemented (`fb97709`, `6a15d72`); phase 3 (`events.js`) and phase 4 (production verification) outstanding. Both decisions below are settled.
+- **Status:** In progress. Phases 1, 2 and 3 implemented (`fb97709`, `6a15d72`, `events.js` onto the driver layer); phase 4 (production verification) outstanding. Both decisions below are settled.
 - **Priority:** high. Nothing else in the product matters if the data doesn't survive lunch.
 - **Guarantee:** Groups, players, topics, notifications, profiles and the event log survive a restart, a redeploy and an idle period. A game started on Monday is still there on Wednesday.
 
@@ -79,10 +79,15 @@ Original plan, for the record:
 - `set`/`delete` become async internally and are **not awaited by callers**; they queue per key and log failures loudly. See the durability decision below.
 - `get`/`has`/`values`/`forEach` stay synchronous, reading the Map. No handler changes.
 
-**Phase 3 — port `events.js`.**
-- Same two tables in Postgres; `props` becomes `JSONB`.
-- Move the HMAC secret to the required `EVENTS_HASH_SECRET` environment variable rather than a `meta` row, so actor ids are stable across restarts and across a database reset. This is a fix to `EVT-1`'s guarantee, not just a port.
-- Writes are already fire-and-forget by design, so this phase is the least invasive.
+**Phase 3 — port `events.js`. ✅ Done.**
+- The drivers gained four event methods — `ensureEventSchema`, `insertEvent`, `pruneEvents`, `readEvents({ groupId })` — and `events.js` speaks only to those. No SQL outside `drivers/`, and `db.js` no longer exports a raw SQLite handle (`db` / `dbPath` are gone; nothing else used them).
+- **`readEvents` is new.** `EVT-1` shipped with no way to read the log back, noted at the time as a follow-up. There is one now, and it is what the tests and the e2e spec use, so the read path is exercised rather than merely present.
+- Insertion order is part of what an append-only log records, and `ts` cannot recover it: a round's nine events routinely land in the same millisecond. SQLite orders by `rowid`; Postgres needed an explicit `seq BIGSERIAL`, since it has no equivalent. Callers see one ordering either way.
+- Writes are queued behind one another rather than fired in parallel — still fire-and-forget, still never throwing, but arriving in the order they were made. `flushEvents()` waits for them, and `SIGTERM`/`SIGINT` now flush the log alongside the stores.
+- The HMAC secret moved to `EVENTS_HASH_SECRET` in `config.js`, following `SESSION_SECRET`: required in production, ephemeral with a loud warning in development. The `meta` table is gone — nothing else used it. This is the fix to `EVT-1`'s guarantee: the secret used to be generated into the database it pseudonymised, so a wiped database meant a new actor id for the same player, and nothing in the log could be followed across a restart.
+- `server/test/events.test.js` is driver-agnostic, modelled on `persistence.test.js`: no SQL, rows read back through `readEvents`, per-test group ids instead of a `DELETE`, and the write-failure case simulated by making `driver.insertEvent` reject rather than by renaming a table out from under a prepared statement.
+- `web-app/e2e/event-log.spec.js` reads through the same path instead of opening the SQLite file with `better-sqlite3`, so it follows whichever driver the run configured.
+- Verified: server unit tests 24/24 on SQLite and 24/24 on Postgres. The ordering assertions are the interesting ones on Postgres — all nine rows share a timestamp, so `seq` is doing the work. Not yet re-run under Playwright.
 
 **Phase 4 — verification. Partly done.**
 - ✅ Full suite green against SQLite (484/484, then 500/500 as specs were added) and against Postgres (484/484).

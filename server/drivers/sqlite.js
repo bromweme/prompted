@@ -14,13 +14,12 @@ function createSqliteDriver() {
 
   // One prepared statement pair per table, made when the table is ensured.
   const statements = new Map();
+  // Prepared once by ensureEventSchema; the event log is a single fixed table.
+  let events = null;
 
   return {
     kind: 'sqlite',
     describe: () => `SQLite at ${dbPath}`,
-    // Exposed for events.js, which still speaks raw SQL (ported in phase 3).
-    handle: db,
-    dbPath,
 
     async ensureTable(table) {
       db.exec(`CREATE TABLE IF NOT EXISTS ${table} (id TEXT PRIMARY KEY, data TEXT NOT NULL)`);
@@ -45,6 +44,60 @@ function createSqliteDriver() {
 
     async remove(table, id) {
       statements.get(table).remove.run(id);
+    },
+
+    // --- Event log (EVT-1) ---------------------------------------------------
+    // Not a PersistentStore: the log is append-only and is never read into
+    // memory, so it keeps its own columns rather than one JSON blob per row.
+
+    async ensureEventSchema() {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS events (
+          id TEXT PRIMARY KEY,
+          ts INTEGER NOT NULL,
+          name TEXT NOT NULL,
+          group_id TEXT,
+          actor_id TEXT,
+          props TEXT
+        );
+        CREATE INDEX IF NOT EXISTS events_name_ts ON events (name, ts);
+        CREATE INDEX IF NOT EXISTS events_group_id ON events (group_id);
+        CREATE INDEX IF NOT EXISTS events_ts ON events (ts);
+      `);
+      events = {
+        insert: db.prepare(
+          'INSERT INTO events (id, ts, name, group_id, actor_id, props) VALUES (?, ?, ?, ?, ?, ?)'
+        ),
+        prune: db.prepare('DELETE FROM events WHERE ts < ?'),
+        // rowid is the insertion order, which `ts` alone does not give: several
+        // events of one round land in the same millisecond.
+        readAll: db.prepare('SELECT * FROM events ORDER BY rowid'),
+        readGroup: db.prepare('SELECT * FROM events WHERE group_id = ? ORDER BY rowid')
+      };
+    },
+
+    // `props` arrives already serialized, so a value JSON cannot represent
+    // fails in the caller's try block rather than halfway into a write.
+    async insertEvent(row) {
+      events.insert.run(row.id, row.ts, row.name, row.groupId, row.actorId, row.props);
+    },
+
+    async pruneEvents(cutoffTs) {
+      events.prune.run(cutoffTs);
+    },
+
+    async readEvents({ groupId } = {}) {
+      const rows = groupId === undefined || groupId === null
+        ? events.readAll.all()
+        : events.readGroup.all(groupId);
+      return rows.map((row) => ({
+        id: row.id,
+        ts: row.ts,
+        name: row.name,
+        groupId: row.group_id,
+        actorId: row.actor_id,
+        props: row.props ? JSON.parse(row.props) : null
+      }));
     },
 
     async close() {

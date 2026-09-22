@@ -1,41 +1,56 @@
 // Unit tests for the first-party event log (EVT-1). Run with `npm test`.
 //
-// Every test here runs against a throwaway database in the OS temp directory:
-// PROMPTED_DB_PATH is set before db.js is first required, so the real
-// server/prompted.db is never opened, and the directory is removed at the end.
-const { test, after, beforeEach } = require('node:test');
+// These run against whichever driver is configured, like persistence.test.js,
+// so the same assertions cover SQLite locally and Postgres in CI:
+//
+//   npm test                                                  # SQLite
+//   DATABASE_URL=postgres://... DATABASE_SCHEMA=t1 npm test    # Postgres
+//
+// Nothing here touches SQL. Rows are read back through the module's own read
+// path, and each test uses its own group id instead of clearing the table, so
+// the tests never need to know what the log is stored in.
+const { test, after } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompted-events-'));
-process.env.PROMPTED_DB_PATH = path.join(tmpDir, 'events-test.db');
+const usingPostgres = !!process.env.DATABASE_URL;
+let tmpDir = null;
+if (!usingPostgres) {
+  tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompted-events-'));
+  process.env.PROMPTED_DB_PATH = path.join(tmpDir, 'events-test.db');
+} else {
+  // Never let a test run loose in the default schema of a real database, and
+  // take a schema of our own even when the run named one: this file drops what
+  // it created, and node --test may be running another file in parallel.
+  const base = !process.env.DATABASE_SCHEMA || process.env.DATABASE_SCHEMA === 'public'
+    ? `test_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
+    : process.env.DATABASE_SCHEMA;
+  process.env.DATABASE_SCHEMA = `${base}_events`;
+}
 delete process.env.EVENTS_DISABLED;
-delete process.env.EVENTS_HASH_SECRET;
 
-const { db } = require('../db');
+const { driver } = require('../db');
 const events = require('../events');
-const { logEvent, hashActor, settingsSnapshot, changedSettingKeys, RETENTION_MS } = events;
+const {
+  logEvent, flushEvents, readEvents, hashActor,
+  settingsSnapshot, changedSettingKeys, RETENTION_MS
+} = events;
 
-after(() => {
-  db.close();
-  fs.rmSync(tmpDir, { recursive: true, force: true });
+after(async () => {
+  await flushEvents();
+  if (usingPostgres) await driver.dropSchema();
+  await driver.close();
+  if (tmpDir) fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
-// logEvent creates the table lazily, so make sure it exists before clearing.
-logEvent('bootstrap');
-beforeEach(() => {
-  db.exec('DELETE FROM events');
-  delete process.env.EVENTS_DISABLED;
-});
+const rowsFor = async (groupId) => {
+  await flushEvents();
+  return readEvents({ groupId });
+};
 
-const rowsFor = (groupId) => db
-  .prepare('SELECT * FROM events WHERE group_id = ? ORDER BY ts, rowid')
-  .all(groupId)
-  .map((row) => ({ ...row, props: row.props ? JSON.parse(row.props) : null }));
-
-test('completing a round writes the expected rows in order', () => {
+test('completing a round writes the expected rows in order', async () => {
   const groupId = 'GROUP_round_test';
   // The same call sequence server.js makes for a two-player round resolved by
   // the Judge's pick.
@@ -50,7 +65,7 @@ test('completing a round writes the expected rows in order', () => {
   logEvent('round_completed', { groupId, round: 1, submissions: 1, votes: 1, downvotes: 0, voters: 1, players: 2, wonBy: 'czar_selection', autoRearms: 0 });
   logEvent('round_completed', { groupId: 'GROUP_other', round: 1 });
 
-  const rows = rowsFor(groupId);
+  const rows = await rowsFor(groupId);
   assert.deepEqual(rows.map((r) => r.name), [
     'group_created', 'member_joined', 'round_started', 'topic_selected',
     'submission_made', 'voting_opened', 'vote_cast', 'winner_selected', 'round_completed'
@@ -66,7 +81,7 @@ test('completing a round writes the expected rows in order', () => {
   }
 
   const completed = rows.at(-1);
-  assert.equal(completed.actor_id, null);
+  assert.equal(completed.actorId, null);
   assert.deepEqual(completed.props, {
     round: 1, submissions: 1, votes: 1, downvotes: 0, voters: 1, players: 2, wonBy: 'czar_selection', autoRearms: 0
   });
@@ -76,22 +91,22 @@ test('completing a round writes the expected rows in order', () => {
   assert.equal(vote.props.isDownvote, false);
 });
 
-test('actor ids are stored as a stable HMAC, never raw', () => {
+test('actor ids are stored as a stable HMAC, never raw', async () => {
   logEvent('member_joined', { groupId: 'GROUP_hash', actorId: 'google-sub-12345' });
-  const [row] = rowsFor('GROUP_hash');
-  assert.match(row.actor_id, /^[0-9a-f]{64}$/);
-  assert.notEqual(row.actor_id, 'google-sub-12345');
-  assert.equal(row.actor_id, hashActor('google-sub-12345'));
+  const [row] = await rowsFor('GROUP_hash');
+  assert.match(row.actorId, /^[0-9a-f]{64}$/);
+  assert.notEqual(row.actorId, 'google-sub-12345');
+  assert.equal(row.actorId, hashActor('google-sub-12345'));
   assert.notEqual(hashActor('google-sub-12345'), hashActor('google-sub-67890'));
 
-  const stored = db.prepare("SELECT value FROM meta WHERE key = 'events_hash_secret'").get();
-  assert.match(stored.value, /^[0-9a-f]{64}$/);
-
-  const everything = JSON.stringify(db.prepare('SELECT * FROM events').all());
+  // The secret lives in the environment (config.js), not in a row of the
+  // database it pseudonymises: a wiped database used to mean a new secret and
+  // therefore a new actor id for the same player.
+  const everything = JSON.stringify(await readEvents());
   assert.ok(!everything.includes('google-sub-12345'));
 });
 
-test('a logging failure is swallowed and never reaches the caller', (t) => {
+test('a logging failure is swallowed and never reaches the caller', async (t) => {
   const warnings = [];
   t.mock.method(console, 'warn', (...args) => { warnings.push(args.join(' ')); });
 
@@ -101,42 +116,50 @@ test('a logging failure is swallowed and never reaches the caller', (t) => {
   assert.doesNotThrow(() => logEvent('vote_cast', { groupId: 'GROUP_fail', circular }));
   assert.doesNotThrow(() => logEvent('vote_cast', { groupId: 'GROUP_fail', big: 10n }));
 
-  // A genuine database failure: the table disappears under the prepared insert.
-  db.exec('ALTER TABLE events RENAME TO events_parked');
-  try {
-    let result;
-    assert.doesNotThrow(() => { result = logEvent('round_completed', { groupId: 'GROUP_fail', round: 1 }); });
-    assert.equal(result, undefined);
-  } finally {
-    db.exec('ALTER TABLE events_parked RENAME TO events');
-  }
+  // A genuine database failure: the insert rejects, whatever the driver is.
+  const insert = t.mock.method(driver, 'insertEvent', async () => {
+    throw new Error('simulated write failure');
+  });
+  let result;
+  assert.doesNotThrow(() => { result = logEvent('round_completed', { groupId: 'GROUP_fail', round: 1 }); });
+  assert.equal(result, undefined);
+  await flushEvents();
+  insert.mock.restore();
 
-  assert.equal(rowsFor('GROUP_fail').length, 0);
+  assert.equal((await rowsFor('GROUP_fail')).length, 0);
   // Reported, but rate-limited rather than once per failure.
   assert.ok(warnings.length >= 1 && warnings.length < 3, `unexpected warning count ${warnings.length}`);
   assert.match(warnings[0], /\[events\] Failed to record an event/);
 
   // And logging recovers once the underlying problem is gone.
   logEvent('round_completed', { groupId: 'GROUP_fail', round: 2 });
-  assert.equal(rowsFor('GROUP_fail').length, 1);
+  assert.equal((await rowsFor('GROUP_fail')).length, 1);
 });
 
-test('EVENTS_DISABLED=1 skips writes', () => {
+test('EVENTS_DISABLED=1 skips writes', async () => {
   process.env.EVENTS_DISABLED = '1';
   logEvent('group_created', { groupId: 'GROUP_disabled' });
   delete process.env.EVENTS_DISABLED;
-  assert.equal(rowsFor('GROUP_disabled').length, 0);
+  assert.equal((await rowsFor('GROUP_disabled')).length, 0);
 });
 
-test('rows older than the retention window are pruned opportunistically', () => {
-  const insert = db.prepare('INSERT INTO events (id, ts, name, group_id) VALUES (?, ?, ?, ?)');
-  insert.run('old-row', Date.now() - RETENTION_MS - 60_000, 'round_completed', 'GROUP_prune');
-  insert.run('recent-row', Date.now() - RETENTION_MS + 60 * 60 * 1000, 'round_completed', 'GROUP_prune');
+test('rows older than the retention window are pruned opportunistically', async () => {
+  // Seeded through the driver rather than logEvent, which always stamps now.
+  // A read first, so the tables exist before we write behind the module's back.
+  await readEvents({ groupId: 'GROUP_prune' });
+  await driver.insertEvent({
+    id: 'old-row', ts: Date.now() - RETENTION_MS - 60_000,
+    name: 'round_completed', groupId: 'GROUP_prune', actorId: null, props: null
+  });
+  await driver.insertEvent({
+    id: 'recent-row', ts: Date.now() - RETENTION_MS + 60 * 60 * 1000,
+    name: 'round_completed', groupId: 'GROUP_prune', actorId: null, props: null
+  });
 
   events._resetPruneClock();
   logEvent('round_started', { groupId: 'GROUP_prune' });
 
-  const ids = rowsFor('GROUP_prune').map((r) => r.id);
+  const ids = (await rowsFor('GROUP_prune')).map((r) => r.id);
   assert.ok(!ids.includes('old-row'));
   assert.ok(ids.includes('recent-row'));
   assert.equal(ids.length, 2);

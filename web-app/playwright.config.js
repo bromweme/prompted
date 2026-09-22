@@ -16,8 +16,8 @@ process.env.PROMPTED_DB_PATH ??= path.join(os.tmpdir(), `prompted-e2e-${Date.now
 // With DATABASE_URL set, the server runs on Postgres instead (DB-1), which is
 // how CI proves the driver production uses. Each run gets its own schema, so
 // concurrent runs can share one database and a run can drop everything it made
-// without touching anything else. PROMPTED_DB_PATH still applies: event-log
-// specs read the event log, which is SQLite until DB-1 phase 3.
+// without touching anything else. The event log lives here too since phase 3,
+// so the specs that read it follow whichever driver is configured.
 if (process.env.DATABASE_URL) {
   process.env.DATABASE_SCHEMA ??= `e2e_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 }
