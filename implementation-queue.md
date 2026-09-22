@@ -71,15 +71,20 @@ Every issue file lives in [`implementation/issues/`](implementation/issues/). Ea
 | Id | Issue | Notes |
 |---|---|---|
 
+## In progress
+
+| Id | Issue | Where it is |
+|---|---|---|
+| `DB-1` | Persistence is on an ephemeral filesystem: every group, topic, notification and profile is destroyed on each Render spin-down (15 idle minutes), restart and redeploy | Phase 1 done (async store lifecycle, still SQLite; new `persistence.test.js`). Phases 2-4 outstanding: Postgres driver behind the same interface, `events.js` port with a stable `EVENTS_HASH_SECRET`, dual-driver verification. Decisions settled: tests run against **both** drivers (SQLite locally, Postgres in CI), writes are fire-and-forget with a per-key queue. Target is Neon's free plan. See `implementation/issues/DB-1.md`. |
+
 ## Blocked
 
 | Id | Issue | Blocked by |
 |---|---|---|
 | `UI-6` | Rename "topic" **and "theme"** → "prompt" (page, route, references) | Product decision — surface-only vs full rename (wire events + `topic_selection` phase + `topics` DB table + persisted keys; ~430 "topic" + ~280 "theme" sites + a `prompted.db` migration), and docs scope. "theme" → "prompt" is **confirmed in scope** (user); visible-string inventory in the issue. Sequence with `UI-4`/`UI-5`. |
-| `DB-1` | Persistence is on an ephemeral filesystem: all data is destroyed on every Render spin-down (15 min idle), restart and redeploy | Engineering decision — what the suite runs against once Postgres lands (SQLite fallback / Postgres in CI / both). Recommendation and the full plan are in `implementation/issues/DB-1.md`; Neon's free plan is the recommended target. Nothing depends on it, and it blocks everything in practice. |
 | `PRIV-1` | Privacy policy page + consent management (CMP) | Product/legal decision — data-controller identity, jurisdictions, deletion-path scope, CMP choice. `Login.jsx:89` already claims a Privacy Policy that doesn't exist. Part A (policy page reflecting current data practices) is draftable now and pairs with `EVT-1`; Part B (CMP) is a prerequisite for GA4 / ads. Not legal advice — needs a lawyer's review. See `implementation/issues/PRIV-1.md`. |
 
-The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election) and its `REP-RT3-1` repair are all `Done`. Wave 8 (`RT-4`, deadline-display null guard) is `Done` (initial review passed). Wave 9 (`UI-1` + `UI-7`) and its `REP-UI7-1` repair are all `Done`. All prior waves are `Done`. Wave 10 (`UI-3` + `UI-4` + `UI-5`) is `Done` (initial review passed). Wave 11 (`EVT-1`, event logging) is `Done`. Wave 12 (`UI-2`) and its `REP-UI2-1` repair are `Done`. Wave 13 (`OG-1`, `JR-1`, `GS-1`, `GT-1`, `NT-1`, `UX-1`) is `Implemented` and awaits an independent review. The triage batch has no `Ready` issues left; `Blocked` — `DB-1` (data does not survive a spin-down; one engineering decision), `UI-6` (topic/theme→prompt rename, scope decision) and `PRIV-1` (privacy policy + CMP, product/legal decision). See also the monetization note below.
+The `GL-1/GL-2/GL-3` wave and its `REP-GL1-1` / `REP-GL1-2` repairs are `Done` (Waves 1-2). Wave 3 (`RT-1`) and Wave 4 (`RT-2` + `REP-RT1-1`) are `Done`. Wave 5 (`REP-RT2-1`) and Wave 6 (`REP-RT2-2`) are `Done`, clearing the vote-budget feature. Wave 7 (`RT-3` Judge skip + `HG-1` host election) and its `REP-RT3-1` repair are all `Done`. Wave 8 (`RT-4`, deadline-display null guard) is `Done` (initial review passed). Wave 9 (`UI-1` + `UI-7`) and its `REP-UI7-1` repair are all `Done`. All prior waves are `Done`. Wave 10 (`UI-3` + `UI-4` + `UI-5`) is `Done` (initial review passed). Wave 11 (`EVT-1`, event logging) is `Done`. Wave 12 (`UI-2`) and its `REP-UI2-1` repair are `Done`. Wave 13 (`OG-1`, `JR-1`, `GS-1`, `GT-1`, `NT-1`, `UX-1`) is `Implemented` and awaits an independent review. The triage batch has no `Ready` issues left; `In progress` — `DB-1` (data does not survive a spin-down; phase 1 of 4 landed). `Blocked` — `UI-6` (topic/theme→prompt rename, scope decision) and `PRIV-1` (privacy policy + CMP, product/legal decision). See also the monetization note below.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 

@@ -1,6 +1,6 @@
 # DB-1 — Move persistence off the ephemeral filesystem to managed Postgres
 
-- **Status:** Blocked — one engineering decision, named under "Decide before starting". Becomes `Ready` the moment it's picked.
+- **Status:** In progress. Phase 1 implemented; phases 2–4 outstanding. Both decisions below are settled.
 - **Priority:** high. Nothing else in the product matters if the data doesn't survive lunch.
 - **Guarantee:** Groups, players, topics, notifications, profiles and the event log survive a restart, a redeploy and an idle period. A game started on Monday is still there on Wednesday.
 
@@ -55,11 +55,14 @@ One Render limitation to keep in view: free services that generate "an uncommonl
 
 ## Plan
 
-**Phase 1 — make the store's lifecycle async, still on SQLite.** No behavior change, no new dependency, fully covered by the existing suite.
-- Split the constructor: keep table creation and statement preparation, move the bulk load into `async load()`.
-- Add `initStores()` that awaits every store's `load()`, and call it in `server.js` before `server.listen()` (`:2878`).
-- Keep `set`/`delete` synchronous for now.
-- Green suite here proves the lifecycle change in isolation, before any driver swap.
+**Phase 1 — make the store's lifecycle async, still on SQLite. ✅ Done.** No behavior change, no new dependency.
+- `db.js`: the constructor now creates the table, prepares statements and registers the store; the bulk load moved into `async load()`, which sets `loaded`.
+- `db.js`: `initStores()` awaits every registered store's `load()` and returns how many it loaded.
+- `server.js`: `start()` awaits `initStores()`, then builds the invite index from the loaded groups, then listens. A failure to load exits non-zero rather than serving players an empty world.
+- The invite-index build moved out of module scope, where it had been reading the store at require time.
+- `set`/`delete` stay synchronous.
+- New `server/test/persistence.test.js`: a store is empty before `load()` and populated after, deletes survive a restart, `initStores()` covers every store, and iteration reads the loaded cache. These are the first tests in the repo that would fail against a store that only ever lived in memory.
+- Found on the way: `server/package.json` listed its test files by name, so a new test file was silently skipped by `npm test` and by CI. Now a glob.
 
 **Phase 2 — a Postgres driver behind the same interface.**
 - Add `pg` and a `DATABASE_URL` environment variable. When it's absent, fall back to SQLite, so local development and the test suite keep working with no setup.
@@ -78,9 +81,15 @@ One Render limitation to keep in view: free services that generate "an uncommonl
 - A new API-level spec: write through the store, drop and rebuild the in-memory cache, read back — the regression test for "does it actually persist", which nothing covers today.
 - Deploy, then confirm by hand: create a group, wait out the 15-minute spin-down, reload, and find the group still there. Add a smoke check for it once a seeded account exists.
 
-## Decide before starting
+## Decisions (both settled)
 
-**1. What the tests run against.** (This is the blocker.)
+**1. What the tests run against — decided: (c) both.** SQLite for the fast local loop, Postgres in CI, one interface over the two. Recorded 2026-09-22.
+
+**2. Durability — decided: fire-and-forget with a per-key write queue**, as recommended below.
+
+The original options are kept for the record.
+
+**1. What the tests run against.** (This was the blocker.)
 - *(a) Keep the SQLite fallback and run the suite against it.* Nothing about the test setup changes; `PROMPTED_DB_PATH` keeps working. The cost is that CI then tests a driver production doesn't use.
 - *(b) Run the suite against Postgres.* What's tested is what runs. The cost is that every CI job needs a Postgres service and a per-run schema, and local runs need Docker or a Neon branch.
 - *(c) Both: SQLite for the fast local loop, Postgres in CI.* Best coverage, most moving parts.

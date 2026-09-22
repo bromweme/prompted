@@ -8,7 +8,7 @@ const config = require('./config');
 const { createAuthMiddleware } = require('./auth');
 const { searchVideos, isValidVideoId } = require('./youtube');
 const { getOrCreateProfile, updateProfile, AVATAR_CHOICES } = require('./profiles');
-const { PersistentStore } = require('./db');
+const { PersistentStore, initStores } = require('./db');
 const { logEvent, settingsSnapshot, changedSettingKeys } = require('./events');
 const { createInviteIndex, createJoinThrottle } = require('./invites');
 
@@ -52,12 +52,12 @@ const topics = new PersistentStore('topics'); // Global topic bank: id -> { id, 
 const notificationStore = new PersistentStore('notifications'); // userId -> { items: [...] }, newest first (NT-1)
 const groups = new PersistentStore('groups'); // id -> { id, inviteCode, name, description, settings, host, players, status, currentRound, currentTheme, history }
 
-// inviteCode -> groupId (UI-2). Built once from the store here and kept in step
-// by create_group, reset_invite_code and delete_group. Legacy groups with no
-// inviteCode are indexed under their own id (see invites.js), so their old
-// codes and ?join=true links keep working until the host resets the code.
+// inviteCode -> groupId (UI-2). Filled from the store once it has loaded (see
+// start(), at the bottom) and kept in step by create_group, reset_invite_code
+// and delete_group. Legacy groups with no inviteCode are indexed under their
+// own id (see invites.js), so their old codes and ?join=true links keep
+// working until the host resets the code.
 const inviteIndex = createInviteIndex();
-groups.forEach((group) => inviteIndex.add(group));
 
 // Brake on invite-code guessing: failed join_group attempts per authenticated
 // user, in memory (see invites.js).
@@ -2875,9 +2875,27 @@ io.on('connection', (socket) => {
   }));
 });
 
-server.listen(config.port, () => {
-  console.log(`Server running on port ${config.port}`);
-  if (config.authTestMode) {
-    console.warn('[auth] AUTH_TEST_MODE is ON - test identities are accepted. Never enable this in production.');
-  }
+/**
+ * Loads persisted state, then starts listening (DB-1). Nothing may read a
+ * store before this has awaited initStores(): the stores start empty and are
+ * filled from the database here, so listening first would serve a player an
+ * empty world and then overwrite the real one when they acted.
+ */
+async function start() {
+  await initStores();
+  // The invite index is derived from the groups that were just loaded.
+  groups.forEach((group) => inviteIndex.add(group));
+
+  server.listen(config.port, () => {
+    console.log(`Server running on port ${config.port}`);
+    if (config.authTestMode) {
+      console.warn('[auth] AUTH_TEST_MODE is ON - test identities are accepted. Never enable this in production.');
+    }
+  });
+}
+
+start().catch((error) => {
+  // A server that can't read its own state must not accept players.
+  console.error('FATAL: could not load persisted state:', error);
+  process.exit(1);
 });
