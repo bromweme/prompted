@@ -6,7 +6,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const config = require('./config');
 const { createAuthMiddleware } = require('./auth');
-const { searchVideos, isValidVideoId } = require('./youtube');
+const { searchVideos, describeVideo, isValidVideoId, thumbnailFor } = require('./youtube');
 const { getOrCreateProfile, updateProfile, AVATAR_CHOICES } = require('./profiles');
 const { PersistentStore, initStores, flushStores, driver } = require('./db');
 const { logEvent, settingsSnapshot, changedSettingKeys } = require('./events');
@@ -2617,7 +2617,7 @@ io.on('connection', (socket) => {
   });
 
   // Submit a video for the current round (non-Round-Leader players only)
-  on('submit_video', ({ groupId, videoId, title, thumbnail, channelTitle }) => {
+  on('submit_video', async ({ groupId, videoId, title, thumbnail, channelTitle }) => {
     console.log('Submit video request:', { groupId, socketId: socket.id, userId });
 
     const found = findMemberGroup(groupId);
@@ -2654,19 +2654,41 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const videoTitle = cleanText(title, LIMITS.videoTitle);
-    const channel = cleanText(channelTitle, LIMITS.channelTitle) || 'Unknown channel';
-    if (!videoTitle) {
+    const claimedTitle = cleanText(title, LIMITS.videoTitle);
+    const claimedChannel = cleanText(channelTitle, LIMITS.channelTitle) || 'Unknown channel';
+    if (!claimedTitle) {
       socket.emit('error', { message: `A video needs a title of at most ${LIMITS.videoTitle} characters` });
       return;
     }
 
-    // The thumbnail is decorative and the client puts it in an <img src>.
-    // Anything that is not a plain https URL falls back to YouTube's canonical
-    // one rather than failing the submission over a cosmetic field.
-    let thumb = cleanText(thumbnail, LIMITS.thumbnailUrl);
-    if (!thumb || thumb.slice(0, 8) !== 'https://') {
-      thumb = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+    // Title and channel arrive from the client, which can send any text with
+    // any id — that is how a video gets mislabelled for everyone else. So the
+    // server asks what it actually is, and prefers its own answer. Normally
+    // free: search results are cached by id, so a video the player picked here
+    // is already known. A failed lookup (no key, quota gone, API down) returns
+    // null and the claim stands: metadata is not worth refusing a submission
+    // over, and the video itself plays regardless.
+    const known = await describeVideo(videoId).catch(() => null);
+    const videoTitle = (known && cleanText(known.title, LIMITS.videoTitle)) || claimedTitle;
+    const channel = (known && cleanText(known.channelTitle, LIMITS.channelTitle)) || claimedChannel;
+
+    // Derived, never accepted. The client used to supply this and only an
+    // "https://" prefix was checked, so a crafted client could point every
+    // other player's browser at any host it liked — a tracking beacon for
+    // their IP addresses and user agents. Honest clients send exactly this
+    // value anyway, because our own search produced it.
+    const thumb = thumbnailFor(videoId);
+
+    // The await above is a gap: the round can move on, or the player can
+    // submit again, while the lookup is in flight. Re-checked here so a late
+    // submission cannot land in a closed round or become a second entry.
+    if (group.currentTheme !== theme || theme.status !== 'submission') {
+      socket.emit('error', { message: 'Submissions are not open for this round' });
+      return;
+    }
+    if (theme.submissions.some(s => s.playerUserId === userId)) {
+      socket.emit('error', { message: 'You already submitted a video this round' });
+      return;
     }
 
     theme.submissions.push({

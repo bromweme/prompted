@@ -6,7 +6,13 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 
-const { extractVideoId, isValidVideoId, MAX_RESULTS } = require('../youtube');
+// Blanked before youtube.js is first required, exactly as playwright.config.js
+// does for the e2e suite: a developer's real key is inherited from server/.env,
+// and without this the tests would call the live API and spend 100 quota units
+// a search (1 a lookup) on every run.
+process.env.YOUTUBE_API_KEY = '';
+
+const { extractVideoId, isValidVideoId, describeVideo, MAX_RESULTS } = require('../youtube');
 
 test('every shape a player might paste resolves to the same id', () => {
   const id = 'dQw4w9WgXcQ';
@@ -60,4 +66,12 @@ test('a search asks for more than a handful of results', () => {
   // The quota cost is per call, not per result, so a small cap bought nothing
   // and hid the song people were looking for.
   assert.ok(MAX_RESULTS >= 20, `expected a generous result count, got ${MAX_RESULTS}`);
+});
+
+test('with no API key there is no authority, so a claim is not overridden', async () => {
+  // describeVideo says "I don't know" rather than inventing metadata, and the
+  // caller keeps what the client sent. The override only engages in production,
+  // where a key exists to check against.
+  assert.equal(await describeVideo('dQw4w9WgXcQ'), null);
+  assert.equal(await describeVideo('not-an-id'), null);
 });

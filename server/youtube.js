@@ -104,6 +104,28 @@ function extractVideoId(input) {
 }
 
 /**
+ * What the server itself knows about a video, or null when it has no way to
+ * know. Used to check a submission's title and channel rather than taking the
+ * client's word for them: a crafted client can send any videoId with any
+ * title, which is how a video gets mislabelled for everybody else.
+ *
+ * Returns null when no API key is configured — offline there is no authority
+ * to check against, and inventing one would be worse than admitting it. The
+ * caller keeps the client's values in that case.
+ *
+ * Normally free: search results are cached by id as they are returned, so a
+ * video the player actually picked in the app is already here.
+ */
+async function describeVideo(videoId) {
+  if (!isValidVideoId(videoId) || !youtubeSearchEnabled) return null;
+  const cached = readCache(`id:${videoId}`);
+  if (cached) return cached[0] || null;
+  const video = await lookupVideo(videoId);
+  writeCache(`id:${videoId}`, video ? [video] : []);
+  return video;
+}
+
+/**
  * One video by id. videos.list costs 1 quota unit against search.list's 100,
  * so a pasted link is a hundred times cheaper than a search — worth preferring
  * wherever a player already knows exactly what they want.
@@ -219,6 +241,9 @@ async function searchVideos(query) {
     }));
 
   writeCache(key, results);
+  // Also keyed by id, so checking a submission against what the server knows
+  // (describeVideo) costs nothing for any video a player actually saw here.
+  for (const video of results) writeCache(`id:${video.videoId}`, [video]);
   return results;
 }
 
@@ -231,4 +256,4 @@ function isValidVideoId(value) {
   return typeof value === 'string' && VIDEO_ID_PATTERN.test(value);
 }
 
-module.exports = { searchVideos, isValidVideoId, extractVideoId, MAX_RESULTS };
+module.exports = { searchVideos, describeVideo, isValidVideoId, extractVideoId, thumbnailFor, MAX_RESULTS };

@@ -37,6 +37,7 @@ const API_SPECS = [
   '**/judge-skip.spec.js',
   '**/open-groups.spec.js',
   '**/round-deadline.spec.js',
+  '**/video-search-api.spec.js',
   '**/vote-budget.spec.js',
 ]
 
