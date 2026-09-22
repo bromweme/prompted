@@ -36,6 +36,8 @@ The projects form a 2x2 grid of engine and screen size, so a failure in one cell
 
 Every push runs all of it on GitHub Actions, with each Playwright project as its own parallel job.
 
+Two checks run alongside the tests. A **Postgres job** runs the server unit tests and the `api` project against a real `postgres:17` service, because local runs default to SQLite and the driver production uses would otherwise never be exercised. A **dependency audit** fails the build on a high or critical advisory in a package that ships, reports dev-only advisories without blocking (a bundler cannot be reached by a player), and saves a CycloneDX SBOM of the shipped tree — which is what makes it possible to answer "were we affected?" about an advisory published next month. Dependabot raises the weekly update pull requests, grouped so an ordinary week is one review per package.
+
 ### What the suite covers
 
 - **Full multiplayer rounds.** Tests open separate browser contexts to act as independent players in the same game, then drive a round from start to finish: joining a group, choosing a topic, submitting a song, voting, and the reveal.

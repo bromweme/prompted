@@ -1,0 +1,52 @@
+# Dependency updates (DEP-1).
+#
+# Outdated packages are one of the likeliest ways a small project gets
+# compromised: nobody attacks the game's own code, they attack a transitive
+# dependency that stopped being maintained. Nothing here watched for that.
+#
+# Two packages plus the workflow actions, weekly. Patch and minor updates are
+# grouped into one pull request per package so an ordinary week is one review,
+# not fifteen; majors come separately because they need reading.
+#
+# This file only covers *version* updates. Security alerts and automatic
+# security fixes are a repository setting (Settings -> Code security), and are
+# worth turning on: they raise a pull request the day an advisory lands rather
+# than waiting for the weekly run.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      server-minor-and-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+    commit-message:
+      prefix: 'server deps'
+
+  - package-ecosystem: npm
+    directory: /web-app
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      web-app-minor-and-patch:
+        patterns: ['*']
+        update-types: [minor, patch]
+    commit-message:
+      prefix: 'web-app deps'
+
+  # The workflow's own actions pin major versions (checkout@v7 and friends), so
+  # a new major is a deliberate bump rather than something that drifts in.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: 'ci'

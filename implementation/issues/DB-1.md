@@ -84,7 +84,12 @@ Original plan, for the record:
 - Move the HMAC secret to the required `EVENTS_HASH_SECRET` environment variable rather than a `meta` row, so actor ids are stable across restarts and across a database reset. This is a fix to `EVT-1`'s guarantee, not just a port.
 - Writes are already fire-and-forget by design, so this phase is the least invasive.
 
-**Phase 4 — verification.**
+**Phase 4 — verification. Partly done.**
+- ✅ Full suite green against SQLite (484/484, then 500/500 as specs were added) and against Postgres (484/484).
+- ✅ Production: the four tables appeared in Neon on first boot, and the user confirmed that groups survived **repeated deploys** — a stronger check than the single restart originally planned, since each deploy replaces the filesystem the old SQLite file lived on.
+- ⬜ Still outstanding: an API-level spec that writes through the store, drops the in-memory cache, and reads back. Every existing test would pass against a store that only lives in memory, which is exactly how this went unnoticed for so long; `server/test/persistence.test.js` covers it at unit level but nothing does end to end.
+
+Original plan, for the record:
 - Full suite green against SQLite (the fallback path).
 - Full suite green against a Postgres instance, to prove the two drivers agree.
 - A new API-level spec: write through the store, drop and rebuild the in-memory cache, read back — the regression test for "does it actually persist", which nothing covers today.

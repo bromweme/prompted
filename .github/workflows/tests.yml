@@ -28,6 +28,53 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  audit:
+    # Known-vulnerable dependencies, checked on every push (DEP-1). Dependabot
+    # raises the pull requests; this is the gate that says so at the time.
+    #
+    # What blocks and what only reports is deliberate. A high or critical
+    # advisory in a package that SHIPS is a real exposure and fails the build.
+    # A dev-only one — a bundler, a linter, a test runner — cannot be reached by
+    # a player, so it is reported and left visible rather than blocking a
+    # release over the build toolchain. Both are worth knowing; only one is
+    # worth stopping for.
+    name: Dependency audit (${{ matrix.package }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [server, web-app]
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
+      - run: npm ci
+
+      - name: Production dependencies (blocking)
+        run: npm audit --omit=dev --audit-level=high
+
+      - name: All dependencies, including dev (informational)
+        continue-on-error: true
+        run: npm audit
+
+      # A record of exactly what shipped, which is what makes it possible to
+      # answer "were we affected?" about an advisory published next month.
+      - name: Software bill of materials
+        run: npm sbom --sbom-format cyclonedx --omit=dev > sbom-${{ matrix.package }}.json
+      - uses: actions/upload-artifact@v7
+        if: ${{ !cancelled() }}
+        with:
+          name: sbom-${{ matrix.package }}
+          path: ${{ matrix.package }}/sbom-${{ matrix.package }}.json
+          retention-days: 90
+
   postgres:
     # The driver production actually uses (DB-1). Local runs default to SQLite
     # because it needs no setup; without this job, nothing would ever exercise
