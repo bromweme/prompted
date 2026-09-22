@@ -123,7 +123,7 @@ function assertNoOverflowOrOverlap(measures) {
 test('UI-1: the Create Group timing unit select shows its label, not just the chevron', async ({ page, context }) => {
   await seedTestUser(context, { id: `ui1-${testRunId()}`, name: 'Timing Host' })
 
-  // advanceToFinalWizardStep lands on step 4 (Topics & Extras); the Timing
+  // advanceToFinalWizardStep lands on step 4 (Extras); the Timing
   // Settings section is on step 3 (Override & Timing), so stop one step short.
   await page.goto('/create-group')
   await fillGroupName(page, `Timing ${testRunId()}`)

@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { createGroupThroughWizard, fillGroupName, goToNextWizardStep, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, waitForJudgeIndex, startRoundAsHost, testRunId, inviteJoinPath } from './helpers.js'
+import { connectAs, createGroupThroughWizard, fillGroupName, goToNextWizardStep, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, waitForJudgeIndex, startRoundAsHost, testRunId, inviteJoinPath } from './helpers.js'
 
 // Automated WCAG 2.1 A/AA scan for the main pages, so accessibility
 // regressions get caught the same way the game-loop test catches functional
@@ -34,6 +34,117 @@ test.describe('accessibility (WCAG 2.1 AA)', () => {
 
     const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
     expect(results.violations, reportViolations(results.violations)).toEqual([])
+  })
+
+  test('Open Groups search page has no violations', async ({ page, context }) => {
+    await seedTestUser(context, { id: `a11y-open-${testRunId()}`, name: 'A11y Tester' })
+    await page.goto('/open-groups')
+    await expect(page.getByRole('heading', { name: 'Open Groups', level: 1 })).toBeVisible()
+    await expect(page.locator('#open-groups-status')).not.toBeEmpty()
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
+    expect(results.violations, reportViolations(results.violations)).toEqual([])
+  })
+
+  test('View-only group page has no violations', async ({ page, context }) => {
+    const runId = testRunId()
+    const host = connectAs(`a11y-pv-host-${runId}`, 'A11y Host')
+    await host.ready
+    const created = new Promise((resolve) => host.socket.once('group_created', resolve))
+    host.socket.emit('create_group', { groupData: { name: `A11y Preview ${runId}`, description: 'A group to look at', settings: {} } })
+    const { group } = await created
+
+    await seedTestUser(context, { id: `a11y-pv-${runId}`, name: 'A11y Tester' })
+    await page.goto(`/group/${group.id}`)
+    await expect(page.getByRole('button', { name: 'Request to Join' })).toBeVisible()
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
+    expect(results.violations, reportViolations(results.violations)).toEqual([])
+    host.socket.close()
+  })
+
+  test('Host Requests tab has no violations', async ({ page, context }) => {
+    const runId = testRunId()
+    const hostId = `a11y-rq-host-${runId}`
+    const host = connectAs(hostId, 'A11y Host')
+    const requester = connectAs(`a11y-rq-req-${runId}`, 'A11y Requester')
+    await Promise.all([host.ready, requester.ready])
+    const created = new Promise((resolve) => host.socket.once('group_created', resolve))
+    host.socket.emit('create_group', { groupData: { name: `A11y Requests ${runId}`, settings: {} } })
+    const { group } = await created
+    requester.socket.emit('request_join', { groupId: group.id })
+    host.socket.close()
+
+    await seedTestUser(context, { id: hostId, name: 'A11y Host' })
+    await page.goto(`/group/${group.id}`)
+    await page.getByRole('button', { name: /^Requests/ }).click()
+    await expect(page.getByRole('button', { name: 'Accept A11y Requester' })).toBeVisible()
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
+    expect(results.violations, reportViolations(results.violations)).toEqual([])
+    requester.socket.close()
+  })
+
+  test('Notification panel has no violations', async ({ page, context }) => {
+    const runId = testRunId()
+    const host = connectAs(`a11y-nb-host-${runId}`, 'A11y Host')
+    const playerId = `a11y-nb-${runId}`
+    const player = connectAs(playerId, 'A11y Tester')
+    await Promise.all([host.ready, player.ready])
+    const created = new Promise((resolve) => host.socket.once('group_created', resolve))
+    host.socket.emit('create_group', { groupData: { name: `A11y Bell ${runId}`, settings: {} } })
+    const { group } = await created
+    const asked = new Promise((resolve) => player.socket.once('join_request_update', resolve))
+    player.socket.emit('request_join', { groupId: group.id })
+    await asked
+    const told = new Promise((resolve) => player.socket.once('notification', resolve))
+    host.socket.emit('respond_join_request', { groupId: group.id, requesterId: playerId, accept: true })
+    await told
+    host.socket.close()
+    player.socket.close()
+
+    await seedTestUser(context, { id: playerId, name: 'A11y Tester' })
+    await page.goto('/dashboard')
+    await page.getByRole('button', { name: /^Notifications, \d+ unread$/ }).click()
+    await expect(page.getByRole('region', { name: 'Notifications' })).toBeVisible()
+
+    const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
+    expect(results.violations, reportViolations(results.violations)).toEqual([])
+  })
+
+  test('Start modals (players and topics) have no violations', async ({ page, context }) => {
+    const runId = testRunId()
+    const hostId = `a11y-sm-host-${runId}`
+    const host = connectAs(hostId, 'A11y Host')
+    await host.ready
+    const created = new Promise((resolve) => host.socket.once('group_created', resolve))
+    host.socket.emit('create_group', { groupData: { name: `A11y Start ${runId}`, settings: { allowCustomTopics: false, totalRounds: 2 } } })
+    const { group } = await created
+
+    await seedTestUser(context, { id: hostId, name: 'A11y Host' })
+    await page.goto(`/group/${group.id}`)
+    await page.getByRole('button', { name: 'Start Round' }).click()
+    await expect(page.getByRole('dialog', { name: 'Invite someone to start' })).toBeVisible()
+    let results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
+    expect(results.violations, reportViolations(results.violations)).toEqual([])
+    await page.getByRole('button', { name: 'Close', exact: true }).click()
+
+    const member = connectAs(`a11y-sm-mem-${runId}`, 'A11y Member')
+    await member.ready
+    const joined = new Promise((resolve) => member.socket.once('group_joined', resolve))
+    member.socket.emit('join_group', { inviteCode: group.inviteCode })
+    await joined
+    await expect(page.getByText('2 players')).toBeVisible()
+
+    await page.getByRole('button', { name: 'Start Round' }).click()
+    const modal = page.getByRole('dialog', { name: 'Add your topics to start' })
+    await expect(modal).toBeVisible()
+    await modal.getByRole('button', { name: 'Add topic' }).click()
+    await expect(modal.getByRole('alert')).toBeVisible()
+    results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
+    expect(results.violations, reportViolations(results.violations)).toEqual([])
+    host.socket.close()
+    member.socket.close()
   })
 
   test('Dashboard "Join Group" modal has no violations', async ({ page, context }) => {

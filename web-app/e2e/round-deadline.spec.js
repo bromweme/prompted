@@ -102,7 +102,12 @@ async function runToSubmission(runId, { submissionTime = ONE_SECOND, votingTime 
   return { host, others, groupId, judge: host, contestant: others[0], closeAll }
 }
 
+// Resolves on the update that confirms this player's own submission. Any
+// earlier broadcast still in flight (e.g. the one that opened submissions)
+// doesn't count: resolving on it let a test act before the server had the
+// song, so the host's close_submissions was refused as empty.
 async function submitVideo(player, groupId) {
+  const confirmed = waitForUpdate(player.socket, (p) => p.group?.id === groupId && !!p.yourSubmissionId)
   player.socket.emit('submit_video', {
     groupId,
     videoId: 'dQw4w9WgXcQ',
@@ -110,7 +115,7 @@ async function submitVideo(player, groupId) {
     thumbnail: 'https://i.ytimg.com/vi/dQw4w9WgXcQ/mqdefault.jpg',
     channelTitle: 'Someone'
   })
-  return once(player.socket, 'group_updated')
+  return confirmed
 }
 
 test.describe('submission deadline', () => {

@@ -1,0 +1,41 @@
+/* The Notifications page (NT-1). The list and items share the bell's styles
+   (NotificationBell.css); this is the page around them. */
+.notifications-page {
+  min-height: 100vh;
+  background: var(--color-bg);
+}
+
+.notifications-main {
+  padding: var(--space-6) var(--space-4);
+}
+
+.notifications-content {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.notifications-back {
+  display: inline-block;
+  margin-bottom: var(--space-3);
+  font-size: var(--text-caption);
+}
+
+.notifications-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.notifications-title-row h1 {
+  margin: 0;
+}
+
+.notifications-page-list {
+  padding: var(--space-2);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}

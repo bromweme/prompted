@@ -1,0 +1,90 @@
+/* View-only group page (JR-1). Layout only: colors come from the shared
+   tokens, and buttons use the shared classes from index.css. */
+.group-preview-main {
+  padding: var(--space-6) var(--space-4);
+}
+
+.group-preview-card {
+  max-width: 720px;
+  margin: 0 auto;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-5);
+}
+
+.group-preview-back {
+  display: inline-block;
+  margin-bottom: var(--space-3);
+  font-size: var(--text-caption);
+}
+
+.group-preview-eyebrow {
+  margin: 0 0 var(--space-1);
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.group-preview-card h1 {
+  margin: 0 0 var(--space-2);
+  overflow-wrap: anywhere;
+}
+
+.group-preview-card h2 {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--text-subheading);
+}
+
+.group-preview-description {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-secondary);
+}
+
+.group-preview-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+  margin: 0;
+}
+
+.group-preview-facts dt {
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+}
+
+.group-preview-facts dd {
+  margin: 0;
+}
+
+.group-preview-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.group-preview-members li {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-sm);
+  overflow-wrap: anywhere;
+}
+
+.group-preview-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+.group-preview-state {
+  margin: 0;
+}

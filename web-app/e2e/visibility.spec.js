@@ -36,7 +36,7 @@ test.describe('site-wide element visibility', () => {
     await expect(page.getByText(`Visibility topic ${runId}`)).toBeVisible({ timeout: 15_000 })
     await expect(page.locator('.action-button.edit')).toBeVisible()
 
-    for (const path of ['/dashboard', '/account', '/topics']) {
+    for (const path of ['/dashboard', '/open-groups', '/account', '/topics']) {
       await page.goto(path)
       await expect(page.getByRole('banner')).toBeVisible()
       await auditVisible(page, path)
@@ -52,7 +52,7 @@ test.describe('site-wide element visibility', () => {
     await auditHover(page, 'wizard step 1 (Basics)')
 
     await fillGroupName(page, `Visibility ${testRunId()}`)
-    for (const heading of ['Game Rules', 'Override & Timing', 'Topics & Extras']) {
+    for (const heading of ['Game Rules', 'Override & Timing', 'Extras']) {
       await goToNextWizardStep(page, heading)
       await auditVisible(page, `wizard step: ${heading}`)
     }

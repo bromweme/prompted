@@ -130,9 +130,9 @@ test.describe('topic library', () => {
     const round2Judge = both[judgeIdx]
     const marked = round2Judge.page.locator('.topic-option').filter({ hasText: topicText })
     await expect(marked).toHaveClass(/used/)
-    await expect(marked).toContainText('Already played here')
-    // Marked, not blocked — reuse stays the Judge's call.
-    await expect(marked).toBeEnabled()
+    await expect(marked).toContainText('Already played this game')
+    // Blocked for the rest of this game (GT-1); a new game frees it again.
+    await expect(marked).toBeDisabled()
 
     // --- Group B: the same topic is untouched, because usage is per group ---
     await createGroupThroughWizard(owner.page, `Reuse B ${runId}`)
@@ -147,7 +147,8 @@ test.describe('topic library', () => {
     const inGroupB = owner.page.locator('.topic-option').filter({ hasText: topicText })
     await expect(inGroupB).toBeVisible()
     await expect(inGroupB).not.toHaveClass(/used/)
-    await expect(inGroupB).not.toContainText('Already played here')
+    await expect(inGroupB).not.toContainText('Already played this game')
+    await expect(inGroupB).toBeEnabled()
 
     await owner.context.close()
     await mate.context.close()

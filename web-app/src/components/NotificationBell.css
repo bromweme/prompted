@@ -1,0 +1,165 @@
+/* The header bell and its panel (NT-1). */
+.notification-bell {
+  position: relative;
+}
+
+.bell-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  border: 1px solid var(--color-border-subtle);
+  border-radius: 999px;
+  background: var(--color-surface);
+  font-size: 1.1rem;
+  cursor: pointer;
+}
+
+.bell-button:hover {
+  background: var(--color-bg);
+}
+
+.bell-count {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 1.35rem;
+  padding: 0 var(--space-1);
+  border-radius: 999px;
+  background: var(--color-danger);
+  color: var(--color-surface);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  line-height: 1.35rem;
+  text-align: center;
+}
+
+.notification-panel {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  z-index: 60;
+  width: min(360px, calc(100vw - 32px));
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+}
+
+.notification-heading {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-body);
+}
+
+.notification-empty {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.notification-list {
+  display: flex;
+  flex-direction: column;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.notification-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2);
+  border-top: 1px solid var(--color-border-subtle);
+  border-left: 3px solid transparent;
+  overflow-wrap: anywhere;
+}
+
+.notification-item:first-child {
+  border-top: none;
+}
+
+.notification-item.is-new {
+  border-left-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+/* Secondary grey is too faint on the highlight (WCAG AA 4.5:1). */
+.notification-item.is-new .notification-meta {
+  color: var(--color-text-primary);
+}
+
+.notification-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-caption);
+  color: var(--color-text-secondary);
+}
+
+.notification-link {
+  font-weight: var(--weight-semibold);
+}
+
+/* Header row, per-item remove, and the link to the full page. */
+.notification-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.notification-header .notification-heading {
+  margin: 0;
+}
+
+.notification-clear {
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  font-size: var(--text-caption);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.notification-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.notification-remove {
+  flex: 0 0 auto;
+  width: 1.75rem;
+  height: 1.75rem;
+  border: none;
+  border-radius: 999px;
+  background: none;
+  color: var(--color-text-secondary);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.notification-remove:hover {
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+}
+
+.notification-all {
+  display: block;
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+  text-align: center;
+}

@@ -94,16 +94,21 @@ test.describe('round phases', () => {
     await createGroupThroughWizard(page, `Solo Group ${runId}`)
     await expect(page).toHaveURL(/\/group\/.+/)
 
-    // UI: the action is disabled and says why. A solo round would consume a
-    // topic and then stall, because nobody can submit.
+    // UI: Start stays clickable (a greyed-out button reads as broken), and
+    // clicking it explains what's missing instead of starting. A solo round
+    // would consume a topic and then stall, because nobody can submit.
     const startButton = page.getByRole('button', { name: 'Start Round', exact: true })
-    // Styled as the primary action; the :disabled rule is what mutes it here.
     await expect(startButton).toHaveClass(/\bsetup-button\b/)
     await expect(startButton).toHaveClass(/\bprimary\b/)
     await expect(startButton).not.toHaveClass(/\bsecondary\b/)
-    await expect(startButton).toBeDisabled()
+    await expect(startButton).toBeEnabled()
     await expect(page.getByText(/at least 2 players/)).toBeVisible()
     await expect(page.getByText('Group can start with 1 player for testing')).toHaveCount(0)
+    await startButton.click()
+    const needPlayers = page.getByRole('dialog', { name: 'Invite someone to start' })
+    await expect(needPlayers).toBeVisible()
+    await needPlayers.getByRole('button', { name: 'Close', exact: true }).click()
+    await expect(needPlayers).toHaveCount(0)
 
     // The server-side half of this rule is covered by the next test, which
     // owns its group and so reaches the player-count check rather than the

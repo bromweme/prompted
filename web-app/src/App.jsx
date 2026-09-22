@@ -8,6 +8,9 @@ import GroupView from './pages/GroupView'
 import JoinByCode from './pages/JoinByCode'
 import Account from './pages/Account'
 import ThemeIdeas from './pages/ThemeIdeas'
+import OpenGroups from './pages/OpenGroups'
+import Notifications from './pages/Notifications'
+import ConnectionBanner from './components/ConnectionBanner'
 import './App.css'
 
 // Every page but the sign-in screen needs a confirmed identity, because they
@@ -45,6 +48,7 @@ function App() {
       <SocketProvider>
         <Router>
           <div className="app">
+            <ConnectionBanner />
             <Routes>
               <Route path="/" element={<Login />} />
               <Route path="/dashboard" element={<RequireAuth><Dashboard /></RequireAuth>} />
@@ -57,6 +61,8 @@ function App() {
               {/* The personal topic library. It existed but was unreachable —
                   no route pointed at it. */}
               <Route path="/topics" element={<RequireAuth><ThemeIdeas /></RequireAuth>} />
+              <Route path="/open-groups" element={<RequireAuth><OpenGroups /></RequireAuth>} />
+              <Route path="/notifications" element={<RequireAuth><Notifications /></RequireAuth>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

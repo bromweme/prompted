@@ -1,12 +1,17 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
 import { useModalA11y } from '../hooks/useModalA11y'
 import ProfileSetupModal from '../components/ProfileSetupModal'
 import AppNav from '../components/AppNav'
 import { normalizeInviteCode } from '../utils/inviteCode'
+import OpenGroupCard from '../components/OpenGroupCard'
+import { useOpenGroups } from '../hooks/useOpenGroups'
 import './Dashboard.css'
+
+// 6 across x 2 rows on a wide screen.
+const OPEN_GROUPS_PREVIEW = 12
 
 function Dashboard() {
   const [groups, setGroups] = useState([])
@@ -21,6 +26,9 @@ function Dashboard() {
   const navigate = useNavigate()
   const location = useLocation()
   const joinModalRef = useRef(null)
+  // Open groups (OG-1): a preview of the newest; the full, searchable list is
+  // on /open-groups.
+  const { groups: openGroups } = useOpenGroups({ limit: OPEN_GROUPS_PREVIEW })
 
   const closeJoinModal = () => {
     setShowJoinModal(false)
@@ -47,7 +55,9 @@ function Dashboard() {
         status: group.status,
         host: group.host,
         // Host governance (HG-1): whether the host has abandoned this group.
-        hostAbandoned: group.hostAbandoned === true
+        hostAbandoned: group.hostAbandoned === true,
+        // Join requests waiting on this player as host (JR-1).
+        pendingRequestCount: group.pendingRequestCount || 0
       }))
       setGroups(transformedGroups)
     })
@@ -182,6 +192,9 @@ function Dashboard() {
 
       <main id="main-content" className="dashboard-main">
         <div className="dashboard-content">
+          {location.state?.notice && (
+            <p className="dashboard-notice" role="status">{location.state.notice}</p>
+          )}
           {/* Show My Groups first if user has groups */}
           {groups.length > 0 && (
             <section className="groups-section">
@@ -223,6 +236,11 @@ function Dashboard() {
                         <span className="host-badge">You're the host</span>
                       ) : (
                         <span className="member-badge">Member</span>
+                      )}
+                      {group.host === user.id && group.pendingRequestCount > 0 && (
+                        <span className="requests-badge">
+                          {group.pendingRequestCount === 1 ? '1 request' : `${group.pendingRequestCount} requests`}
+                        </span>
                       )}
                       {group.hostAbandoned && group.host !== user.id && (
                         <span className="host-abandoned-badge">Host abandoned</span>
@@ -278,6 +296,37 @@ function Dashboard() {
               </div>
             </section>
           )}
+
+          <section className="groups-section open-groups-section" aria-labelledby="open-groups-title">
+            <div className="section-header">
+              <h2 id="open-groups-title">Open Groups</h2>
+            </div>
+            <div className="open-groups-intro-row">
+              <p className="open-groups-intro">
+                Groups anyone can ask to join. They stay here until their first round starts.
+              </p>
+              <Link
+                to="/open-groups"
+                className="open-groups-view-all"
+                aria-label="View all open groups"
+              >
+                View All
+              </Link>
+            </div>
+
+            {openGroups.length > 0 ? (
+              <ul className="groups-grid open-groups-list">
+                {openGroups.map((group) => (
+                  <OpenGroupCard key={group.id} group={group} compact />
+                ))}
+              </ul>
+            ) : (
+              <div className="empty-state">
+                <h3>No open groups right now</h3>
+                <p>Groups that aren't private show up here until they start.</p>
+              </div>
+            )}
+          </section>
         </div>
       </main>
 

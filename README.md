@@ -4,6 +4,15 @@ A real-time multiplayer music game. Each round, one player picks a topic, everyo
 
 Built with React, Node.js/Express, Socket.io, and SQLite, and tested end to end with Playwright.
 
+Games are asynchronous — rounds run on deadlines measured in hours, not while everyone waits in a lobby. A group plays a set number of rounds and then finishes with final standings, and the host can start another game.
+
+- **Find a group without knowing anyone.** Groups that are open and haven't started yet are listed on the dashboard and on a searchable Open Groups page. A stranger reads the group's page, asks to join, and the host accepts or declines.
+- **Hosts run their group.** Invite links with resettable codes, join requests (three declines and that player can't keep asking), kick, and ban. Nobody new joins in the middle of a round.
+- **Notifications.** A bell in the header and a full history page: your turn to judge, a round opening or resolving, a game finishing, join requests and their answers. They're kept per player on the server, so they survive being away.
+- **Host-supplied topics.** A group can turn off custom topics and play from a list the host writes, and the app won't start a round without enough unused topics for the rounds left.
+
+`GAME_DESIGN.md` describes the rules and architecture as built; `implementation/issues/` holds the per-feature specs.
+
 ## Testing
 
 The test suite is the main focus of this repository. Tests are split into layers, so each check runs at the lowest level that can prove it:
@@ -11,10 +20,10 @@ The test suite is the main focus of this repository. Tests are split into layers
 | Layer | Tests | Runs | Tool |
 |---|---|---|---|
 | **Unit** (backend and frontend logic) | 15 | once | Node test runner |
-| **API** (game rules, driven over socket.io with no browser) | 41 | once | Playwright `api` project |
-| **End-to-end** (real browsers) | 74 | x 4 projects | Playwright |
+| **API** (game rules, driven over socket.io with no browser) | 88 | once | Playwright `api` project |
+| **End-to-end** (real browsers) | 99 | x 4 projects | Playwright |
 
-That's **337 Playwright runs per suite**, plus the unit tests. The end-to-end tests run across four browser/device projects:
+That's **484 Playwright runs per suite**, plus the unit tests. The end-to-end tests run across four browser/device projects:
 
 | Project | Engine | Viewport |
 |---|---|---|
@@ -30,15 +39,17 @@ Every push runs all of it on GitHub Actions, with each Playwright project as its
 ### What the suite covers
 
 - **Full multiplayer rounds.** Tests open separate browser contexts to act as independent players in the same game, then drive a round from start to finish: joining a group, choosing a topic, submitting a song, voting, and the reveal.
+- **Every group size from 3 to 8.** Full games at each size, checking scoring, the end of the game, and that the Judge rotates through everyone.
+- **Players in more than one group.** Activity in one group never changes the group on screen.
 - **Live updates.** When one player acts, tests confirm the other players' open pages update without a refresh.
 - **What the server sends, not just what the screen shows.** Tests listen to the raw WebSocket traffic and check that the judge's identity never appears in any message before the reveal, even though the UI already hides it.
 - **Accessibility.** Pages are checked against WCAG 2.1 AA with axe-core, including hover states. Tests locate elements by role and accessible name (`getByRole`, `getByLabel`), so an unlabeled control fails the test.
-- **Game rules, at the API level.** Round deadlines, per-round vote budgets, judge skips, and host election when a host leaves, tested by driving the server directly over socket.io.
+- **Game rules, at the API level.** Round deadlines, per-round vote budgets, judge skips, host election when a host leaves, which groups are open, and join requests, kicks, and bans, tested by driving the server directly over socket.io.
 - **Logic and styling guards, at the unit level.** Time-window conversions round-trip exactly, and no stylesheet references an undefined CSS token or restyles a shared button app-wide.
 
 ### Design choices
 
-- **Real backend, no mocks.** Playwright boots the actual server and the Vite dev server before the run and tears them down afterward, so tests exercise real Socket.io traffic.
+- **Real backend, no mocks.** Playwright boots the actual server and the Vite dev server before the run and tears them down afterward, so tests exercise real Socket.io traffic. Each run gets a fresh throwaway database.
 - **Deterministic data.** Tests use fixture results instead of the live YouTube API. Results are the same on every run, and runs cost no API quota and work offline.
 - **Test-only sign-in.** A test mode lets the suite create players without going through Google. The server refuses to start with it enabled in production.
 - **Zero retries, on purpose.** A flaky test fails visibly instead of passing on a second try. Traces are kept for every failure (`retain-on-failure`) so failures can be stepped through afterward.
@@ -67,8 +78,14 @@ cd web-app && npm test
 ## Features
 
 - Create a group and invite players with a code or a shareable link
+- Browse open groups on the dashboard or search them on their own page, view one, and ask to join; the host accepts or declines (three declines and you can't ask again)
+- Hosts can kick members, or ban them from every way back in, with a banned list to undo it
+- No one joins during a round, by request or invite; hosts starting a round with requests waiting are asked first
 - Sign in with Google, with a profile name and avatar
-- An anonymous judge, randomly assigned each round, who picks the topic
+- An anonymous judge who picks the topic each round; random picks rotate through everyone before anyone judges twice
+- Games run for the host's number of rounds and end with final standings; the host can start a new game
+- No topic repeats within a game; with custom topics off, the host sets the group's topic list (at least one per round)
+- A notification bell for requests, kicks and bans, games starting and ending, your turn to judge, and each round's phases
 - Song submissions through YouTube search
 - Voting with a per-round vote budget, and round deadlines
 - A reveal that names the judge and plays the winning video

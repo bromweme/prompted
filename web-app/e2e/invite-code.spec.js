@@ -43,8 +43,8 @@ async function joinResult(socket, payload) {
   return result
 }
 
-async function rawGroup(host, name) {
-  host.socket.emit('create_group', { groupData: { name, settings: {} } })
+async function rawGroup(host, name, { isPrivate = false } = {}) {
+  host.socket.emit('create_group', { groupData: { name, isPrivate, settings: {} } })
   const { group } = await once(host.socket, 'group_created')
   return group
 }
@@ -252,12 +252,14 @@ test.describe('access by id requires membership', () => {
     }
   })
 
-  test('a non-member opening /group/<id> sees a not-a-member page', async ({ page, context }) => {
+  // A group that isn't private shows non-members a view-only page with
+  // Request to Join instead (JR-1, covered in open-groups-dashboard.spec.js).
+  test('a non-member opening a private /group/<id> sees a not-a-member page', async ({ page, context }) => {
     const runId = testRunId()
     const host = connectAs(`ic-page-host-${runId}`, 'Page Host')
     await host.ready
     try {
-      const group = await rawGroup(host, `Private Page ${runId}`)
+      const group = await rawGroup(host, `Private Page ${runId}`, { isPrivate: true })
       await seedTestUser(context, { id: `ic-page-out-${runId}`, name: 'Page Outsider' })
 
       await page.goto(`/group/${group.id}`)

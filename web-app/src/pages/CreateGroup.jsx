@@ -6,7 +6,7 @@ import AppNav from '../components/AppNav'
 import { WINDOW_UNITS, windowValueToHours } from '../utils/windowLengths'
 import './CreateGroup.css'
 
-const STEPS = ['Basics', 'Game Rules', 'Override & Timing', 'Topics & Extras']
+const STEPS = ['Basics', 'Game Rules', 'Override & Timing', 'Extras']
 
 function CreateGroup() {
   const navigate = useNavigate()
@@ -19,6 +19,10 @@ function CreateGroup() {
 
   // Basic Group Info
   const [groupName, setGroupName] = useState('')
+  // Shown when Next or Create is pressed without a name, rather than greying
+  // those buttons out with no explanation.
+  const [nameError, setNameError] = useState(false)
+  const groupNameRef = useRef(null)
   const [groupDescription, setGroupDescription] = useState('')
   const [isPrivate, setIsPrivate] = useState(false)
   // Host-only invites by default: most hosts won't think to configure this,
@@ -58,10 +62,8 @@ function CreateGroup() {
   const [votingWindow, setVotingWindow] = useState({ value: 24, unit: 'hours' })
   const [autoStart, setAutoStart] = useState(false)
 
-  // Topic Settings
-  // 'czar' is the only implemented mode — see the select in the Topics step
-  // for the alternatives being held for later.
-  const [topicSelection, setTopicSelection] = useState('czar')
+  // Topic Settings. The Judge always picks the topic; this decides where the
+  // choices come from (their own and shared topics, or the host's list).
   const [allowCustomTopics, setAllowCustomTopics] = useState(true)
 
   // Features
@@ -86,7 +88,13 @@ function CreateGroup() {
   }
 
   const goNext = () => {
-    if (!isStepValid(step)) return
+    if (!isStepValid(step)) {
+      if (step === 0) {
+        setNameError(true)
+        groupNameRef.current?.focus()
+      }
+      return
+    }
     setStep((s) => Math.min(s + 1, STEPS.length - 1))
   }
 
@@ -99,6 +107,7 @@ function CreateGroup() {
 
     if (!isStepValid(0)) {
       setStep(0)
+      setNameError(true)
       return
     }
 
@@ -127,7 +136,6 @@ function CreateGroup() {
         submissionTime: windowValueToHours(submissionWindow.value, submissionWindow.unit),
         votingTime: windowValueToHours(votingWindow.value, votingWindow.unit),
         autoStart,
-        topicSelection,
         allowCustomTopics,
         allowMemberInvites,
         allowVotingComments,
@@ -205,15 +213,26 @@ function CreateGroup() {
                   <div className="form-group">
                     <label htmlFor="group-name">Group Name *</label>
                     <input
+                      ref={groupNameRef}
                       id="group-name"
                       type="text"
                       value={groupName}
-                      onChange={(e) => setGroupName(e.target.value)}
+                      onChange={(e) => {
+                        setGroupName(e.target.value)
+                        if (nameError && e.target.value.trim()) setNameError(false)
+                      }}
                       placeholder="Enter group name"
                       required
                       maxLength={50}
                       autoFocus
+                      aria-invalid={nameError ? true : undefined}
+                      aria-describedby={nameError ? 'group-name-error' : undefined}
                     />
+                    {nameError && (
+                      <p id="group-name-error" className="field-error" role="alert">
+                        Enter a group name to continue.
+                      </p>
+                    )}
                   </div>
 
                   <div className="form-group">
@@ -235,9 +254,14 @@ function CreateGroup() {
                       type="checkbox"
                       checked={isPrivate}
                       onChange={(e) => setIsPrivate(e.target.checked)}
+                      aria-describedby="private-group-hint"
                     />
                     <span>Private Group (invite only)</span>
                   </label>
+                  <small id="private-group-hint" className="form-hint">
+                    Unless this is checked, your group appears under Open Groups on
+                    everyone's dashboard until the first round starts.
+                  </small>
                 </div>
 
                 <div className="form-group checkbox-group">
@@ -300,6 +324,23 @@ function CreateGroup() {
                     </select>
                   </div>
 
+                </div>
+
+                <div className="form-group checkbox-group">
+                  <label className="checkbox-label">
+                    <input
+                      type="checkbox"
+                      checked={allowCustomTopics}
+                      onChange={(e) => setAllowCustomTopics(e.target.checked)}
+                      aria-describedby="custom-topics-hint"
+                    />
+                    <span>Allow Custom Topics</span>
+                  </label>
+                  <small id="custom-topics-hint" className="form-hint">
+                    On: the Judge picks from their own topics and ones members share. Off: you set
+                    the group's topic list on the group page, with at least one topic per round,
+                    before the game can start.
+                  </small>
                 </div>
               </section>
 
@@ -553,57 +594,8 @@ function CreateGroup() {
 
           {step === 3 && (
             <div className="wizard-step">
-              <h2 ref={stepHeadingRef} tabIndex={-1} className="wizard-step-title">Topics & Extras</h2>
-              <p className="wizard-step-description">Choose how themes are picked and turn on any extra features.</p>
-
-              <section className="form-section">
-                <h3>Topic Settings</h3>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label htmlFor="topic-selection">Topic Selection Method</label>
-                    <select
-                      id="topic-selection"
-                      value={topicSelection}
-                      onChange={(e) => setTopicSelection(e.target.value)}
-                    >
-                      <option value="czar">Judge Selects</option>
-                      {/* Only "Judge Selects" is implemented: the Judge picks
-                          from their topic library at the start of each round.
-                          The options below are future ideas kept for their
-                          design intent, not rejected ones — offering them now
-                          would let a host choose something that silently does
-                          nothing. Each needs real mechanics before it comes
-                          back:
-                            random   - a pool to draw from, and a rule for
-                                       whose topics are eligible
-                            vote     - a whole voting sub-phase before
-                                       submissions open
-                            rotation - per-group ordering state so each
-                                       player's topics come up in turn
-                      <option value="random">Random from Preset</option>
-                      <option value="vote">Players Vote on Topic</option>
-                      <option value="rotation">Topic Rotation</option>
-                      */}
-                    </select>
-                    <small className="form-hint">
-                      The Judge picks from their topic library at the start of each round.
-                    </small>
-                  </div>
-
-                  <div className="form-group checkbox-group">
-                    <label className="checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={allowCustomTopics}
-                        onChange={(e) => setAllowCustomTopics(e.target.checked)}
-                      />
-                      <span>Allow Custom Topics</span>
-                    </label>
-                    <small className="form-hint">Players can create their own topics</small>
-                  </div>
-                </div>
-
-              </section>
+              <h2 ref={stepHeadingRef} tabIndex={-1} className="wizard-step-title">Extras</h2>
+              <p className="wizard-step-description">Turn on any extra features.</p>
 
               <section className="form-section">
                 <h3>Additional Features</h3>
@@ -662,7 +654,6 @@ function CreateGroup() {
                 key="create"
                 type="submit"
                 className="submit-button"
-                disabled={!groupName.trim()}
               >
                 Create Group
               </button>
@@ -672,7 +663,6 @@ function CreateGroup() {
                 type="button"
                 className="submit-button"
                 onClick={goNext}
-                disabled={!isStepValid(step)}
               >
                 Next
               </button>

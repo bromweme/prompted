@@ -24,6 +24,9 @@ dist-ssr
 .env.*
 !.env.example
 
+# Scratch files that aren't part of this project
+verify_skills.mjs
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

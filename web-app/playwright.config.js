@@ -1,8 +1,17 @@
 import { defineConfig, devices } from '@playwright/test'
 import path from 'node:path'
+import os from 'node:os'
 import { fileURLToPath } from 'node:url'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
+
+// A fresh throwaway database per run, so tests never write into (or read
+// leftovers from) the development database; before this, every run's groups
+// piled up there by the thousands. It's set on process.env here, in the
+// runner, so the server (via the webServer env below) and the test workers
+// (which specs like event-log read the database from) all get the same path.
+// A worker re-evaluating this file keeps the inherited value.
+process.env.PROMPTED_DB_PATH ??= path.join(os.tmpdir(), `prompted-e2e-${Date.now()}.db`)
 
 const WEB_PORT = 5173
 const API_PORT = 5000
@@ -12,9 +21,12 @@ const API_PORT = 5000
 // project instead of once per browser project.
 const API_SPECS = [
   '**/event-log.spec.js',
+  '**/game-rules.spec.js',
   '**/host-election.spec.js',
   '**/host-leave.spec.js',
+  '**/join-requests.spec.js',
   '**/judge-skip.spec.js',
+  '**/open-groups.spec.js',
   '**/round-deadline.spec.js',
   '**/vote-budget.spec.js',
 ]

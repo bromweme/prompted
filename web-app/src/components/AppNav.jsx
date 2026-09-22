@@ -1,5 +1,6 @@
 import { useNavigate } from 'react-router-dom'
 import { useUser } from '../context/UserContext'
+import NotificationBell from './NotificationBell'
 import './AppNav.css'
 
 /**
@@ -43,6 +44,7 @@ function AppNav({ current }) {
         </nav>
 
         <div className="user-section">
+          <NotificationBell />
           {/* The avatar is the only route to the account page, so it is a
               real labelled control rather than decoration. */}
           <button

@@ -4,14 +4,16 @@ import './TopicPicker.css'
 
 /**
  * The Round Leader's topic chooser: their own library plus the public topics
- * of the people they're playing with, with anything already played in this
- * group marked.
+ * of the people they're playing with. A topic already played this game can't
+ * be picked again until a new game starts (GT-1).
  *
  * It can also create a topic on the spot. That is what closes the old gap
  * where a round could start with no topics available at all — previously the
- * round silently fell back to a placeholder title.
+ * round silently fell back to a placeholder title. With custom topics off
+ * (`hostTopicsOnly`), the choices are the host's list for the group and
+ * there is nothing to create.
  */
-function TopicPicker({ groupId, onSelect }) {
+function TopicPicker({ groupId, onSelect, hostTopicsOnly = false }) {
   const { socket, isConnected } = useSocket()
   const [topics, setTopics] = useState([])
   const [loaded, setLoaded] = useState(false)
@@ -61,9 +63,13 @@ function TopicPicker({ groupId, onSelect }) {
 
       {loaded && topics.length === 0 && (
         <p className="topic-picker-empty">
-          You don't have any topics yet, and nobody in this group has shared one.
-          Write the first one below.
+          {hostTopicsOnly
+            ? "The host hasn't added any topics for this group yet."
+            : "You don't have any topics yet, and nobody in this group has shared one. Write the first one below."}
         </p>
+      )}
+      {hostTopicsOnly && topics.length > 0 && (
+        <p className="form-hint">The host chose this group's topics.</p>
       )}
 
       {topics.length > 0 && (
@@ -74,17 +80,18 @@ function TopicPicker({ groupId, onSelect }) {
                 type="button"
                 className={`topic-option ${topic.usedInGroup ? 'used' : ''}`}
                 onClick={() => onSelect(topic.id)}
+                disabled={topic.usedInGroup}
               >
                 <span className="topic-text">{topic.text}</span>
                 <span className="topic-tags">
-                  {topic.isOwn ? (
+                  {hostTopicsOnly ? null : topic.isOwn ? (
                     <span className="topic-tag">{topic.isPublic ? '🌐 Yours · public' : '🔒 Yours'}</span>
                   ) : (
                     <span className="topic-tag">Shared by {topic.ownerName}</span>
                   )}
-                  {/* Used in this group only — the same topic is still fresh
-                      in every other group. */}
-                  {topic.usedInGroup && <span className="topic-tag topic-tag-used">Already played here</span>}
+                  {/* Used in this game only: a new game frees it again, and
+                      it's still fresh in every other group. */}
+                  {topic.usedInGroup && <span className="topic-tag topic-tag-used">Already played this game</span>}
                 </span>
               </button>
             </li>
@@ -92,6 +99,7 @@ function TopicPicker({ groupId, onSelect }) {
         </ul>
       )}
 
+      {!hostTopicsOnly && (
       <form className="topic-create" onSubmit={handleCreate}>
         <div className="form-group">
           <label htmlFor="new-topic">Or write a new one</label>
@@ -116,6 +124,7 @@ function TopicPicker({ groupId, onSelect }) {
           {pending ? 'Saving…' : 'Add to my topics'}
         </button>
       </form>
+      )}
     </div>
   )
 }

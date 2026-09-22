@@ -49,6 +49,7 @@ app.get('/', (req, res) => {
 
 // Group state storage, backed by SQLite (see db.js) so it survives a server restart
 const topics = new PersistentStore('topics'); // Global topic bank: id -> { id, text, creatorId, isPublic, createdAt }
+const notificationStore = new PersistentStore('notifications'); // userId -> { items: [...] }, newest first (NT-1)
 const groups = new PersistentStore('groups'); // id -> { id, inviteCode, name, description, settings, host, players, status, currentRound, currentTheme, history }
 
 // inviteCode -> groupId (UI-2). Built once from the store here and kept in step
@@ -64,7 +65,7 @@ const joinThrottle = createJoinThrottle();
 
 // A join attempt says how it arrived, for the invite_opened event. Only these
 // literal values are recorded; anything else is treated as a typed code.
-const JOIN_VIA_VALUES = new Set(['link', 'code']);
+const JOIN_VIA_VALUES = new Set(['link', 'code', 'open']);
 
 // Every socket payload comes from an untrusted client, so handlers validate
 // the fields they use instead of trusting the shape. Caps sit comfortably
@@ -210,6 +211,11 @@ function electionMajorityNeeded(group) {
 function publicizeGroup(group) {
   const publicGroup = { ...group, currentTheme: publicizeTheme(group.currentTheme, group) };
   delete publicGroup.hostNotices;
+  // Join requests, decline counts and bans are the host's alone (JR-1); the
+  // host gets them separately through hostPanelFor.
+  delete publicGroup.joinRequests;
+  delete publicGroup.declineCounts;
+  delete publicGroup.bannedUsers;
   publicGroup.hostAbandoned = isHostAbandoned(group);
   return publicGroup;
 }
@@ -461,7 +467,13 @@ function beginRound(group, forcedCzarUserId) {
     ? group.players.find(p => p.userId === forcedCzarUserId)
     : null;
   if (!roundLeader) {
-    roundLeader = pool[Math.floor(Math.random() * pool.length)];
+    // A random pick favours players who haven't judged yet this cycle
+    // (RT-3's judgedThisCycle), so over a game everyone gets a turn before
+    // anyone judges twice. Once everyone has served, the cycle resets.
+    const served = new Set(group.judgedThisCycle || []);
+    const fresh = pool.filter(p => !served.has(p.userId));
+    const candidates = fresh.length > 0 ? fresh : pool;
+    roundLeader = candidates[Math.floor(Math.random() * candidates.length)];
   }
 
   group.status = 'active';
@@ -566,6 +578,21 @@ function topicsForGroup(group, viewerUserId) {
   const memberIds = new Set(group.players.map(p => p.userId));
   const used = new Set(group.usedTopicIds || []);
 
+  // Custom topics off (GT-1): only the host's list for this group.
+  if (usesHostTopics(group)) {
+    const host = group.players.find(p => p.userId === group.host);
+    return (group.hostTopics || [])
+      .map(t => ({
+        id: t.id,
+        text: t.text,
+        isPublic: false,
+        isOwn: false,
+        ownerName: host ? host.username : 'The host',
+        usedInGroup: used.has(t.id)
+      }))
+      .sort((a, b) => Number(a.usedInGroup) - Number(b.usedInGroup));
+  }
+
   return Array.from(topics.values())
     .filter(t => t.creatorId === viewerUserId || (t.isPublic === true && memberIds.has(t.creatorId)))
     .map(t => ({
@@ -602,6 +629,273 @@ function remainingBudget(group, playerUserId) {
   return Math.max(0, voteBudget(group) - used);
 }
 
+// Open groups (OG-1): a group anyone signed in can find and join from the
+// dashboard without a code. Not private, and still in setup: once a round
+// starts it drops off the list and the invite code is the only way in.
+// Games and topics (GT-1). A game ("set") runs for the host's number of
+// rounds and then ends with final standings; the host can start a new set,
+// which resets scores and frees the set's topics for reuse. Within a set no
+// topic is played twice. With custom topics off, the Judge picks only from a
+// list the host keeps for the group, which needs at least one topic per
+// round before a set can start.
+const DEFAULT_TOTAL_ROUNDS = 6;
+const MAX_TOTAL_ROUNDS = 50;
+const MAX_HOST_TOPICS = 100;
+
+function clampTotalRounds(value) {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n)) return DEFAULT_TOTAL_ROUNDS;
+  return Math.min(Math.max(n, 1), MAX_TOTAL_ROUNDS);
+}
+
+function totalRoundsOf(group) {
+  return clampTotalRounds(group.settings.totalRounds ?? DEFAULT_TOTAL_ROUNDS);
+}
+
+function usesHostTopics(group) {
+  return group.settings.allowCustomTopics === false;
+}
+
+function unusedHostTopicCount(group) {
+  const used = new Set(group.usedTopicIds || []);
+  return (group.hostTopics || []).filter(t => !used.has(t.id)).length;
+}
+
+// Rounds in this set that haven't started yet.
+function roundsRemaining(group) {
+  return Math.max(totalRoundsOf(group) - (group.currentRound || 0), 0);
+}
+
+// Ends the set after its last round: final standings are kept, and no more
+// rounds start until the host begins a new set.
+function finishSet(group) {
+  const standings = [...group.players]
+    .sort((a, b) => b.score - a.score)
+    .map(p => ({ userId: p.userId, username: p.username, score: p.score }));
+  group.status = 'finished';
+  group.finalStandings = standings;
+  group.completedSets = [...(group.completedSets || []), {
+    set: group.setNumber || 1,
+    rounds: group.currentRound || 0,
+    endedAt: new Date().toISOString(),
+    standings
+  }];
+  logEvent('game_finished', {
+    groupId: group.id, set: group.setNumber || 1, rounds: group.currentRound || 0, players: group.players.length
+  });
+}
+
+// Join requests, kicks and bans (JR-1). Strangers from Open Groups ask to
+// join and the host accepts or declines; three declines and they can't ask
+// that group again. The host can kick a member (they may come back) or ban
+// someone (every way in is refused until unbanned).
+const DECLINE_LIMIT = 3;
+
+// Nobody new joins while a round is under way, whether by request or invite.
+// Before the first round and between rounds (after a reveal) is fine.
+// Existing members reconnecting are unaffected: this only gates new members.
+function isRoundInProgress(group) {
+  return group.status === 'active' && !!group.currentTheme && group.currentTheme.status !== 'reveal';
+}
+
+function isBanned(group, uid) {
+  return (group.bannedUsers || []).some(b => b.userId === uid);
+}
+
+// Why a new member can't be added right now, or null if they can.
+function joinRefusal(group, uid) {
+  if (isBanned(group, uid)) {
+    return { outcome: 'banned', message: "You have been banned from this group. Think about what you've done." };
+  }
+  if (isRoundInProgress(group)) {
+    return {
+      outcome: 'round_in_progress',
+      message: 'This group is in the middle of a round. You can join once it ends.'
+    };
+  }
+  return null;
+}
+
+// Where a player stands with a group's join requests, from their own view.
+function requestStateFor(group, uid) {
+  const declines = (group.declineCounts || {})[uid] || 0;
+  const declinesLeft = Math.max(DECLINE_LIMIT - declines, 0);
+  if (group.players.some(p => p.userId === uid)) return { status: 'member', declinesLeft };
+  if (isBanned(group, uid)) return { status: 'banned', declinesLeft: 0 };
+  if ((group.joinRequests || []).some(r => r.userId === uid)) return { status: 'pending', declinesLeft };
+  if (declines >= DECLINE_LIMIT) return { status: 'blocked', declinesLeft: 0 };
+  return { status: 'none', declinesLeft };
+}
+
+// The host's private view of requests and bans. Everyone else gets null, and
+// publicizeGroup strips the raw fields, so none of it reaches other players.
+function hostPanelFor(group, viewerUserId) {
+  if (viewerUserId !== group.host) return null;
+  return {
+    joinRequests: (group.joinRequests || []).map(r => ({ ...r })),
+    bannedUsers: (group.bannedUsers || []).map(b => ({ ...b }))
+  };
+}
+
+// Every socket a signed-in player has open joins a room named for them, so
+// the server can reach them by identity, e.g. to say a request was accepted.
+function userRoom(uid) {
+  return `user:${uid}`;
+}
+
+function notifyUser(uid, event, payload) {
+  io.to(userRoom(uid)).emit(event, payload);
+}
+
+// Notifications (NT-1): the header bell. Kept per player on the server so
+// they can see what happened while they were away, and pushed live to every
+// tab they have open. Capped so a busy group can't grow the list forever.
+const MAX_NOTIFICATIONS = 100;
+
+function notificationsFor(uid) {
+  return (notificationStore.get(uid) || { items: [] }).items;
+}
+
+function pushNotification(uid, { type, group, text, link }) {
+  const item = {
+    id: uniqueId('notif_'),
+    type,
+    groupId: group ? group.id : null,
+    text,
+    link: link === undefined ? (group ? `/group/${group.id}` : null) : link,
+    createdAt: new Date().toISOString(),
+    read: false
+  };
+  const items = [item, ...notificationsFor(uid)].slice(0, MAX_NOTIFICATIONS);
+  notificationStore.set(uid, { items });
+  notifyUser(uid, 'notification', { item, unreadCount: items.filter(n => !n.read).length });
+}
+
+function notifyMembers(group, build, { except = [] } = {}) {
+  group.players.forEach(p => {
+    if (except.includes(p.userId)) return;
+    const n = build(p);
+    if (n) pushNotification(p.userId, { group, ...n });
+  });
+}
+
+// Game events, found by comparing each group with what was last announced
+// for it. broadcastGroup runs after every change, so this one place sees
+// every round, phase, Judge, and host change without each handler having to
+// remember to notify. The snapshot lives in memory: after a restart the
+// first broadcast just records the state rather than re-announcing it.
+const announcedState = new Map();
+
+function announceGroupChanges(group) {
+  const theme = group.currentTheme;
+  const now = {
+    status: group.status,
+    set: group.setNumber || 1,
+    round: group.currentRound || 0,
+    phase: theme ? theme.status : null,
+    judge: theme ? theme.czarId : null,
+    host: group.host
+  };
+  const before = announcedState.get(group.id);
+  announcedState.set(group.id, now);
+  if (!before) return;
+
+  const name = group.name;
+  const nameOf = (uid) => (group.players.find(p => p.userId === uid) || {}).username || 'Someone';
+
+  if (now.set !== before.set && now.status === 'setup') {
+    notifyMembers(group, () => ({ type: 'set_started', text: `${name} is starting a new game. Scores are back to zero.` }),
+      { except: [group.host] });
+  }
+
+  const newRound = now.round !== before.round && now.round > 0 && now.phase === 'topic_selection';
+  if (newRound) {
+    notifyMembers(group, (p) => {
+      if (p.userId === now.judge) {
+        return { type: 'your_turn_judge', text: `You're the Judge for round ${now.round} in ${name}. Pick a topic.` };
+      }
+      if (p.userId === group.host) return null;
+      return now.round === 1
+        ? { type: 'game_started', text: `${name} has started! ${nameOf(now.judge)} is picking the first topic.` }
+        : { type: 'round_started', text: `Round ${now.round} started in ${name}. ${nameOf(now.judge)} is the Judge.` };
+    });
+  } else if (now.judge && now.judge !== before.judge && now.phase === 'topic_selection') {
+    // Same round, new Judge: a skip or the host handing the role over.
+    pushNotification(now.judge, {
+      type: 'your_turn_judge', group,
+      text: `You're now the Judge for round ${now.round} in ${name}. Pick a topic.`
+    });
+  }
+
+  if (now.phase !== before.phase || newRound) {
+    if (now.phase === 'submission') {
+      notifyMembers(group, () => ({
+        type: 'submissions_open', text: `Submissions are open in ${name}: "${theme.title}". Pick a song.`
+      }), { except: [now.judge] });
+    } else if (now.phase === 'voting') {
+      notifyMembers(group, () => ({ type: 'voting_open', text: `Voting is open in ${name}. Cast your votes.` }));
+    } else if (now.phase === 'reveal' && now.status !== 'finished') {
+      const last = (group.history || [])[group.history.length - 1];
+      notifyMembers(group, () => ({
+        type: 'round_results',
+        text: `Round ${now.round} results are in for ${name}.${last && last.winner ? ` ${last.winner} won.` : ''}`
+      }));
+    }
+  }
+
+  if (now.status === 'finished' && before.status !== 'finished') {
+    const winner = (group.finalStandings || [])[0];
+    notifyMembers(group, () => ({
+      type: 'game_finished',
+      text: `${name} is over!${winner ? ` ${winner.username} won with ${winner.score} points.` : ''}`
+    }));
+  }
+
+  if (now.host !== before.host) {
+    notifyMembers(group, (p) => (p.userId === now.host
+      ? { type: 'host_changed', text: `You're now the host of ${name}.` }
+      : { type: 'host_changed', text: `${nameOf(now.host)} is now the host of ${name}.` }));
+  }
+}
+
+// The most open groups sent in one page, so a busy server never sends (or a
+// client renders) an unbounded list. Clients page through the rest.
+const OPEN_GROUPS_LIMIT = 48;
+
+function isOpenGroup(group) {
+  return group.isPrivate !== true && group.status === 'setup';
+}
+
+// What a non-member may see about an open group. Deliberately no invite code
+// and no player ids: being listed must not hand out a way in once it starts.
+function openGroupSummary(group) {
+  const host = group.players.find(p => p.userId === group.host);
+  return {
+    id: group.id,
+    name: group.name,
+    description: group.description || '',
+    hostName: host ? host.username : null,
+    playerCount: group.players.length,
+    createdAt: group.createdAt
+  };
+}
+
+// Tells every connected client to refetch the open list when a group's
+// listing changes: it becomes open, stops being open, or its listed details
+// change. Comparing a signature keeps ordinary round traffic (votes,
+// submissions) from pinging every socket.
+const openListingSignatures = new Map();
+function notifyOpenGroupsChanged(group, { removed = false } = {}) {
+  const signature = !removed && isOpenGroup(group)
+    ? JSON.stringify([group.name, group.description || '', group.players.length])
+    : null;
+  const previous = openListingSignatures.has(group.id) ? openListingSignatures.get(group.id) : null;
+  if (signature === previous) return;
+  if (signature === null) openListingSignatures.delete(group.id);
+  else openListingSignatures.set(group.id, signature);
+  io.emit('open_groups_changed');
+}
+
 function broadcastGroup(group) {
   const publicGroup = publicizeGroup(group);
 
@@ -611,9 +905,12 @@ function broadcastGroup(group) {
       isRoundLeader: !!(group.currentTheme && player.userId === group.currentTheme.czarId),
       yourSubmissionId: ownSubmissionId(group, player.userId),
       voteBudgetRemaining: remainingBudget(group, player.userId),
-      notices: noticesFor(group, player.userId)
+      notices: noticesFor(group, player.userId),
+      hostPanel: hostPanelFor(group, player.userId)
     });
   });
+  notifyOpenGroupsChanged(group);
+  announceGroupChanges(group);
 }
 
 // Only the host sees notices, and only ever their own group's. Returns a fresh
@@ -691,6 +988,7 @@ function calculateGroupResults(group) {
 
   group.history.push({
     id: theme.id,
+    set: group.setNumber || 1,
     title: theme.title,
     completedAt: new Date().toISOString(),
     totalSubmissions: theme.submissions.length,
@@ -708,6 +1006,9 @@ function calculateGroupResults(group) {
     }))
   });
 
+  if ((group.currentRound || 0) >= totalRoundsOf(group)) {
+    finishSet(group);
+  }
   groups.set(group.id, group);
   console.log('Round resolved for group:', group.id, 'winner:', winnerUsername);
   logEvent('round_completed', {
@@ -737,6 +1038,7 @@ io.on('connection', (socket) => {
   // anything in an event payload, which is what makes the host and
   // round-leader checks actually enforceable rather than advisory.
   const userId = socket.data.userId;
+  socket.join(userRoom(userId));
 
   // Resolve the stored profile before registering any handler, so the name a
   // player is known by in a group is the one they chose, not Google's.
@@ -866,17 +1168,23 @@ io.on('connection', (socket) => {
     }
 
     const id = cleanId(topicId);
-    const topic = id && topics.get(id);
+    const topic = id && (usesHostTopics(group)
+      ? (group.hostTopics || []).find(t => t.id === id)
+      : topics.get(id));
     if (!topic) {
       socket.emit('error', { message: 'That topic no longer exists' });
       return;
     }
-
     // Only topics this player can actually see in this group are selectable,
     // so a crafted id can't pull in someone else's private topic.
     const visible = topicsForGroup(group, userId).some(t => t.id === id);
     if (!visible) {
       socket.emit('error', { message: 'That topic is not available in this group' });
+      return;
+    }
+    // A topic plays once per set (GT-1); a new set frees them all again.
+    if ((group.usedTopicIds || []).includes(id)) {
+      socket.emit('error', { message: 'That topic has already been played in this game' });
       return;
     }
 
@@ -894,8 +1202,7 @@ io.on('connection', (socket) => {
     // the full-skip exhaustion signal intact: a declined (skipped) role only
     // counts once the Judge either plays or skips.
     recordJudgeServed(group, theme.czarId);
-    // Marked used in this group only. Re-selecting an already-used topic is
-    // allowed (the UI marks it rather than blocking it), so this stays a set.
+    // Marked used in this group, for this set only (GT-1).
     group.usedTopicIds = Array.from(new Set([...(group.usedTopicIds || []), id]));
 
     groups.set(gid, group);
@@ -980,6 +1287,8 @@ io.on('connection', (socket) => {
     const inviteCode = inviteIndex.issue();
 
     const settings = { ...(data.settings || {}) };
+    settings.totalRounds = clampTotalRounds(settings.totalRounds ?? DEFAULT_TOTAL_ROUNDS);
+    settings.allowCustomTopics = settings.allowCustomTopics !== false;
     if (settings.overrideThreshold !== undefined && !isValidOverrideThreshold(settings.overrideThreshold)) {
       settings.overrideThreshold = 70;
     }
@@ -1036,12 +1345,18 @@ io.on('connection', (socket) => {
       // Topic ids already played in this group. Scoped here rather than on the
       // topic so the same topic can be reused freely in other groups.
       usedTopicIds: [],
+      // GT-1: the host's own topic list (used when custom topics are off),
+      // which set this is, and the standings of sets already played.
+      hostTopics: [],
+      setNumber: 1,
+      completedSets: [],
       createdAt: new Date().toISOString()
     };
 
     groups.set(groupId, group);
     inviteIndex.add(group);
     console.log('Created group:', groupId);
+    notifyOpenGroupsChanged(group);
     logEvent('group_created', {
       groupId, actorId: userId, isPrivate: group.isPrivate === true,
       hasDescription: description !== '', settings: settingsSnapshot(settings)
@@ -1060,9 +1375,12 @@ io.on('connection', (socket) => {
 
     // Attach the derived host-abandoned flag so the Dashboard can surface the
     // leave-or-vote election for a group whose host has gone (HG-1).
+    // Publicized like every other group payload: the raw group carries the
+    // current Judge's id and the host's private notices, requests and bans.
+    // The host alone also gets a pending-request count for the dashboard.
     const listed = userGroups.map(group => ({
-      ...group,
-      hostAbandoned: isHostAbandoned(group)
+      ...publicizeGroup(group),
+      pendingRequestCount: group.host === userId ? (group.joinRequests || []).length : 0
     }));
 
     socket.emit('groups_list', { groups: listed });
@@ -1097,11 +1415,29 @@ io.on('connection', (socket) => {
       socket.emit('error', { message: 'Invite code not found' });
       return;
     }
+    completeJoin(group, joinVia);
+  });
+
+  // Adds (or re-attaches) this player to a group and tells everyone. Shared by
+  // every way in (invite code, invite link, open group) so they can't drift.
+  function completeJoin(group, joinVia) {
     const gid = group.id;
 
     // Check if player already in group (identified by stable userId, not socket id)
     const existingPlayer = group.players.find(p => p.userId === userId);
     const isNewMember = !existingPlayer;
+    // A member reconnecting always gets back in. Someone new is refused if
+    // banned, or while a round is under way (JR-1).
+    if (isNewMember) {
+      const refusal = joinRefusal(group, userId);
+      if (refusal) {
+        logEvent('invite_opened', { groupId: gid, actorId: userId, via: joinVia, outcome: refusal.outcome });
+        socket.emit('error', { message: refusal.message });
+        return;
+      }
+      // Joining some other way (an invite) settles any request they had open.
+      group.joinRequests = (group.joinRequests || []).filter(r => r.userId !== userId);
+    }
     if (existingPlayer) {
       existingPlayer.id = socket.id;
       existingPlayer.connected = true;
@@ -1145,6 +1481,12 @@ io.on('connection', (socket) => {
       logEvent('member_joined', {
         groupId: gid, actorId: userId, players: group.players.length, groupStatus: group.status
       });
+      pushNotification(userId, { type: 'joined', group, text: `You joined ${group.name}.` });
+      if (group.host !== userId) {
+        pushNotification(group.host, {
+          type: 'member_joined', group, text: `${socket.data.username} joined ${group.name}.`
+        });
+      }
     }
 
     // Tell the joiner directly (they navigate off this) and update everyone
@@ -1158,9 +1500,401 @@ io.on('connection', (socket) => {
       isRoundLeader: !!(group.currentTheme && userId === group.currentTheme.czarId),
       yourSubmissionId: ownSubmissionId(group, userId),
       voteBudgetRemaining: remainingBudget(group, userId),
-      notices: noticesFor(group, userId)
+      notices: noticesFor(group, userId),
+      hostPanel: hostPanelFor(group, userId)
     });
     broadcastGroup(group);
+  }
+
+  // Open groups (OG-1): groups this player could join without a code, newest
+  // first. Groups they're already in are left out; those are in their own
+  // list. `query` filters by name, description, or host name (case-
+  // insensitive) across every open group, not just the newest. `limit` sets
+  // the page size (capped at OPEN_GROUPS_LIMIT) and `offset` where the page
+  // starts. `total` is the full match count, and `requestId` is echoed so a
+  // client can drop a reply to a search it has since replaced.
+  on('get_open_groups', ({ query, limit, offset, requestId } = {}) => {
+    const needle = String(query || '').trim().toLowerCase().slice(0, LIMITS.groupName);
+    const pageSize = Math.min(Math.max(Math.floor(Number(limit)) || OPEN_GROUPS_LIMIT, 1), OPEN_GROUPS_LIMIT);
+    const start = Math.max(Math.floor(Number(offset)) || 0, 0);
+    const matches = Array.from(groups.values())
+      .filter(group => isOpenGroup(group) && !isBanned(group, userId)
+        && !group.players.some(p => p.userId === userId))
+      .map(group => ({
+        ...openGroupSummary(group),
+        requested: (group.joinRequests || []).some(r => r.userId === userId)
+      }))
+      .filter(summary => !needle || [summary.name, summary.description, summary.hostName]
+        .some(field => String(field || '').toLowerCase().includes(needle)))
+      .sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)));
+    socket.emit('open_groups_list', {
+      groups: matches.slice(start, start + pageSize),
+      total: matches.length,
+      requestId: requestId === undefined ? null : requestId
+    });
+  });
+
+  // The header bell (NT-1): this player's notifications, newest first.
+  on('get_notifications', () => {
+    const items = notificationsFor(userId);
+    socket.emit('notifications_list', { items, unreadCount: items.filter(n => !n.read).length });
+  });
+
+  // Marks this player's notifications read (all of them, the bell's model:
+  // opening it means you've seen them). Every open tab gets the new count.
+  on('mark_notifications_read', () => {
+    const items = notificationsFor(userId).map(n => (n.read ? n : { ...n, read: true }));
+    notificationStore.set(userId, { items });
+    notifyUser(userId, 'notifications_list', { items, unreadCount: 0 });
+  });
+
+  // Removes one of this player's notifications.
+  on('delete_notification', ({ notificationId }) => {
+    const id = cleanId(notificationId);
+    const items = notificationsFor(userId).filter(n => n.id !== id);
+    notificationStore.set(userId, { items });
+    notifyUser(userId, 'notifications_list', { items, unreadCount: items.filter(n => !n.read).length });
+  });
+
+  // Removes all of this player's notifications.
+  on('clear_notifications', () => {
+    notificationStore.set(userId, { items: [] });
+    notifyUser(userId, 'notifications_list', { items: [], unreadCount: 0 });
+  });
+
+  // Host only (GT-1): after a set ends, start a new one. Scores reset, the
+  // set's topics can be played again, and the group is back in setup, so it
+  // shows in Open Groups again (unless private) and people can join.
+  on('start_new_set', ({ groupId }) => {
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can start a new set' });
+      return;
+    }
+    if (group.status !== 'finished') {
+      socket.emit('error', { message: 'The current game has not finished yet' });
+      return;
+    }
+    group.status = 'setup';
+    group.currentRound = 0;
+    group.currentTheme = null;
+    group.usedTopicIds = [];
+    group.finalStandings = null;
+    group.judgedThisCycle = [];
+    group.setNumber = (group.setNumber || 1) + 1;
+    group.players.forEach(p => { p.score = 0; });
+    groups.set(gid, group);
+    logEvent('set_started', { groupId: gid, actorId: userId, set: group.setNumber });
+    broadcastGroup(group);
+  });
+
+  // Host only (GT-1): the group's own topic list, which the Judge picks from
+  // when custom topics are off.
+  on('add_group_topic', ({ groupId, text }) => {
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can add group topics' });
+      return;
+    }
+    const topicText = cleanText(text, LIMITS.topicText);
+    if (!topicText) {
+      socket.emit('error', { message: `Topic text is required and must be at most ${LIMITS.topicText} characters` });
+      return;
+    }
+    const list = group.hostTopics || [];
+    if (list.length >= MAX_HOST_TOPICS) {
+      socket.emit('error', { message: `A group can have at most ${MAX_HOST_TOPICS} topics` });
+      return;
+    }
+    if (list.some(t => t.text.toLowerCase() === topicText.toLowerCase())) {
+      socket.emit('error', { message: 'That topic is already on the list' });
+      return;
+    }
+    group.hostTopics = [...list, { id: uniqueId('gtopic_'), text: topicText, createdAt: new Date().toISOString() }];
+    groups.set(gid, group);
+    broadcastGroup(group);
+  });
+
+  on('remove_group_topic', ({ groupId, topicId }) => {
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can remove group topics' });
+      return;
+    }
+    const id = cleanId(topicId);
+    if ((group.usedTopicIds || []).includes(id)) {
+      socket.emit('error', { message: "A topic that's been played this game can't be removed until the game ends" });
+      return;
+    }
+    // Mid-game with the host's list in use, keep enough for the rounds left.
+    if (group.status === 'active' && usesHostTopics(group) &&
+        unusedHostTopicCount(group) - 1 < roundsRemaining(group)) {
+      socket.emit('error', {
+        message: `This game still needs ${roundsRemaining(group)} unused topics for the rounds left`
+      });
+      return;
+    }
+    const before = (group.hostTopics || []).length;
+    group.hostTopics = (group.hostTopics || []).filter(t => t.id !== id);
+    if (group.hostTopics.length === before) return;
+    groups.set(gid, group);
+    broadcastGroup(group);
+  });
+
+  // A non-member's view-only look at a group (JR-1): enough to decide whether
+  // to ask to join, and never an invite code or anyone's id. A private or
+  // missing group answers with a null preview (not an error), so it can't be
+  // confused with other replies and reveals nothing about private groups.
+  on('get_group_preview', ({ groupId }) => {
+    const group = groups.get(cleanId(groupId));
+    if (!group || group.isPrivate === true) {
+      socket.emit('group_preview', { groupId: cleanId(groupId), preview: null });
+      return;
+    }
+    const host = group.players.find(p => p.userId === group.host);
+    socket.emit('group_preview', {
+      groupId: group.id,
+      preview: {
+        id: group.id,
+        name: group.name,
+        description: group.description || '',
+        hostName: host ? host.username : null,
+        members: group.players.map(p => ({ username: p.username, isHost: p.userId === group.host })),
+        playerCount: group.players.length,
+        status: group.status,
+        currentRound: group.currentRound || 0,
+        roundInProgress: isRoundInProgress(group),
+        settings: { ...group.settings },
+        request: requestStateFor(group, userId)
+      }
+    });
+  });
+
+  // Asks the host to let this player in. Allowed any time for a group that
+  // isn't private; the host can only accept when no round is under way.
+  on('request_join', ({ groupId }) => {
+    const group = groups.get(cleanId(groupId));
+    if (!group || group.isPrivate === true) {
+      socket.emit('error', { message: 'Group not found' });
+      return;
+    }
+    const state = requestStateFor(group, userId);
+    const refusals = {
+      member: "You're already in this group",
+      banned: "You have been banned from this group. Think about what you've done.",
+      blocked: 'The host has declined your requests to join this group'
+    };
+    if (refusals[state.status]) {
+      socket.emit('error', { message: refusals[state.status] });
+      // Also on the request channel, which the view-only page listens to on
+      // its own (it can't rely on the shared 'error' listeners).
+      socket.emit('join_request_update', { groupId: group.id, request: state, error: refusals[state.status] });
+      return;
+    }
+    if (state.status === 'none') {
+      group.joinRequests = [...(group.joinRequests || []), {
+        userId, username: socket.data.username, requestedAt: new Date().toISOString()
+      }];
+      groups.set(group.id, group);
+      logEvent('join_requested', { groupId: group.id, actorId: userId });
+      broadcastGroup(group);
+      pushNotification(group.host, {
+        type: 'join_request', group,
+        text: `${socket.data.username} asked to join ${group.name}.`,
+        link: `/group/${group.id}?tab=requests`
+      });
+    }
+    notifyUser(userId, 'join_request_update', { groupId: group.id, request: requestStateFor(group, userId) });
+  });
+
+  // The requester withdraws their own pending request.
+  on('cancel_join_request', ({ groupId }) => {
+    const group = groups.get(cleanId(groupId));
+    if (!group) return;
+    const before = (group.joinRequests || []).length;
+    group.joinRequests = (group.joinRequests || []).filter(r => r.userId !== userId);
+    if (group.joinRequests.length !== before) {
+      groups.set(group.id, group);
+      broadcastGroup(group);
+    }
+    notifyUser(userId, 'join_request_update', { groupId: group.id, request: requestStateFor(group, userId) });
+  });
+
+  // Host only: accept or decline a pending request.
+  on('respond_join_request', ({ groupId, requesterId, accept }) => {
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can respond to join requests' });
+      return;
+    }
+    const targetId = cleanId(requesterId);
+    const request = (group.joinRequests || []).find(r => r.userId === targetId);
+    if (!request) {
+      socket.emit('error', { message: 'That request is no longer pending' });
+      return;
+    }
+
+    if (accept === true) {
+      const refusal = joinRefusal(group, targetId);
+      if (refusal) {
+        socket.emit('error', {
+          message: refusal.outcome === 'round_in_progress'
+            ? 'You can accept requests once the current round ends'
+            : refusal.message
+        });
+        return;
+      }
+      group.joinRequests = group.joinRequests.filter(r => r.userId !== targetId);
+      // Added by identity. A player's `id` is normally a socket id; until they
+      // open the group (get_group re-points it at a real socket), their own
+      // room reaches every tab they have open.
+      group.players.push({
+        id: userRoom(targetId),
+        userId: targetId,
+        username: request.username,
+        score: 0,
+        isHost: false,
+        connected: true
+      });
+      touchPlayer(group, targetId);
+      groups.set(gid, group);
+      logEvent('member_joined', {
+        groupId: gid, actorId: targetId, players: group.players.length, groupStatus: group.status
+      });
+      broadcastGroup(group);
+    } else {
+      group.joinRequests = group.joinRequests.filter(r => r.userId !== targetId);
+      group.declineCounts = { ...(group.declineCounts || {}) };
+      group.declineCounts[targetId] = (group.declineCounts[targetId] || 0) + 1;
+      groups.set(gid, group);
+      logEvent('join_declined', { groupId: gid, actorId: userId });
+      broadcastGroup(group);
+    }
+    const outcomeState = requestStateFor(group, targetId);
+    notifyUser(targetId, 'join_request_update', {
+      groupId: gid,
+      request: outcomeState,
+      outcome: accept === true ? 'accepted' : 'declined',
+      groupName: group.name
+    });
+    if (accept === true) {
+      pushNotification(targetId, {
+        type: 'request_accepted', group,
+        text: `Your request to join ${group.name} was accepted. You're in!`
+      });
+    } else {
+      const left = outcomeState.declinesLeft;
+      pushNotification(targetId, {
+        type: 'request_declined', group,
+        text: outcomeState.status === 'blocked'
+          ? `Your request to join ${group.name} was declined. You can't ask this group again.`
+          : `Your request to join ${group.name} was declined. You can ask ${left} more ${left === 1 ? 'time' : 'times'}.`,
+        link: outcomeState.status === 'blocked' ? null : undefined
+      });
+    }
+  });
+
+  // Host only: remove a member. They can come back by invite or request.
+  on('kick_player', ({ groupId, targetId }) => {
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can remove players' });
+      return;
+    }
+    const target = cleanId(targetId);
+    if (target === group.host) {
+      socket.emit('error', { message: "The host can't remove themselves" });
+      return;
+    }
+    const index = group.players.findIndex(p => p.userId === target);
+    if (index === -1) {
+      socket.emit('error', { message: 'That player is not in this group' });
+      return;
+    }
+    group.players.splice(index, 1);
+    groups.set(gid, group);
+    logEvent('member_removed', { groupId: gid, actorId: userId, reason: 'kicked', players: group.players.length });
+    broadcastGroup(group);
+    notifyUser(target, 'removed_from_group', { groupId: gid, groupName: group.name, reason: 'kicked' });
+    pushNotification(target, {
+      type: 'kicked', group,
+      text: `You were kicked from ${group.name}. You can ask to join again.`
+    });
+  });
+
+  // Host only: remove someone (a member or a requester) and refuse every way
+  // back in (invite code, link, request) until unbanned.
+  on('ban_player', ({ groupId, targetId }) => {
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can ban players' });
+      return;
+    }
+    const target = cleanId(targetId);
+    if (target === group.host) {
+      socket.emit('error', { message: "The host can't ban themselves" });
+      return;
+    }
+    if (isBanned(group, target)) return;
+    const member = group.players.find(p => p.userId === target);
+    const request = (group.joinRequests || []).find(r => r.userId === target);
+    if (!member && !request) {
+      socket.emit('error', { message: 'That player is not in this group' });
+      return;
+    }
+    group.players = group.players.filter(p => p.userId !== target);
+    group.joinRequests = (group.joinRequests || []).filter(r => r.userId !== target);
+    group.bannedUsers = [...(group.bannedUsers || []), {
+      userId: target,
+      username: (member || request).username,
+      bannedAt: new Date().toISOString()
+    }];
+    groups.set(gid, group);
+    logEvent('member_removed', { groupId: gid, actorId: userId, reason: 'banned', players: group.players.length });
+    broadcastGroup(group);
+    pushNotification(target, { type: 'banned', group, text: `You were banned from ${group.name}.`, link: null });
+    if (member) {
+      notifyUser(target, 'removed_from_group', { groupId: gid, groupName: group.name, reason: 'banned' });
+    } else {
+      notifyUser(target, 'join_request_update', { groupId: gid, request: requestStateFor(group, target) });
+    }
+  });
+
+  // Host only: lift a ban. Their decline count starts fresh too.
+  on('unban_player', ({ groupId, targetId }) => {
+    const found = findMemberGroup(groupId);
+    if (!found) return;
+    const { gid, group } = found;
+    if (group.host !== userId) {
+      socket.emit('error', { message: 'Only the host can unban players' });
+      return;
+    }
+    const target = cleanId(targetId);
+    if (!isBanned(group, target)) return;
+    group.bannedUsers = group.bannedUsers.filter(b => b.userId !== target);
+    if (group.declineCounts) {
+      group.declineCounts = { ...group.declineCounts };
+      delete group.declineCounts[target];
+    }
+    groups.set(gid, group);
+    broadcastGroup(group);
+    notifyUser(target, 'join_request_update', { groupId: gid, request: requestStateFor(group, target) });
+    pushNotification(target, {
+      type: 'unbanned', group,
+      text: `You were unbanned from ${group.name}. You can ask to join again.`
+    });
   });
 
   // Get group details
@@ -1202,7 +1936,8 @@ io.on('connection', (socket) => {
       isRoundLeader: !!(group.currentTheme && userId === group.currentTheme.czarId),
       yourSubmissionId: ownSubmissionId(group, userId),
       voteBudgetRemaining: remainingBudget(group, userId),
-      notices: noticesFor(group, userId)
+      notices: noticesFor(group, userId),
+      hostPanel: hostPanelFor(group, userId)
     });
   });
 
@@ -1413,6 +2148,25 @@ io.on('connection', (socket) => {
       settings.downvoteCost = clampDownvoteCost(settings.downvoteCost);
     }
 
+    if (settings.totalRounds !== undefined) {
+      settings.totalRounds = clampTotalRounds(settings.totalRounds);
+    }
+    if (settings.allowCustomTopics !== undefined) {
+      settings.allowCustomTopics = settings.allowCustomTopics !== false;
+    }
+    // The round count and where topics come from shape a whole set, so they
+    // only change before a game starts or after it ends (GT-1). Saving the
+    // rules mid-game with those two unchanged is fine.
+    const changesSetShape =
+      (settings.totalRounds !== undefined && settings.totalRounds !== totalRoundsOf(group)) ||
+      (settings.allowCustomTopics !== undefined && settings.allowCustomTopics !== !usesHostTopics(group));
+    if (group.status === 'active' && changesSetShape) {
+      socket.emit('error', {
+        message: 'The number of rounds and the topic rules can only change before a game starts or after it ends'
+      });
+      return;
+    }
+
     // Update group settings
     const previousSettings = group.settings;
     group.settings = { ...group.settings, ...settings };
@@ -1505,6 +2259,7 @@ io.on('connection', (socket) => {
     groups.delete(gid);
     // The code dies with the group: it must not resolve to a missing id.
     inviteIndex.remove(group);
+    notifyOpenGroupsChanged(group, { removed: true });
     console.log('Group deleted:', gid);
     logEvent('group_deleted', {
       groupId: gid, actorId: userId, players: group.players.length,
@@ -1703,7 +2458,7 @@ io.on('connection', (socket) => {
   });
 
   // Start group: transitions out of setup and creates the first round
-  on('start_group', ({ groupId, czarUserId }) => {
+  on('start_group', ({ groupId, czarUserId, startWithoutPending }) => {
     console.log('Start group request:', { groupId, socketId: socket.id, userId });
 
     const found = findMemberGroup(groupId);
@@ -1732,6 +2487,27 @@ io.on('connection', (socket) => {
       return;
     }
 
+    // Custom topics off (GT-1): the host's list needs a topic for every
+    // round, since each one plays once per set.
+    if (usesHostTopics(group)) {
+      const needed = totalRoundsOf(group);
+      const have = unusedHostTopicCount(group);
+      if (have < needed) {
+        socket.emit('error', {
+          message: `Add at least ${needed} topics before starting. This game has ${needed} rounds and each topic can be played once (${have} so far).`
+        });
+        return;
+      }
+    }
+
+    // Pending join requests can't be accepted during a round (JR-1), so the
+    // host confirms first; the requests stay queued for after this round.
+    const pendingCount = (group.joinRequests || []).length;
+    if (pendingCount > 0 && startWithoutPending !== true) {
+      socket.emit('start_needs_confirmation', { groupId: gid, pendingCount, czarUserId: czarUserId || null });
+      return;
+    }
+
     // The host may hand-pick round 1's Round Leader, exactly as they can for
     // later rounds. An unknown id falls through to a random pick inside
     // beginRound rather than failing the start.
@@ -1749,7 +2525,7 @@ io.on('connection', (socket) => {
   // previous round has been revealed. Host-only, reuses the same
   // round-creation logic as start_group. czarUserId lets the host hand-pick
   // a Round Leader instead of a random one (used by the "Pick Round Leader" UI).
-  on('start_round', ({ groupId, czarUserId }) => {
+  on('start_round', ({ groupId, czarUserId, startWithoutPending }) => {
     console.log('Start round request:', { groupId, socketId: socket.id, userId, czarUserId });
 
     const found = findMemberGroup(groupId);
@@ -1758,6 +2534,19 @@ io.on('connection', (socket) => {
 
     if (group.host !== userId) {
       socket.emit('error', { message: 'Only host can start a round' });
+      return;
+    }
+
+    // GT-1: after the last round the game is over until a new set starts.
+    // A group from before round limits existed can also reach the limit here.
+    if (group.status === 'finished' || (group.status === 'active' && roundsRemaining(group) === 0 &&
+        (!group.currentTheme || group.currentTheme.status === 'reveal'))) {
+      if (group.status !== 'finished') {
+        finishSet(group);
+        groups.set(gid, group);
+        broadcastGroup(group);
+      }
+      socket.emit('error', { message: 'This game is over. Start a new set to play again.' });
       return;
     }
 
@@ -1785,6 +2574,14 @@ io.on('connection', (socket) => {
       socket.emit('error', {
         message: `A round needs at least ${MIN_PLAYERS_TO_START} players in the group — one to judge and one to submit`
       });
+      return;
+    }
+
+    // Pending join requests can't be accepted during a round (JR-1), so the
+    // host confirms first; the requests stay queued for after this round.
+    const pendingCount = (group.joinRequests || []).length;
+    if (pendingCount > 0 && startWithoutPending !== true) {
+      socket.emit('start_needs_confirmation', { groupId: gid, pendingCount, czarUserId: czarUserId || null });
       return;
     }
 

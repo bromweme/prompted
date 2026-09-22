@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
 import { useModalA11y } from '../hooks/useModalA11y'
 import AppNav from '../components/AppNav'
+import GroupPreview from '../components/GroupPreview'
+import HostTopicEditor from '../components/HostTopicEditor'
 import YouTubeSearch from '../components/YouTubeSearch'
 import YouTubeEmbed from '../components/YouTubeEmbed'
 import RoundVideoList from '../components/RoundVideoList'
@@ -67,6 +69,7 @@ function normalizeGroupData(group) {
     inviteCode: group.inviteCode || null,
     name: group.name,
     description: group.description,
+    isPrivate: group.isPrivate === true,
     host: group.host,
     settings: {
       totalRounds: group.settings.totalRounds || 6,
@@ -82,7 +85,6 @@ function normalizeGroupData(group) {
       submissionTime: group.settings.submissionTime || 24,
       votingTime: group.settings.votingTime || 24,
       autoStart: group.settings.autoStart || false,
-      topicSelection: group.settings.topicSelection || 'czar',
       allowCustomTopics: group.settings.allowCustomTopics !== false,
       enableChat: group.settings.enableChat || false,
       enableSongPreview: group.settings.enableSongPreview !== false,
@@ -105,7 +107,14 @@ function normalizeGroupData(group) {
     // Host governance (HG-1): whether the host has abandoned the group, and any
     // in-flight host election.
     hostAbandoned: group.hostAbandoned === true,
-    election: group.election || null
+    election: group.election || null,
+    // Games and topics (GT-1): the host's topic list, what's been played this
+    // game, which game (set) this is, and final standings once it ends.
+    hostTopics: group.hostTopics || [],
+    usedTopicIds: group.usedTopicIds || [],
+    setNumber: group.setNumber || 1,
+    finalStandings: group.finalStandings || null,
+    completedSets: group.completedSets || []
   }
 }
 
@@ -117,7 +126,15 @@ function GroupView() {
   const { user } = useUser()
   
   const [group, setGroup] = useState(null)
-  const [activeTab, setActiveTab] = useState('overview')
+  // A link can open a specific tab (?tab=requests from a join-request
+  // notification, say), including when this group is already on screen.
+  const tabParam = new URLSearchParams(location.search).get('tab')
+  const [activeTab, setActiveTab] = useState(tabParam || 'overview')
+  const [syncedTab, setSyncedTab] = useState(tabParam)
+  if (tabParam !== syncedTab) {
+    setSyncedTab(tabParam)
+    if (tabParam) setActiveTab(tabParam)
+  }
   const [showSubmitModal, setShowSubmitModal] = useState(false)
   // The video chosen from search results: { videoId, title, thumbnail, channelTitle }
   const [selectedVideo, setSelectedVideo] = useState(null)
@@ -149,10 +166,21 @@ function GroupView() {
   // UI without leaking anyone else's authorship.
   const [ownSubmissionId, setOwnSubmissionId] = useState(null)
   const [showInviteModal, setShowInviteModal] = useState(false)
+  // Starting with something missing opens one of these instead of the Judge
+  // prompt: too few players, or (custom topics off) too few topics.
+  const [showPlayersModal, setShowPlayersModal] = useState(false)
+  const [showTopicsModal, setShowTopicsModal] = useState(false)
+  const playersModalRef = useRef(null)
+  const topicsModalRef = useRef(null)
   // Durable messages for the host, e.g. a round that restarted while they were
   // away. They persist server-side until acknowledged, so one that arrives
   // during an offline spell is still waiting on the next connection.
   const [hostNotices, setHostNotices] = useState([])
+  // Host only (JR-1): pending join requests and banned players. The server
+  // sends null to everyone else.
+  const [hostPanel, setHostPanel] = useState(null)
+  // Bumped when a view-only visitor is accepted, to load the full group.
+  const [reloadKey, setReloadKey] = useState(0)
   const [linkCopied, setLinkCopied] = useState(false)
   const [codeCopied, setCodeCopied] = useState(false)
   // Host-only invite code reset (UI-2): an in-page confirm step rather than a
@@ -207,6 +235,8 @@ function GroupView() {
   }, [])
 
   useModalA11y(showInviteModal, inviteModalRef, closeInviteModal)
+  useModalA11y(showPlayersModal, playersModalRef, () => setShowPlayersModal(false))
+  useModalA11y(showTopicsModal, topicsModalRef, () => setShowTopicsModal(false))
 
   useEffect(() => {
     // Countdown timer for round deadline.
@@ -264,9 +294,16 @@ function GroupView() {
     if (location.state?.groupData) {
       const groupData = location.state.groupData
       
-      // Ensure group has all required fields
+      // Ensure group has all required fields. The dashboard's copy doesn't
+      // carry the GT-1 fields, and reading them undefined blanked the page
+      // for a group with custom topics off.
       const fullGroupData = {
         ...groupData,
+        hostTopics: groupData.hostTopics || [],
+        usedTopicIds: groupData.usedTopicIds || [],
+        setNumber: groupData.setNumber || 1,
+        finalStandings: groupData.finalStandings || null,
+        completedSets: groupData.completedSets || [],
         settings: groupData.settings || {
           totalRounds: 6,
           maxPlayers: 12,
@@ -312,12 +349,13 @@ function GroupView() {
     // Exactly one of the success/failure listeners below answers the initial
     // load; each removes the other, so a later, unrelated error (a refused
     // vote, say) can never be mistaken for "this group can't be shown".
-    const applyGroupPayload = ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, voteBudgetRemaining, notices }) => {
+    const applyGroupPayload = ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, voteBudgetRemaining, notices, hostPanel: panel }) => {
       setGroup(normalizeGroupData(group))
       setIsRoundLeader(!!youAreRoundLeader)
       setOwnSubmissionId(yourSubmissionId || null)
       if (typeof voteBudgetRemaining === 'number') setRemainingBudget(voteBudgetRemaining)
       setHostNotices(notices || [])
+      setHostPanel(panel || null)
     }
     const isLegacyJoin = new URLSearchParams(location.search).get('join') === 'true'
 
@@ -335,6 +373,11 @@ function GroupView() {
     // still its id. Its refusal (e.g. a code retired by a reset) is what the
     // page shows.
     const onJoined = (payload) => {
+      // A reply about some other group isn't ours; keep waiting.
+      if (payload.group?.id !== groupId) {
+        socket.once('group_joined', onJoined)
+        return
+      }
       socket.off('error', onJoinError)
       applyGroupPayload(payload)
       stripLegacyQuery()
@@ -353,6 +396,12 @@ function GroupView() {
     }
 
     const onLoaded = (payload) => {
+      // One socket serves every page in the tab, so a reply about some other
+      // group isn't ours; keep waiting for this one.
+      if (payload.group?.id !== groupId) {
+        socket.once('group_details', onLoaded)
+        return
+      }
       socket.off('error', onLoadError)
       applyGroupPayload(payload)
       stripLegacyQuery()
@@ -380,10 +429,16 @@ function GroupView() {
     socket.emit('get_group', { groupId })
 
     // Listen for group updates
-    socket.on('group_updated', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, voteBudgetRemaining, notices }) => {
+    socket.on('group_updated', ({ group, isRoundLeader: youAreRoundLeader, yourSubmissionId, voteBudgetRemaining, notices, hostPanel: panel }) => {
+      // The server keeps sending live updates for every group this player has
+      // opened in this tab, because they all share one socket. Only this
+      // page's group may change what's on screen; before this check, a vote
+      // in another group could overwrite the one being viewed.
+      if (group?.id !== groupId) return
       if (yourSubmissionId !== undefined) setOwnSubmissionId(yourSubmissionId || null)
       if (typeof voteBudgetRemaining === 'number') setRemainingBudget(voteBudgetRemaining)
       if (notices !== undefined) setHostNotices(notices || [])
+      if (panel !== undefined) setHostPanel(panel || null)
       // A broadcast can land before this page's own load reply (e.g. the one
       // that follows a join); the load reply carries the full group anyway.
       setGroup(prev => (prev ? {
@@ -423,6 +478,15 @@ function GroupView() {
       if (deletedId === groupId) navigate('/dashboard')
     })
 
+    // The host kicked or banned this player (JR-1). The dashboard shows why.
+    socket.on('removed_from_group', ({ groupId: removedFrom, groupName, reason }) => {
+      if (removedFrom !== groupId) return
+      const notice = reason === 'banned'
+        ? `You were banned from ${groupName}.`
+        : `You were removed from ${groupName}. You can ask to join again.`
+      navigate('/dashboard', { replace: true, state: { notice } })
+    })
+
     return () => {
       socket.off('group_updated')
       socket.off('player_joined_group')
@@ -430,15 +494,31 @@ function GroupView() {
       socket.off('group_joined', onJoined)
       socket.off('left_group')
       socket.off('group_deleted')
+      socket.off('removed_from_group')
       socket.off('error')
     }
-  }, [groupId, location.state, location.search, socket, isConnected, user, navigate])
+  }, [groupId, location.state, location.search, socket, isConnected, user, navigate, reloadKey])
 
   // Both the first round (start_group) and every later one (start_round) go
   // through the same Judge-selection prompt, so the host always gets the
   // choice rather than only from round 2 onwards.
-  const handleStartRound = () => {
+  // Start is never greyed out: a greyed button with small print reads as
+  // broken. Clicking it with something missing explains what and offers the
+  // fix right there; otherwise it goes on to the Judge prompt.
+  const openStartFlow = () => {
+    if (group.players.length < MIN_PLAYERS_TO_START) {
+      setShowPlayersModal(true)
+      return
+    }
+    if (group.status === 'setup' && !hasEnoughTopics) {
+      setShowTopicsModal(true)
+      return
+    }
     setShowRoundLeaderModal(true)
+  }
+
+  const handleStartRound = () => {
+    openStartFlow()
   }
 
   const emitRoundStart = (czarUserId) => {
@@ -449,6 +529,16 @@ function GroupView() {
 
     // Round 1 transitions the group out of setup; later rounds don't.
     const event = group.status === 'setup' ? 'start_group' : 'start_round'
+
+    // Nobody can join during a round (JR-1), so with requests waiting the
+    // server asks first. They stay queued to be accepted after this round.
+    socket.off('start_needs_confirmation')
+    socket.once('start_needs_confirmation', ({ pendingCount }) => {
+      const waiting = pendingCount === 1 ? '1 person is' : `${pendingCount} people are`
+      if (confirm(`${waiting} waiting to join. Start the round without them? You can accept them once this round ends.`)) {
+        socket.emit(event, { groupId, czarUserId, startWithoutPending: true })
+      }
+    })
     socket.emit(event, { groupId, czarUserId })
 
     socket.once('error', ({ message }) => {
@@ -489,7 +579,7 @@ function GroupView() {
   // topic-selection phase directly, and a blocking dialog on a normal flow
   // just gets in the way.
   const handleStartGroup = () => {
-    setShowRoundLeaderModal(true)
+    openStartFlow()
   }
 
   const handleEditRules = () => {
@@ -595,6 +685,51 @@ function GroupView() {
     })
   }
 
+  // A view-only visitor was let in (JR-1): load the full group page.
+  const onRequestAccepted = useCallback(() => {
+    setAccessError(null)
+    setReloadKey((key) => key + 1)
+  }, [])
+
+  // Host moderation (JR-1). Refusals come back on the shared 'error' event,
+  // the same way the page's other host actions report them.
+  const hostAction = (event, payload) => {
+    if (!socket || !isConnected) {
+      alert('Please wait for server connection')
+      return
+    }
+    socket.once('error', ({ message }) => alert(message))
+    socket.emit(event, { groupId, ...payload })
+  }
+
+  const handleAcceptRequest = (request) => {
+    hostAction('respond_join_request', { requesterId: request.userId, accept: true })
+  }
+
+  const handleDeclineRequest = (request) => {
+    hostAction('respond_join_request', { requesterId: request.userId, accept: false })
+  }
+
+  const handleKick = (player) => {
+    if (!confirm(`Are you sure you want to kick ${player.username} from the group?\n\nKicked players can still ask to join again later.`)) return
+    hostAction('kick_player', { targetId: player.id })
+  }
+
+  const handleBan = (person) => {
+    const id = person.id || person.userId
+    if (!confirm(`Ban ${person.username}? They'll be removed and can't rejoin unless you unban them.`)) return
+    hostAction('ban_player', { targetId: id })
+  }
+
+  const handleUnban = (banned) => {
+    hostAction('unban_player', { targetId: banned.userId })
+  }
+
+  const handleStartNewSet = () => {
+    if (!confirm('Start a new game? Scores go back to zero, and every topic can be played again.')) return
+    hostAction('start_new_set', {})
+  }
+
   const handleDeleteGroup = () => {
     if (!confirm('Are you sure you want to delete this group? This cannot be undone.')) return
     if (deleting) return
@@ -626,6 +761,17 @@ function GroupView() {
   // they return, so presence must not block starting a round.
   const MIN_PLAYERS_TO_START = 2
   const canStartRound = !!group && group.players.length >= MIN_PLAYERS_TO_START
+
+  // GT-1: with custom topics off, a game needs one unused host topic per round.
+  const hostTopicsOnly = !!group && group.settings.allowCustomTopics === false
+  const topicsNeeded = group ? (group.settings.totalRounds || 6) : 0
+  const groupHostTopics = group?.hostTopics || []
+  const usedTopicIds = group?.usedTopicIds || []
+  const unusedHostTopics = hostTopicsOnly
+    ? groupHostTopics.filter((t) => !usedTopicIds.includes(t.id)).length
+    : 0
+  const hasEnoughTopics = !hostTopicsOnly || unusedHostTopics >= topicsNeeded
+  const isFinished = !!group && group.status === 'finished'
 
   // Maps a stable userId to the name shown in the UI.
   const playerName = (userId) =>
@@ -848,10 +994,7 @@ function GroupView() {
     // The server answers "Group not found" both for a missing group and for
     // one this player is not in, so the copy covers both without guessing.
     const notFound = accessError === 'Group not found'
-    return (
-      <div className="group-view-page">
-        <a href="#main-content" className="skip-link">Skip to main content</a>
-        <AppNav />
+    const accessCard = (
         <main id="main-content" className="group-access-main">
           <section className="group-access-card" aria-labelledby="group-access-title">
             <h1 id="group-access-title" className="group-access-title">
@@ -867,6 +1010,20 @@ function GroupView() {
             </button>
           </section>
         </main>
+    )
+    return (
+      <div className="group-view-page">
+        <a href="#main-content" className="skip-link">Skip to main content</a>
+        <AppNav />
+        {/* Not a member: a group that isn't private gets a view-only page
+            with Request to Join (JR-1); anything else gets the usual card. */}
+        {notFound ? (
+          <GroupPreview
+            groupId={groupId}
+            onAccepted={onRequestAccepted}
+            notMember={accessCard}
+          />
+        ) : accessCard}
       </div>
     )
   }
@@ -922,7 +1079,9 @@ function GroupView() {
                   )}
 
                   <div className="group-info-meta">
-                    <span className="round-info">Round {group.currentRound}/{group.settings.totalRounds}</span>
+                    <span className="round-info">
+                      {isFinished ? 'Game over' : `Round ${group.currentRound}/${group.settings.totalRounds}`}
+                    </span>
                     <span className="player-count">
                       {group.players.length} {group.players.length === 1 ? 'player' : 'players'}
                     </span>
@@ -964,7 +1123,6 @@ function GroupView() {
                       <button
                         className="setup-button primary"
                         onClick={handleStartGroup}
-                        disabled={!canStartRound}
                       >
                         Start Round
                       </button>
@@ -972,16 +1130,43 @@ function GroupView() {
 
                     <div className="setup-info">
                       <p>Players joined: {group.players.length}</p>
-                      {canStartRound ? (
-                        <p className="setup-hint">Ready to start.</p>
-                      ) : (
-                        <p className="setup-hint">
-                          You need at least {MIN_PLAYERS_TO_START} players to start — one to
-                          judge and one to submit. Invite someone to join.
+                      {group.players.length === 1 ? (
+                        <p className="setup-warning">
+                          <span aria-hidden="true">⚠️</span> You need at least {MIN_PLAYERS_TO_START} players
+                          to start: one to judge and one to submit. Invite someone to join.
                         </p>
+                      ) : (canStartRound && hasEnoughTopics) && (
+                        <p className="setup-hint">Ready to start.</p>
                       )}
                     </div>
                   </div>
+                )}
+
+                {isFinished && (
+                  /* GT-1: the game ended after its last round. */
+                  <section className="game-over" aria-labelledby="game-over-title">
+                    <h3 id="game-over-title">Game over</h3>
+                    {group.finalStandings && group.finalStandings.length > 0 && (
+                      <p className="game-over-winner">
+                        {group.finalStandings[0].username} won with {group.finalStandings[0].score} points.
+                      </p>
+                    )}
+                    <ol className="game-over-standings">
+                      {(group.finalStandings || []).map((entry) => (
+                        <li key={entry.userId}>
+                          <span className="player-name">{entry.username}</span>
+                          <span className="score">{entry.score} pts</span>
+                        </li>
+                      ))}
+                    </ol>
+                    {isHost ? (
+                      <button type="button" className="setup-button primary" onClick={handleStartNewSet}>
+                        Start a new game
+                      </button>
+                    ) : (
+                      <p className="setup-hint">The host can start a new game. You'll get a notification.</p>
+                    )}
+                  </section>
                 )}
 
                 {group.status === 'setup' && !isHost && (
@@ -1188,7 +1373,7 @@ function GroupView() {
                             You're the Judge. Pick a topic to start the round — the
                             submission timer begins once you choose.
                           </p>
-                          <TopicPicker groupId={groupId} onSelect={handleSelectTopic} />
+                          <TopicPicker groupId={groupId} onSelect={handleSelectTopic} hostTopicsOnly={hostTopicsOnly} />
 
                           {/* Judge skip (RT-3): a Judge who doesn't want the role
                               can pass it to a random member who hasn't judged this
@@ -1491,19 +1676,23 @@ function GroupView() {
                         </div>
                       </div>
 
-                      {isHost && (
+                      {isFinished && (
+                        <p className="setup-hint">
+                          That was the last round. See the final standings on the Overview.
+                        </p>
+                      )}
+                      {isHost && !isFinished && (
                         <>
                           <button
                             className="setup-button primary"
                             onClick={handleStartRound}
-                            disabled={!canStartRound}
                           >
                             Start Next Round
                           </button>
-                          {!canStartRound && (
-                            <p className="setup-hint">
-                              You need at least {MIN_PLAYERS_TO_START} players in the group to
-                              start another round.
+                          {group.players.length === 1 && (
+                            <p className="setup-warning">
+                              <span aria-hidden="true">⚠️</span> You need at least {MIN_PLAYERS_TO_START} players
+                              to start another round. Invite someone to join.
                             </p>
                           )}
                         </>
@@ -1591,6 +1780,27 @@ function GroupView() {
                           <span className="score-label">points</span>
                         </div>
                       </div>
+
+                      {isHost && !player.isHost && (
+                        <div className="participant-moderation">
+                          <button
+                            type="button"
+                            className="cancel-button"
+                            onClick={() => handleKick(player)}
+                            aria-label={`Kick ${player.username}`}
+                          >
+                            Kick
+                          </button>
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() => handleBan(player)}
+                            aria-label={`Ban ${player.username}`}
+                          >
+                            Ban
+                          </button>
+                        </div>
+                      )}
                       
                       <div className="participant-stats">
                         <div className="mini-stat">
@@ -1610,6 +1820,100 @@ function GroupView() {
                   ))}
                 </div>
 
+              </section>
+            )}
+
+            {activeTab === 'topics' && isHost && hostTopicsOnly && (
+              <section className="tab-content">
+                <h2>Group Topics</h2>
+                <p className="form-hint">
+                  Custom topics are off, so the Judge picks from this list. Each topic can be
+                  played once per game, so a {topicsNeeded}-round game needs at least {topicsNeeded}.
+                </p>
+                <HostTopicEditor group={group} needed={topicsNeeded} />
+              </section>
+            )}
+
+            {activeTab === 'requests' && isHost && hostPanel && (
+              <section className="tab-content">
+                <h2>Join Requests</h2>
+                {group.currentTheme && group.currentTheme.status !== 'reveal' && (
+                  <p className="form-hint" role="status">
+                    A round is under way. You can accept requests once it ends.
+                  </p>
+                )}
+
+                {hostPanel.joinRequests.length === 0 ? (
+                  <p className="requests-empty">No one is waiting to join.</p>
+                ) : (
+                  <ul className="requests-list">
+                    {hostPanel.joinRequests.map((request) => (
+                      <li key={request.userId} className="request-card">
+                        <div className="request-info">
+                          <span className="participant-name">{request.username}</span>
+                          <span className="form-hint">
+                            Asked {new Date(request.requestedAt).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="request-actions">
+                          <button
+                            type="button"
+                            className="submit-button"
+                            onClick={() => handleAcceptRequest(request)}
+                            disabled={!!group.currentTheme && group.currentTheme.status !== 'reveal'}
+                            aria-label={`Accept ${request.username}`}
+                          >
+                            Accept
+                          </button>
+                          <button
+                            type="button"
+                            className="cancel-button"
+                            onClick={() => handleDeclineRequest(request)}
+                            aria-label={`Decline ${request.username}`}
+                          >
+                            Decline
+                          </button>
+                          <button
+                            type="button"
+                            className="danger-button"
+                            onClick={() => handleBan(request)}
+                            aria-label={`Ban ${request.username}`}
+                          >
+                            Ban
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+
+                <h3 className="banned-heading">Banned players</h3>
+                {hostPanel.bannedUsers.length === 0 ? (
+                  <p className="requests-empty">No one is banned.</p>
+                ) : (
+                  <ul className="requests-list">
+                    {hostPanel.bannedUsers.map((banned) => (
+                      <li key={banned.userId} className="request-card">
+                        <div className="request-info">
+                          <span className="participant-name">{banned.username}</span>
+                          <span className="form-hint">
+                            Banned {new Date(banned.bannedAt).toLocaleString()}
+                          </span>
+                        </div>
+                        <div className="request-actions">
+                          <button
+                            type="button"
+                            className="cancel-button"
+                            onClick={() => handleUnban(banned)}
+                            aria-label={`Unban ${banned.username}`}
+                          >
+                            Unban
+                          </button>
+                        </div>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </section>
             )}
 
@@ -1698,7 +2002,14 @@ function GroupView() {
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, totalRounds: parseInt(e.target.value) }))}
                           min="1"
                           max="20"
+                          disabled={group.status === 'active'}
+                          aria-describedby={group.status === 'active' ? 'rules-rounds-locked' : undefined}
                         />
+                        {group.status === 'active' && (
+                          <small id="rules-rounds-locked" className="form-hint">
+                            The number of rounds can only change before a game starts or after it ends.
+                          </small>
+                        )}
                       </div>
                       <div className="form-row">
                         <label htmlFor="rules-max-players">Max Players:</label>
@@ -1728,6 +2039,23 @@ function GroupView() {
                         When off, only the host can share the invite link. This controls who can
                         share an invite — not who can join, since anyone with the link can join.
                       </p>
+                      <div className="form-row checkbox">
+                        <label>
+                          <input
+                            type="checkbox"
+                            checked={editedSettings.allowCustomTopics}
+                            onChange={(e) => setEditedSettings(prev => ({ ...prev, allowCustomTopics: e.target.checked }))}
+                            disabled={group.status === 'active'}
+                            aria-describedby="rules-custom-topics-hint"
+                          />
+                          Allow Custom Topics
+                        </label>
+                        <small id="rules-custom-topics-hint" className="form-hint">
+                          On: the Judge picks from their own topics and ones members share. Off: you set
+                          the group's topic list, with at least one per round.
+                          {group.status === 'active' && ' This can only change before a game starts or after it ends.'}
+                        </small>
+                      </div>
                     </div>
 
                     <div className="rules-section">
@@ -1973,36 +2301,6 @@ function GroupView() {
                       </div>
                     </div>
 
-                    <div className="rules-section">
-                      <h3>Topic Settings</h3>
-                      <div className="form-row">
-                        <label htmlFor="rules-topic-selection">Topic Selection:</label>
-                        <select
-                          id="rules-topic-selection"
-                          value={editedSettings.topicSelection}
-                          onChange={(e) => setEditedSettings(prev => ({ ...prev, topicSelection: e.target.value }))}
-                        >
-                          <option value="czar">Judge Chooses</option>
-                          {/* Unimplemented alternatives, preserved as design
-                              intent rather than deleted — see CreateGroup.jsx
-                              for what each would need.
-                          <option value="random">Random Selection</option>
-                          <option value="vote">Player Vote</option>
-                          */}
-                        </select>
-                      </div>
-                      <div className="form-row checkbox">
-                        <label>
-                          <input 
-                            type="checkbox" 
-                            checked={editedSettings.allowCustomTopics}
-                            onChange={(e) => setEditedSettings(prev => ({ ...prev, allowCustomTopics: e.target.checked }))}
-                          />
-                          Allow Custom Topics
-                        </label>
-                      </div>
-                    </div>
-
                     <div className="form-actions">
                       <button 
                         className="cancel-button"
@@ -2026,6 +2324,7 @@ function GroupView() {
                         <li><strong>Total Rounds:</strong> {group.settings.totalRounds}</li>
                         <li><strong>Max Players:</strong> {group.settings.maxPlayers}</li>
                         <li><strong>Members Can Share Invites:</strong> {group.settings.allowMemberInvites ? 'Yes' : 'No'}</li>
+                        <li><strong>Allow Custom Topics:</strong> {group.settings.allowCustomTopics ? 'Yes' : 'No'}</li>
                       </ul>
                     </div>
 
@@ -2079,15 +2378,6 @@ function GroupView() {
                       </ul>
                     </div>
 
-                    <div className="rules-section">
-                      <h3>Topic Settings</h3>
-                      <ul className="rules-list">
-                        {/* Only 'czar' is selectable, but an older group could
-                            still carry another value, so this doesn't assume. */}
-                        <li><strong>Topic Selection:</strong> {group.settings.topicSelection === 'czar' ? 'Judge Chooses' : group.settings.topicSelection}</li>
-                        <li><strong>Allow Custom Topics:</strong> {group.settings.allowCustomTopics ? 'Yes' : 'No'}</li>
-                      </ul>
-                    </div>
                   </div>
                 )}
               </section>
@@ -2117,6 +2407,28 @@ function GroupView() {
               >
                 Participants
               </button>
+              {isHost && hostTopicsOnly && (
+                <button
+                  className={`nav-item ${activeTab === 'topics' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('topics')}
+                >
+                  Topics
+                </button>
+              )}
+              {isHost && hostPanel && (
+                <button
+                  className={`nav-item ${activeTab === 'requests' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('requests')}
+                >
+                  Requests
+                  {hostPanel.joinRequests.length > 0 && (
+                    <span className="nav-count">
+                      {hostPanel.joinRequests.length}
+                      <span className="visually-hidden"> pending</span>
+                    </span>
+                  )}
+                </button>
+              )}
               <button 
                 className={`nav-item ${activeTab === 'history' ? 'active' : ''}`}
                 onClick={() => setActiveTab('history')}
@@ -2338,6 +2650,101 @@ function GroupView() {
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showPlayersModal && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="players-modal-title"
+          ref={playersModalRef}
+          onClick={() => setShowPlayersModal(false)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="players-modal-title">Invite someone to start</h2>
+              <button className="close-button" onClick={() => setShowPlayersModal(false)} aria-label="Close modal">
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                A round needs at least {MIN_PLAYERS_TO_START} players: one to judge and one to submit
+                a song. Right now it's just you.
+              </p>
+              {!group.isPrivate && group.status === 'setup' && (
+                <p className="form-hint">
+                  Your group is also listed in Open Groups, so other players can ask to join.
+                </p>
+              )}
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="cancel-button" onClick={() => setShowPlayersModal(false)}>
+                Close
+              </button>
+              <button
+                type="button"
+                className="submit-button"
+                onClick={() => {
+                  setShowPlayersModal(false)
+                  handleInvitePlayer()
+                }}
+              >
+                Invite players
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTopicsModal && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="topics-modal-title"
+          ref={topicsModalRef}
+          onClick={() => setShowTopicsModal(false)}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="topics-modal-title">Add your topics to start</h2>
+              <button className="close-button" onClick={() => setShowTopicsModal(false)} aria-label="Close modal">
+                ×
+              </button>
+            </div>
+            <div className="modal-body">
+              <p>
+                Custom topics are off, so you choose this game's topics. Each topic is played once,
+                so a {topicsNeeded}-round game needs {topicsNeeded}.
+              </p>
+              <HostTopicEditor group={group} needed={topicsNeeded} inputId="topics-modal-input" />
+            </div>
+            <div className="modal-actions">
+              <button type="button" className="cancel-button" onClick={() => setShowTopicsModal(false)}>
+                Not now
+              </button>
+              <button
+                type="button"
+                className="submit-button"
+                onClick={() => {
+                  setShowTopicsModal(false)
+                  setShowRoundLeaderModal(true)
+                }}
+                disabled={!hasEnoughTopics}
+                aria-describedby="topics-modal-start-hint"
+              >
+                Start round
+              </button>
+            </div>
+            {!hasEnoughTopics && (
+              <p id="topics-modal-start-hint" className="form-hint topics-modal-start-hint">
+                Add {topicsNeeded - unusedHostTopics} more {topicsNeeded - unusedHostTopics === 1 ? 'topic' : 'topics'} to start the round.
+              </p>
+            )}
           </div>
         </div>
       )}

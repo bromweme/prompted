@@ -1522,3 +1522,128 @@
   margin: 0;
   color: var(--color-text-secondary);
 }
+
+/* Join requests, kicks and bans (JR-1). Layout only: button looks come from
+   the shared .submit-button / .cancel-button / .danger-button classes. */
+.participant-moderation {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.nav-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5em;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1);
+  border-radius: 999px;
+  background: var(--color-accent);
+  color: var(--color-surface);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-semibold);
+}
+
+.requests-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.request-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.request-info {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.request-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.requests-empty {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.banned-heading {
+  margin: var(--space-5) 0 var(--space-2);
+}
+
+/* Games and topics (GT-1): the end-of-game standings, the host's topic
+   list, and an inline text button. */
+.game-over {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  border: 1px solid var(--color-border-subtle);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.game-over h3,
+.game-over-winner {
+  margin: 0;
+}
+
+.game-over-standings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.game-over-standings li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* A missing requirement for starting (JR/GT start flow): a warning, not
+   small print, so it can't be missed. */
+.setup-warning {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-danger);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-weight: var(--weight-semibold);
+}
+
+.topics-modal-start-hint {
+  margin: var(--space-2) 0 0;
+  text-align: right;
+}
