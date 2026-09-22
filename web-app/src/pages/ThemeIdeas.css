@@ -11,14 +11,6 @@
   padding: 1.5rem 2rem;
 }
 
-.header-content {
-  width: 100%;
-  max-width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 2rem;
-}
-
 /* Shared button classes (.back-button, .add-button, .action-button,
    .cancel-button, .submit-button) are deliberately NOT restyled here.
    This stylesheet is global once the page is imported, and it loads after
@@ -27,13 +19,6 @@
    var() made `background` invalid, so it fell back to transparent while
    `color: white` stuck, and every primary button in the app went invisible.
    Style buttons in index.css; keep only page-specific classes here. */
-
-.header-content h1 {
-  font-size: 1.75rem;
-  color: var(--color-text-primary);
-  margin: 0;
-  font-weight: 700;
-}
 
 .theme-ideas-main {
   flex: 1;
@@ -263,16 +248,6 @@
 @media (max-width: 768px) {
   .page-header {
     padding: 1rem;
-  }
-
-  .header-content {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 1rem;
-  }
-
-  .header-content h1 {
-    font-size: 1.5rem;
   }
 
   .ideas-header {

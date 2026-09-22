@@ -114,3 +114,39 @@
     padding: var(--space-3);
   }
 }
+
+/* On a phone the logo and the account controls no longer fitted on one line,
+   so the controls wrapped onto a row of their own: three stacked rows of
+   chrome above the page, with the bell, avatar and Logout adrift on the left.
+   Measured at 375px, it was 402px of content going into 343px of space.
+   Everything here buys back that 59px by making the controls smaller, rather
+   than by hiding one of them behind a menu. */
+@media (max-width: 480px) {
+  .header-content {
+    gap: var(--space-2);
+  }
+
+  .logo h1 {
+    font-size: var(--text-body);
+  }
+
+  .user-section {
+    gap: var(--space-2);
+  }
+
+  .bell-button {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+
+  .user-avatar {
+    width: 32px;
+    height: 32px;
+    font-size: 1rem;
+  }
+
+  .logout-button {
+    padding: var(--space-1) var(--space-2);
+    font-size: var(--text-caption);
+  }
+}

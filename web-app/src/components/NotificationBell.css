@@ -163,3 +163,20 @@
   font-weight: var(--weight-semibold);
   text-align: center;
 }
+
+/* On a phone the panel is wider than the gap between the bell and the right
+   edge, so anchoring it to the bell pushed it off the left of the screen —
+   "Clear all" and the Open links were cut off the viewport. Dropping the
+   bell's own positioning makes the sticky header the containing block, so the
+   panel lines up with the header's right edge and its full width stays on
+   screen. `top: 100%` then means "below the header", which is where a panel
+   hanging off the header belongs anyway. */
+@media (max-width: 480px) {
+  .notification-bell {
+    position: static;
+  }
+
+  .notification-panel {
+    right: var(--space-3);
+  }
+}
