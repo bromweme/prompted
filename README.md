@@ -55,6 +55,22 @@ Every push runs all of it on GitHub Actions, with each Playwright project as its
 - **Zero retries, on purpose.** A flaky test fails visibly instead of passing on a second try. Traces are kept for every failure (`retain-on-failure`) so failures can be stepped through afterward.
 - **Tuned parallelism.** Four workers, parallel by file. Higher worker counts overloaded WebKit and produced timeouts caused by machine load rather than real bugs.
 
+### Two checks that sit outside the suite
+
+The suite proves the rules are right on a local machine. Two things it can't tell you have their own tools, run on demand rather than in CI.
+
+**Load** (`web-app/perf/loadtest.mjs`) drives real socket clients through real games and measures what only shows up under concurrency: how long the *last* member of a group waits for an update, how much data the server pushes, how many app-wide broadcasts an uninvolved socket receives, and whether the per-socket rate limit (20 burst, ~5/s) starts refusing real play. It needs a local server with `AUTH_TEST_MODE=1` and refuses a non-localhost target unless you pass `--allow-remote`.
+
+```bash
+cd web-app && npm run perf -- --groups 25 --players 6 --rounds 2
+```
+
+**Smoke** (`web-app/smoke/`) checks a *deployed* site, which CI never touches: the backend answers its health check (and how slowly, if the instance was asleep), the websocket layer is reachable and refuses anonymous connections, test-mode sign-in is refused, the app boots with no failed requests, and the shipped bundle is built against the intended backend rather than localhost. It deliberately doesn't play a game — production refuses test-mode sign-in, which is the point.
+
+```bash
+cd web-app && SMOKE_WEB_URL=https://prompted-frontend.onrender.com SMOKE_API_URL=https://prompted-server-8hbz.onrender.com npm run test:smoke
+```
+
 ### Running the tests
 
 The end-to-end suite starts the backend itself, so install both packages first:

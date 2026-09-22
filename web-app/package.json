@@ -9,7 +9,9 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "test": "node --test \"test/*.test.js\"",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:smoke": "playwright test --config=smoke.config.js",
+    "perf": "node perf/loadtest.mjs"
   },
   "dependencies": {
     "react": "^19.2.8",
