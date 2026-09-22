@@ -28,6 +28,65 @@ jobs:
       - run: npm ci
       - run: npm test
 
+  postgres:
+    # The driver production actually uses (DB-1). Local runs default to SQLite
+    # because it needs no setup; without this job, nothing would ever exercise
+    # the Postgres path and it would rot silently. Runs the server unit tests
+    # and the `api` project, which together cover every store operation —
+    # browser projects would only re-test the UI over the same server.
+    name: Postgres driver (unit + api)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: prompted
+          POSTGRES_DB: prompted_test
+        ports: ['5432:5432']
+        # Don't start the tests before the database can answer.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:prompted@localhost:5432/prompted_test
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 26
+          cache: npm
+          cache-dependency-path: |
+            server/package-lock.json
+            web-app/package-lock.json
+      - name: Install server dependencies
+        run: npm ci
+        working-directory: server
+      - name: Install web-app dependencies
+        run: npm ci
+        working-directory: web-app
+
+      - name: Server unit tests on Postgres
+        run: npm test
+        working-directory: server
+
+      # The config gives each run its own schema, so these two steps can't
+      # collide with each other or with anything left behind by an earlier run.
+      - name: API suite on Postgres
+        run: npx playwright test --project=api --reporter=list
+        working-directory: web-app
+
+      - name: Upload traces
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: playwright-postgres
+          path: web-app/test-results/
+          retention-days: 14
+          if-no-files-found: ignore
+
   e2e:
     # One job per Playwright project, so the configurations run side by side
     # and each installs only the browser it needs. The `api` project drives

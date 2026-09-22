@@ -37,13 +37,24 @@ test.describe('accessibility (WCAG 2.1 AA)', () => {
   })
 
   test('Open Groups search page has no violations', async ({ page, context }) => {
-    await seedTestUser(context, { id: `a11y-open-${testRunId()}`, name: 'A11y Tester' })
+    const runId = testRunId()
+    // Makes its own listing rather than relying on one another spec happened to
+    // leave behind: the status line is empty when nothing is open, so without
+    // this the test passes or fails depending on what ran before it.
+    const host = connectAs(`a11y-og-host-${runId}`, 'A11y Host')
+    await host.ready
+    const created = new Promise((resolve) => host.socket.once('group_created', resolve))
+    host.socket.emit('create_group', { groupData: { name: `A11y Open ${runId}`, description: 'Listed for the scan', settings: {} } })
+    await created
+
+    await seedTestUser(context, { id: `a11y-open-${runId}`, name: 'A11y Tester' })
     await page.goto('/open-groups')
     await expect(page.getByRole('heading', { name: 'Open Groups', level: 1 })).toBeVisible()
     await expect(page.locator('#open-groups-status')).not.toBeEmpty()
 
     const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
     expect(results.violations, reportViolations(results.violations)).toEqual([])
+    host.socket.close()
   })
 
   test('View-only group page has no violations', async ({ page, context }) => {

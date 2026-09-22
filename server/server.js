@@ -8,7 +8,7 @@ const config = require('./config');
 const { createAuthMiddleware } = require('./auth');
 const { searchVideos, isValidVideoId } = require('./youtube');
 const { getOrCreateProfile, updateProfile, AVATAR_CHOICES } = require('./profiles');
-const { PersistentStore, initStores } = require('./db');
+const { PersistentStore, initStores, flushStores, driver } = require('./db');
 const { logEvent, settingsSnapshot, changedSettingKeys } = require('./events');
 const { createInviteIndex, createJoinThrottle } = require('./invites');
 
@@ -2887,10 +2887,35 @@ async function start() {
   groups.forEach((group) => inviteIndex.add(group));
 
   server.listen(config.port, () => {
-    console.log(`Server running on port ${config.port}`);
+    console.log(`Server running on port ${config.port} (${driver.describe()})`);
     if (config.authTestMode) {
       console.warn('[auth] AUTH_TEST_MODE is ON - test identities are accepted. Never enable this in production.');
     }
+  });
+}
+
+// Writes are not awaited by the handlers that make them, so a shutdown has to
+// wait for the ones still in flight. Render sends SIGTERM when a free service
+// spins down, which is exactly when the last write of a round would otherwise
+// be lost.
+let shuttingDown = false;
+for (const signal of ['SIGTERM', 'SIGINT']) {
+  process.on(signal, () => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[db] ${signal} received, flushing pending writes...`);
+    const done = () => process.exit(0);
+    // Don't hang on a database that has stopped answering.
+    const deadline = setTimeout(() => {
+      console.error('[db] flush timed out; exiting anyway');
+      done();
+    }, 5_000);
+    flushStores()
+      .catch((error) => console.error('[db] flush failed:', error.message))
+      .finally(() => {
+        clearTimeout(deadline);
+        done();
+      });
   });
 }
 
