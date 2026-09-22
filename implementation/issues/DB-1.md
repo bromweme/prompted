@@ -1,6 +1,6 @@
 # DB-1 — Move persistence off the ephemeral filesystem to managed Postgres
 
-- **Status:** In progress. Phase 1 implemented; phases 2–4 outstanding. Both decisions below are settled.
+- **Status:** In progress. Phases 1 and 2 implemented (`fb97709`, `6a15d72`); phase 3 (`events.js`) and phase 4 (production verification) outstanding. Both decisions below are settled.
 - **Priority:** high. Nothing else in the product matters if the data doesn't survive lunch.
 - **Guarantee:** Groups, players, topics, notifications, profiles and the event log survive a restart, a redeploy and an idle period. A game started on Monday is still there on Wednesday.
 
@@ -64,7 +64,16 @@ One Render limitation to keep in view: free services that generate "an uncommonl
 - New `server/test/persistence.test.js`: a store is empty before `load()` and populated after, deletes survive a restart, `initStores()` covers every store, and iteration reads the loaded cache. These are the first tests in the repo that would fail against a store that only ever lived in memory.
 - Found on the way: `server/package.json` listed its test files by name, so a new test file was silently skipped by `npm test` and by CI. Now a glob.
 
-**Phase 2 — a Postgres driver behind the same interface.**
+**Phase 2 — a Postgres driver behind the same interface. ✅ Done (`6a15d72`).**
+- `drivers/sqlite.js` and `drivers/postgres.js` behind one interface: `ensureTable`, `loadAll`, `upsert`, `remove`, `close`. Same stored shape on both.
+- `set()` serializes the value at call time, not when the write lands. A test caught the difference: an object mutated between `set()` and the write would otherwise have persisted the later state.
+- Postgres DDL is serialized and treats `23505` / `42P07` as success — `CREATE ... IF NOT EXISTS` is not atomic, and `initStores()` loads every store at once, so that race is the normal case. Found by the first real run against Postgres.
+- TLS verification stays on for any non-local host; `PGSSL_NO_VERIFY=1` is the documented escape hatch. Identifiers are pattern-checked before interpolation.
+- `SIGTERM`/`SIGINT` flush pending writes (5s cap) before exit, which is what Render sends on spin-down.
+- CI gained a Postgres job (server unit tests + the `api` project against a `postgres:17` service).
+- Verified: server unit 18/18 on each driver, api 88/88 on Postgres, full suite 484/484 on each driver.
+
+Original plan, for the record:
 - Add `pg` and a `DATABASE_URL` environment variable. When it's absent, fall back to SQLite, so local development and the test suite keep working with no setup.
 - One table per store, same shape as today: `(id TEXT PRIMARY KEY, data JSONB NOT NULL)`. The stored value is already a JSON blob, so nothing about the data model changes.
 - `set`/`delete` become async internally and are **not awaited by callers**; they queue per key and log failures loudly. See the durability decision below.
