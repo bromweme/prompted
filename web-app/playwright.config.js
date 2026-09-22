@@ -79,8 +79,18 @@ export default defineConfig({
     // every iOS browser, and it's where engine-specific breakage actually
     // shows up (CSS support gaps, JS API differences) — Chromium desktop and
     // Chromium mobile only vary the viewport.
-    { name: 'webkit', testIgnore: API_SPECS, use: { ...devices['Desktop Safari'] } },
-    { name: 'mobile-safari', testIgnore: API_SPECS, use: { ...devices['iPhone 14'] } },
+    //
+    // Both WebKit projects get double the per-test budget. 60s is right for a
+    // developer's machine and wrong for a shared 2-core CI runner: the heaviest
+    // of these tests drives three emulated-Safari contexts, runs ~12s locally,
+    // and has exceeded 60s on CI (round-phases "a player cannot select their
+    // own submission", run #11) while 101 tests around it passed. That is the
+    // budget being wrong for the environment, not the code being slow — the
+    // same reason these two projects already run with half the workers.
+    // Deliberately not solved with retries: retries: 0 above is what makes a
+    // flake visible instead of silently swallowed.
+    { name: 'webkit', testIgnore: API_SPECS, timeout: 120_000, use: { ...devices['Desktop Safari'] } },
+    { name: 'mobile-safari', testIgnore: API_SPECS, timeout: 120_000, use: { ...devices['iPhone 14'] } },
   ],
   // Boots the real backend (server.js) and the real Vite dev server so the
   // suite exercises actual socket.io traffic end to end — no mocking. Both
