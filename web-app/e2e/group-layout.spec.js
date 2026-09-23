@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, seedTestUser, testRunId, inviteJoinPath } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, testRunId, joinGroupAs } from './helpers.js'
 
 // Covers the GroupView reorganisation: the shared app nav replacing the old
 // bespoke header, the Group Info card that absorbed its contents, and the
@@ -107,8 +107,7 @@ test.describe('group view layout', () => {
     const inviteButton = (page) => page.getByRole('button', { name: 'Invite players to group' })
     await expect(inviteButton(host.page)).toBeVisible()
 
-    await member.page.goto(await inviteJoinPath(host.page))
-    await expect(member.page.locator('.group-info-card')).toBeVisible()
+    await joinGroupAs(member.page, host.page, 2)
     await expect(inviteButton(member.page)).toHaveCount(0)
 
     // Host turns the setting on; it reaches the member over the live update.

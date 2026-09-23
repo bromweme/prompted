@@ -1,8 +1,5 @@
 import { test, expect } from '@playwright/test'
-import {
-  createGroupThroughWizard, seedTestUser, selectTopicAsJudge, startRoundAsHost,
-  testRunId, waitForJudgeIndex, inviteJoinPath
-} from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, selectTopicAsJudge, startRoundAsHost, testRunId, waitForJudgeIndex, joinGroupAs } from './helpers.js'
 
 // Finding a video to submit.
 //
@@ -27,9 +24,7 @@ async function openSubmitModal(browser, runId) {
 
   await createGroupThroughWizard(host.page, `Video Search ${runId}`)
   await expect(host.page).toHaveURL(/\/group\/.+/)
-  await guest.page.goto(await inviteJoinPath(host.page))
-  await expect(guest.page.locator('.group-info-card')).toBeVisible()
-  await expect(host.page.getByText('2 players')).toBeVisible()
+  await joinGroupAs(guest.page, host.page, 2)
 
   await startRoundAsHost(host.page)
 

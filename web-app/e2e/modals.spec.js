@@ -7,7 +7,7 @@ import {
   testRunId,
   selectTopicAsJudge,
   waitForJudgeIndex,
-  inviteJoinPath,
+  joinGroupAs,
 } from './helpers.js'
 
 // Every modal in the app, opened and checked three ways:
@@ -101,8 +101,7 @@ for (const colorScheme of ['light', 'dark']) {
       const guest = await browser.newContext()
       await seedTestUser(guest, { id: `modal-grp2-${runId}`, name: 'Second Player' })
       const guestPage = await guest.newPage()
-      await guestPage.goto(await inviteJoinPath(page))
-      await expect(guestPage.locator('.group-info-card')).toBeVisible()
+      await joinGroupAs(guestPage, page, 2)
 
       await page.getByRole('button', { name: 'Start Round', exact: true }).click()
       await scanOpenModal(page, 'select Judge')
@@ -127,8 +126,7 @@ for (const colorScheme of ['light', 'dark']) {
       await createGroupThroughWizard(host.page, `Modal Round ${runId}`)
       await expect(host.page).toHaveURL(/\/group\/.+/)
 
-      await second.page.goto(await inviteJoinPath(host.page))
-      await expect(second.page.locator('.group-info-card')).toBeVisible()
+      await joinGroupAs(second.page, host.page, 2)
 
       await host.page.getByRole('button', { name: 'Start Round', exact: true }).click()
       await host.page.getByRole('dialog').getByRole('button', { name: /Randomly Assign/ }).click()

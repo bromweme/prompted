@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { io } from 'socket.io-client'
-import { createGroupThroughWizard, seedTestUser, testRunId, inviteCodeFor, inviteJoinPath } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, testRunId, inviteCodeFor, joinGroupAs } from './helpers.js'
 
 const API_URL = 'http://localhost:5000'
 
@@ -198,8 +198,7 @@ test.describe('leave and delete group', () => {
     const memberContext = await browser.newContext()
     await seedTestUser(memberContext, { id: `ld-br-member-${runId}`, name: 'Browser Member' })
     const memberPage = await memberContext.newPage()
-    await memberPage.goto(await inviteJoinPath(hostPage))
-    await expect(memberPage.locator('.group-info-card')).toBeVisible()
+    await joinGroupAs(memberPage, hostPage, 2)
 
     // The member's page shows the Leave Group button and must NOT be the host:
     // the host's page is the one carrying Delete Group.

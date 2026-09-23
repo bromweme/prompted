@@ -6,7 +6,7 @@ import {
   testRunId,
   fillGroupName,
   goToNextWizardStep,
-  inviteJoinPath,
+  joinGroupAs,
 } from './helpers.js'
 
 // Site-wide sweep for elements that are present but cannot be seen.
@@ -95,8 +95,7 @@ for (const colorScheme of ['light', 'dark']) {
       const guest = await browser.newContext()
       await seedTestUser(guest, { id: `vis-grp2-${runId}`, name: 'Second Player' })
       const guestPage = await guest.newPage()
-      await guestPage.goto(await inviteJoinPath(page))
-      await expect(guestPage.locator('.group-info-card')).toBeVisible()
+      await joinGroupAs(guestPage, page, 2)
 
       for (const tab of ['Participants', 'History', 'Rules']) {
         await page.getByRole('button', { name: tab, exact: true }).click()

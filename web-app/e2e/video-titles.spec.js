@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, seedTestUser, testRunId, selectTopicAsJudge, waitForJudgeIndex, inviteJoinPath } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, testRunId, selectTopicAsJudge, waitForJudgeIndex, joinGroupAs } from './helpers.js'
 
 // The YouTube Data API returns snippet text HTML-escaped, so a video really
 // titled  Smash Mouth - "All Star" (Steve's Remix) & More  arrives as
@@ -41,8 +41,7 @@ test.describe('YouTube titles render decoded, not as HTML entities', () => {
     const guestContext = await context.browser().newContext()
     await seedTestUser(guestContext, { id: `ent-search2-${runId}`, name: 'Second Player' })
     const guest = await guestContext.newPage()
-    await guest.goto(await inviteJoinPath(page))
-    await expect(guest.locator('.group-info-card')).toBeVisible()
+    await joinGroupAs(guest, page, 2)
 
     await page.getByRole('button', { name: 'Start Round', exact: true }).click()
     await page.getByRole('dialog').getByRole('button', { name: /Randomly Assign/ }).click()
@@ -91,11 +90,9 @@ test.describe('YouTube titles render decoded, not as HTML entities', () => {
     await createGroupThroughWizard(host.page, `Entity List ${runId}`)
     await expect(host.page).toHaveURL(/\/group\/.+/)
 
-    for (const p of players.slice(1)) {
-      await p.page.goto(await inviteJoinPath(host.page))
-      await expect(p.page.locator('.group-info-card')).toBeVisible()
+    for (const [i, p] of players.slice(1).entries()) {
+      await joinGroupAs(p.page, host.page, i + 2)
     }
-    await expect(host.page.getByText('3 players')).toBeVisible()
 
     await host.page.getByRole('button', { name: 'Start Round', exact: true }).click()
     await host.page.getByRole('dialog').getByRole('button', { name: /Randomly Assign/ }).click()

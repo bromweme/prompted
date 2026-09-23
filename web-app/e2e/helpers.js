@@ -216,3 +216,31 @@ export async function inviteJoinPath(memberPage) {
   const memberId = await memberPage.evaluate(() => JSON.parse(window.localStorage.getItem('testUser')).userId)
   return `/join/${await inviteCodeFor(memberId, groupId)}`
 }
+
+/**
+ * Joins `joiner` to the group `host` is showing, and does not return until
+ * BOTH pages agree on the new membership.
+ *
+ * The host-side wait is the whole point. Confirming the join on the joiner's
+ * page proves nothing about the host's: the host finds out over a socket
+ * (`player_joined_group`), at a moment nothing in the test controls. Acting on
+ * the host straight after a join therefore races a re-render of the player
+ * list — which sits directly above the Start button, so the button moves.
+ *
+ * That race cost two mobile-safari failures before this helper existed, in the
+ * two specs with the most unguarded joins. The symptom differed each time
+ * (`round-phases` timed out; `topics` hit Playwright's stability check, which
+ * refuses to click a target whose box changes between frames) but the cause was
+ * the same, and it only ever showed on WebKit because it is the slowest engine
+ * in the matrix and `retries: 0` turns one bad frame into a red build.
+ *
+ * Waiting on the count is deliberate rather than incidental: `canStartRound`
+ * is derived from `players.length`, so the text this waits for and the state
+ * that enables the button are the same thing.
+ */
+export async function joinGroupAs(joiner, host, expectedPlayers) {
+  await joiner.goto(await inviteJoinPath(host))
+  await expect(joiner.locator('.group-info-card')).toBeVisible()
+  const noun = expectedPlayers === 1 ? 'player' : 'players'
+  await expect(host.getByText(`${expectedPlayers} ${noun}`).first()).toBeVisible()
+}

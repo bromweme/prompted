@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, seedTestUser, selectTopicAsJudge, startRoundAsHost, testRunId, inviteJoinPath } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, selectTopicAsJudge, startRoundAsHost, testRunId, joinGroupAs } from './helpers.js'
 
 // UI-4: during topic_selection the round has no theme title yet (the server
 // sends title: null and a constant description). The Overview card and the
@@ -42,9 +42,7 @@ test('theme section says the theme is being chosen until a topic is picked', asy
     await expect(page).toHaveURL(/\/group\/.+/)
 
     // A second member so the host's Start control is enabled.
-    await second.page.goto(await inviteJoinPath(page))
-    await expect(second.page.locator('.group-info-card')).toBeVisible()
-    await expect(page.getByText('2 players')).toBeVisible()
+    await joinGroupAs(second.page, page, 2)
 
     await startRoundAsHost(page, { pickPlayer: hostName })
 

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, seedTestUser, selectTopicAsJudge, submitVideoThroughSearch, waitForJudgeIndex, startRoundAsHost, testRunId, inviteJoinPath } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, selectTopicAsJudge, submitVideoThroughSearch, waitForJudgeIndex, startRoundAsHost, testRunId, inviteJoinPath, joinGroupAs } from './helpers.js'
 
 // Covers the personal topic library, group-scoped sharing, and per-group
 // usage marking.
@@ -98,8 +98,7 @@ test.describe('topic library', () => {
     await createGroupThroughWizard(owner.page, `Reuse A ${runId}`)
     await expect(owner.page).toHaveURL(/\/group\/.+/)
 
-    await mate.page.goto(await inviteJoinPath(owner.page))
-    await expect(mate.page.locator('.group-info-card')).toBeVisible()
+    await joinGroupAs(mate.page, owner.page, 2)
     await startRoundAsHost(owner.page)
 
     const both = [owner, mate]
@@ -138,8 +137,7 @@ test.describe('topic library', () => {
     await createGroupThroughWizard(owner.page, `Reuse B ${runId}`)
     await expect(owner.page).toHaveURL(/\/group\/.+/)
 
-    await mate.page.goto(await inviteJoinPath(owner.page))
-    await expect(mate.page.locator('.group-info-card')).toBeVisible()
+    await joinGroupAs(mate.page, owner.page, 2)
 
     await startRoundAsHost(owner.page, { pickPlayer: 'Reuse Owner' })
     await owner.page.getByRole('button', { name: 'Round', exact: true }).click()
@@ -189,8 +187,7 @@ test.describe('topic library', () => {
     await createGroupThroughWizard(owner.page, `Shared Route ${runId}`)
     await expect(owner.page).toHaveURL(/\/group\/.+/)
 
-    await stranger.page.goto(await inviteJoinPath(owner.page))
-    await expect(stranger.page.locator('.group-info-card')).toBeVisible()
+    await joinGroupAs(stranger.page, owner.page, 2)
 
     await startRoundAsHost(owner.page, { pickPlayer: 'Library Owner' })
     await owner.page.getByRole('button', { name: 'Round', exact: true }).click()
@@ -220,8 +217,7 @@ test.describe('topic library', () => {
     await createGroupThroughWizard(host.page, `Share Group ${runId}`)
     await expect(host.page).toHaveURL(/\/group\/.+/)
 
-    await mate.page.goto(await inviteJoinPath(host.page))
-    await expect(mate.page.locator('.group-info-card')).toBeVisible()
+    await joinGroupAs(mate.page, host.page, 2)
 
     // Force the host to be the Judge so the picker is theirs, by starting the
     // group while they are the only other member (assignment is random, so

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test'
-import { createGroupThroughWizard, fillGroupName, goToNextWizardStep, seedTestUser, testRunId, inviteJoinPath } from './helpers.js'
+import { createGroupThroughWizard, fillGroupName, goToNextWizardStep, seedTestUser, testRunId, joinGroupAs } from './helpers.js'
 
 // UI-1 + UI-7: an unscoped `.form-row input, .form-row select { flex: 1 }` in
 // GroupView.css leaked through the global stylesheet bundle and broke two forms
@@ -173,9 +173,7 @@ test('UI-7: the Group Rules edit form bounds its fields, keeps checkboxes small,
 
     // A second member so the group is a realistic 2-player group (not required
     // for the layout itself, but mirrors how the form is actually used).
-    await second.page.goto(await inviteJoinPath(host.page))
-    await expect(second.page.locator('.group-info-card')).toBeVisible()
-    await expect(host.page.getByText('2 players')).toBeVisible()
+    await joinGroupAs(second.page, host.page, 2)
 
     await host.page.getByRole('button', { name: 'Rules', exact: true }).click()
     await host.page.getByRole('button', { name: 'Edit Rules' }).click()

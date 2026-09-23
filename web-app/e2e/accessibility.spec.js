@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
-import { connectAs, createGroupThroughWizard, fillGroupName, goToNextWizardStep, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, waitForJudgeIndex, startRoundAsHost, testRunId, inviteJoinPath } from './helpers.js'
+import { connectAs, createGroupThroughWizard, fillGroupName, goToNextWizardStep, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, waitForJudgeIndex, startRoundAsHost, testRunId, joinGroupAs } from './helpers.js'
 
 // Automated WCAG 2.1 A/AA scan for the main pages, so accessibility
 // regressions get caught the same way the game-loop test catches functional
@@ -351,9 +351,8 @@ for (const colorScheme of ['light', 'dark']) {
       await expect(host.page.getByRole('button', { name: 'Edit Rules' })).toBeVisible()
       await host.page.getByRole('button', { name: 'Overview', exact: true }).click()
 
-      for (const p of rest) {
-        await p.page.goto(await inviteJoinPath(host.page))
-        await expect(p.page.locator('.group-info-card')).toBeVisible()
+      for (const [i, p] of rest.entries()) {
+        await joinGroupAs(p.page, host.page, i + 2)
       }
       await startRoundAsHost(host.page)
 

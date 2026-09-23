@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { io } from 'socket.io-client'
-import { createGroupThroughWizard, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, waitForJudgeIndex, startRoundAsHost, testRunId, inviteJoinPath } from './helpers.js'
+import { createGroupThroughWizard, seedTestUser, submitVideoThroughSearch, selectTopicAsJudge, waitForJudgeIndex, startRoundAsHost, testRunId, joinGroupAs } from './helpers.js'
 
 const API_URL = 'http://localhost:5000'
 
@@ -60,11 +60,9 @@ async function startThreePlayerRound(browser, runId, { allowVotingComments = fal
     await host.page.getByRole('button', { name: 'Overview', exact: true }).click()
   }
 
-  for (const p of [p2, p3]) {
-    await p.page.goto(await inviteJoinPath(host.page))
-    await expect(p.page.locator('.group-info-card')).toBeVisible()
+  for (const [i, p] of [p2, p3].entries()) {
+    await joinGroupAs(p.page, host.page, i + 2)
   }
-  await expect(host.page.getByText('3 players')).toBeVisible()
 
   await startRoundAsHost(host.page)
 
@@ -118,8 +116,7 @@ test.describe('round phases', () => {
     const second = await browser.newContext()
     await seedTestUser(second, { id: `solo-two-${runId}`, name: 'Second Player' })
     const secondPage = await second.newPage()
-    await secondPage.goto(await inviteJoinPath(page))
-    await expect(secondPage.locator('.group-info-card')).toBeVisible()
+    await joinGroupAs(secondPage, page, 2)
 
     await expect(startButton).toBeEnabled()
     await startRoundAsHost(page)
@@ -183,8 +180,7 @@ test.describe('round phases', () => {
     await createGroupThroughWizard(host.page, `Judge Pick ${runId}`)
     await expect(host.page).toHaveURL(/\/group\/.+/)
 
-    await target.page.goto(await inviteJoinPath(host.page))
-    await expect(target.page.locator('.group-info-card')).toBeVisible()
+    await joinGroupAs(target.page, host.page, 2)
 
     // Round 1 now prompts too — it used to assign randomly with no choice.
     await host.page.getByRole('button', { name: 'Start Round', exact: true }).click()
