@@ -2,7 +2,10 @@ const crypto = require('crypto');
 const path = require('path');
 const dotenv = require('dotenv');
 
-dotenv.config({ path: path.join(__dirname, '.env') });
+// quiet: dotenv 17+ prints an 'injected env' banner on every boot, which in
+// production lands right on top of the config warnings that actually need
+// reading.
+dotenv.config({ path: path.join(__dirname, '.env'), quiet: true });
 
 const isProduction = process.env.NODE_ENV === 'production';
 
