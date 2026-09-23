@@ -286,3 +286,165 @@ ${JSON.stringify(offenders, null, 2)}`
   ).toEqual([])
 }
 
+
+/* ------------------------------------------------------------------ *
+ * Focus state: can a keyboard user see where they are?
+ *
+ * The third thing axe cannot answer. It never moves focus, so a control
+ * that clears the outline and replaces it with nothing, or draws one that
+ * barely differs from what is behind it, passes every scan while being
+ * unusable without a mouse.
+ *
+ * This one does not simulate. It presses Tab and measures whatever the
+ * browser actually painted, so :focus-visible applies for the reason it
+ * normally does — a keyboard moved the focus — rather than because a probe
+ * decided the rule matched.
+ *
+ * WCAG 2.1 AA asks two things of the result. 2.4.7 wants a visible indicator
+ * at all, and 1.4.11 wants 3:1 between it and what sits next to it.
+ * ------------------------------------------------------------------ */
+export function auditFocusedElement() {
+  const el = document.activeElement
+  if (!el || el === document.body || el === document.documentElement) return null
+
+  const parts = (color) => (color.match(/[\d.]+/g) || []).slice(0, 3).map(Number)
+  const alpha = (color) => {
+    const all = (color.match(/[\d.]+/g) || []).map(Number)
+    return all.length > 3 ? all[3] : 1
+  }
+  const luminance = (rgb) => {
+    if (rgb.length < 3) return null
+    const f = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4 }
+    return 0.2126 * f(rgb[0]) + 0.7152 * f(rgb[1]) + 0.0722 * f(rgb[2])
+  }
+  const ratio = (a, b) => {
+    const la = luminance(a), lb = luminance(b)
+    if (la === null || lb === null) return null
+    const [hi, lo] = la >= lb ? [la, lb] : [lb, la]
+    return (hi + 0.05) / (lo + 0.05)
+  }
+  // The outline is drawn outside the element, so what it has to stand out
+  // against is whatever the element sits ON, not the element's own fill.
+  const backdrop = (node) => {
+    for (let n = node.parentElement; n; n = n.parentElement) {
+      const bg = getComputedStyle(n).backgroundColor
+      if (bg && alpha(bg) > 0) return parts(bg)
+    }
+    return [255, 255, 255]
+  }
+
+  // Focus landing on an iframe means it has moved into an embedded document.
+  // What that document paints is its own business and, cross-origin, is both
+  // unreadable and unstyleable from here — Google's sign-in widget adds
+  // exactly such a frame outside our own markup. Skipped rather than reported
+  // as a failure nobody can act on.
+  if (el.tagName === 'IFRAME') return null
+
+  // Third-party widgets render their own markup, ship their own stylesheet
+  // after ours, and change both between versions. We cannot style their
+  // internals reliably, so what we guarantee is a ring on the container WE
+  // own, and that container is what gets judged. Auditing Google's inner divs
+  // instead produced a test that passed or failed on how far their script had
+  // got when Tab arrived.
+  const thirdParty = el.closest && el.closest('.google-signin-slot')
+  const subject = thirdParty || el
+
+  const style = getComputedStyle(subject)
+  const outlineWidth = parseFloat(style.outlineWidth) || 0
+  const hasOutline = style.outlineStyle !== 'none' && outlineWidth > 0 && alpha(style.outlineColor) > 0
+  // A ring drawn with box-shadow counts too; plenty of designs use one.
+  const hasShadow = style.boxShadow && style.boxShadow !== 'none'
+
+  const describe = (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 60)
+  const identity = {
+    tag: el.tagName.toLowerCase(),
+    className: typeof el.className === 'string' ? el.className.slice(0, 80) : '',
+    label: describe
+  }
+
+  // A ring drawn by a wrapper counts. It is a normal pattern — and the only
+  // way to put a ring on a third-party widget whose own stylesheet loads after
+  // ours — so an element with nothing of its own is checked against its
+  // ancestors before being called a failure.
+  const wrapperRing = (node) => {
+    for (let n = node.parentElement, hops = 0; n && hops < 4; n = n.parentElement, hops += 1) {
+      const cs = getComputedStyle(n)
+      const width = parseFloat(cs.outlineWidth) || 0
+      // Only an outline counts here. A box-shadow on an ancestor is almost
+      // always decoration — every card in this app carries --shadow-sm — and
+      // accepting one meant any control inside a card passed for free. That
+      // made the check useless exactly where it mattered: removing the real
+      // ring left the test green.
+      const ringed = cs.outlineStyle !== 'none' && width > 0 && alpha(cs.outlineColor) > 0
+      let focusWithin = false
+      try { focusWithin = n.matches(':focus-within') } catch { focusWithin = false }
+      if (focusWithin && ringed) return { node: n, style: cs, ringed }
+    }
+    return null
+  }
+
+  if (!hasOutline && !hasShadow) {
+    const wrapper = wrapperRing(subject)
+    if (!wrapper) {
+      return { ...identity, problem: 'focused with no visible indicator at all', outline: style.outline }
+    }
+    const wrapped = ratio(parts(wrapper.style.outlineColor), backdrop(wrapper.node))
+    if (wrapped !== null && wrapped < 3) {
+      return {
+        ...identity,
+        problem: "the wrapper's focus ring is too faint against what is behind it",
+        outlineColor: wrapper.style.outlineColor,
+        ratio: Number(wrapped.toFixed(2)),
+        needs: 3
+      }
+    }
+    return null
+  }
+  if (!hasOutline) {
+    // A shadow ring is real but cannot be measured this way; accepted, noted.
+    return null
+  }
+
+  const contrast = ratio(parts(style.outlineColor), backdrop(subject))
+  if (contrast !== null && contrast < 3) {
+    return {
+      ...identity,
+      problem: 'focus indicator is too faint against what is behind it',
+      outlineColor: style.outlineColor,
+      ratio: Number(contrast.toFixed(2)),
+      needs: 3
+    }
+  }
+  return null
+}
+
+/**
+ * Tabs through a page and checks each stop. `limit` caps the walk so a long
+ * page cannot hang the suite; focus leaving the document ends it early.
+ */
+export async function auditFocus(page, where, limit = 40) {
+  const offenders = []
+  const seen = new Set()
+
+  for (let i = 0; i < limit; i += 1) {
+    await page.keyboard.press('Tab')
+    const found = await page.evaluate(auditFocusedElement)
+    if (found) {
+      const key = `${found.tag}.${found.className}|${found.label}`
+      if (!seen.has(key)) {
+        seen.add(key)
+        offenders.push(found)
+      }
+    }
+    const escaped = await page.evaluate(() =>
+      document.activeElement === document.body || document.activeElement === document.documentElement)
+    if (escaped && i > 0) break
+  }
+
+  expect(
+    offenders,
+    `Focus-state failure(s) on ${where} — a keyboard user cannot see where `
+    + `they are (WCAG 2.4.7 needs an indicator, 1.4.11 needs 3:1 against the `
+    + `backdrop):\n${JSON.stringify(offenders, null, 2)}`
+  ).toEqual([])
+}

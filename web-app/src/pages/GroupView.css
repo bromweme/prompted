@@ -1216,7 +1216,7 @@
 }
 
 .round-phase-final {
-  border-left: 4px solid var(--color-success, #2e7d32);
+  border-left: 4px solid var(--color-success);
 }
 
 .round-phase-header {
@@ -1252,7 +1252,7 @@
 .submission-confirmed-label {
   margin: 0;
   font-weight: var(--weight-semibold);
-  color: var(--color-success, #2e7d32);
+  color: var(--color-success);
 }
 
 .submission-entry {
@@ -1382,8 +1382,9 @@
 
 .group-view-page .host-notice-dismiss:hover {
   background: var(--color-text-secondary);
-  /* Re-asserted so the label does not stay dark on a dark fill. */
-  color: #ffffff;
+  /* Re-asserted so the label does not stay dark on a dark fill. Surface is
+     used rather than white because it inverts with the fill in dark mode. */
+  color: var(--color-surface);
 }
 
 .group-view-page .round-host-actions {
@@ -1416,7 +1417,7 @@
   padding: 1rem;
   border: 1px solid var(--color-border);
   border-radius: 8px;
-  background: var(--color-surface-muted, rgba(0, 0, 0, 0.03));
+  background: var(--color-surface-muted);
 }
 
 .group-view-page .host-election-banner h3 {

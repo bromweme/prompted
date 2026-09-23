@@ -6,7 +6,7 @@
 }
 
 .page-header {
-  background: white;
+  background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
   padding: 1.5rem 2rem;
 }
@@ -39,7 +39,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  background: white;
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 2rem;
@@ -66,7 +66,7 @@
 
 /* Ideas List */
 .ideas-list {
-  background: white;
+  background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: 12px;
   padding: 2rem;
@@ -119,7 +119,7 @@
   justify-content: space-between;
   align-items: center;
   padding: 1rem 1.5rem;
-  background: white;
+  background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
 }
 
@@ -137,13 +137,13 @@
 }
 
 .topic-badge.public {
-  background: #dbeafe;
-  color: #1e40af;
+  background: var(--color-info-subtle);
+  color: var(--color-info-text);
 }
 
 .topic-badge.private {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--color-warning-subtle);
+  color: var(--color-warning-text);
 }
 
 .theme-actions {

@@ -20,7 +20,7 @@
 }
 
 .profile-setup-error {
-  color: var(--color-danger, #c0392b);
+  color: var(--color-danger);
   font-size: var(--text-caption);
   margin: 0;
 }
