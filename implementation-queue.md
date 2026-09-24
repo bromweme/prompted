@@ -111,15 +111,32 @@ the notes below, where each one was easy to lose.
 |---|---|---|
 | 1 | **Create the `michael@promptedthegame.com` mailbox.** The privacy policy publishes it as the contact for data-subject requests, but it is a placeholder and does not receive mail yet. Registering the domain is not enough — it needs an MX record or forwarding, and a test send. | A published policy naming a dead contact address is the same class of false claim the policy was written to remove. Erasure is unaffected (self-service in the app); access, correction and portability all route here. |
 | 2 | **Confirm the data-controller name.** `Privacy.jsx` names *Michael Bromwell*, inferred from the git author and the address. | It is a legal designation naming a real person. If a trading name or a registered entity is the right answer instead, it has to change before anyone relies on it. |
-| 3 | **A lawyer should read the privacy policy.** It is accurate about what the app does — that part was written from the code — but whether it is sufficient for the UK/EU/California is not something this project can answer. | `PRIV-1` has said "not legal advice" from the start. |
-| 4 | ~~Independently review Wave 13~~ — **done** (`REP-W13-1`, Wave 19). Five defects found and fixed. `GS-1`, `NT-1` and `UX-1` had spot checks only, so a deeper pass there is optional rather than blocking. | — |
-| 5 | ~~Reset legacy `GROUP…` invite codes once~~ — **done** (`SEC-1`, Wave 20). Runs automatically at boot; hosts are notified that their old links stopped working. | — |
-| 6 | ~~Set an explicit `Referrer-Policy`~~ — **done** (`SEC-1`, Wave 20), as a meta tag. A real header is still better if the frontend ever gets a host config. | — |
-| 7 | ~~Decide `maxPlayers`~~ — **done** (`SEC-2`, Wave 21): capped at 20 and enforced, with both forms sharing one definition per setting. | — |
+| 3 | ~~Independently review Wave 13~~ — **done** (`REP-W13-1`, Wave 19). Five defects found and fixed. `GS-1`, `NT-1` and `UX-1` had spot checks only, so a deeper pass there is optional rather than blocking. | — |
+| 4 | ~~Reset legacy `GROUP…` invite codes once~~ — **done** (`SEC-1`, Wave 20). Runs automatically at boot; hosts are notified that their old links stopped working. | — |
+| 5 | ~~Set an explicit `Referrer-Policy`~~ — **done** (`SEC-1`, Wave 20), as a meta tag. A real header is still better if the frontend ever gets a host config. | — |
+| 6 | ~~Decide `maxPlayers`~~ — **done** (`SEC-2`, Wave 21): capped at 20 and enforced, with both forms sharing one definition per setting. | — |
 
 Two further items are tracked as their own issues rather than here: `PRIV-1` Part B
 (consent management, untriggered until a tracker or ad exists) and the 27 native
 `alert()` popups.
+
+**Legal review is deliberately not on this list** (user decision). This is a side
+project with no revenue, no ads and no analytics, and the protection that actually
+matters is already in place: the policy describes what the code really does, because
+it was written from the code, and the deletion it promises is real and tested. The
+common failure for a project this size is the opposite — a pasted template promising
+things the app does not do. Google's OAuth requirement for a published policy URL,
+which is the one hard requirement here, is met.
+
+Revisit when any of these becomes true, each of which changes the answer on its own:
+
+- **Money changes hands.** Payments bring terms of service, refunds, tax and chargebacks — real documents, not just a policy.
+- **An ad or analytics tag ships.** Third-party sharing plus consent management, and the area with actual enforcement history. This also triggers `PRIV-1` Part B.
+- **Real scale, particularly EU users**, rather than friends testing it.
+- **Someone sends a data request** and the right answer is not obvious.
+
+Until then the standing obligation is narrower and free: keep the policy honest as
+the app changes, and update the page *before* a tracker ships rather than after.
 
 ## Out of scope for now (tracked as notes, not ready issues)
 

@@ -1,6 +1,7 @@
 # PRIV-1 — Privacy policy page + consent management (CMP)
 
-- **Status:** Part A implemented (Wave 18); Part B still `Blocked` (no tracker or ad exists yet, so no consent mechanism is triggered). **Not legal advice — a lawyer should review the policy.**
+- **Status:** Part A implemented (Wave 18); Part B still `Blocked` (no tracker or ad exists yet, so no consent mechanism is triggered).
+- **Legal review: deliberately deferred** (user decision, 23 Sep 2026). Not legal advice, and the page says as much in a comment — but this is a side project with no revenue, ads or analytics, and the policy is accurate about what the code does, which is the protection that actually matters. The trigger conditions for revisiting are in **Before go-live** in `implementation-queue.md`: money changing hands, an ad or analytics tag shipping, real EU scale, or a data request whose answer is not obvious.
 - **Open before launch:** the policy publishes `michael@promptedthegame.com`, which is a **placeholder and not yet a real mailbox** — it needs an MX record or forwarding and a test send. The controller is named as *Michael Bromwell*, inferred from the git author and the address, and should be confirmed. Both are item 1 and 2 of **Before go-live** in `implementation-queue.md`. Erasure does not depend on the address (it is self-service in the app); access, correction and portability do.
 - **Priority:** medium
 - **Guarantee:** The app has a real, linked privacy policy that accurately describes what it collects and shares, and — once any non-essential tracker or ad is added — a compliant consent mechanism gates it.
@@ -95,7 +96,7 @@ Event-log rows are erased too, via a new `deleteEventsByActor` on both drivers. 
 
 ## Done when
 
-- **Part A:** `/privacy` exists, is linked from login and a footer, accurately reflects the collection list above, and has been reviewed (ideally by a lawyer). `Login.jsx` links work.
+- **Part A:** `/privacy` exists, is linked from login and a footer, accurately reflects the collection list above, and `Login.jsx` links work. Legal review is deferred by decision rather than outstanding — see Status.
 - **Part B (when triggered):** no non-essential tracker/cookie loads before consent; consent choices are recorded and revocable; CSP updated deliberately.
 - `cd web-app && npm run lint` clean; full `cd web-app && npx playwright test` green.
 
