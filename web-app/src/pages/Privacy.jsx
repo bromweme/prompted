@@ -12,15 +12,20 @@ import './Privacy.css'
 // NOT LEGAL ADVICE. The content is accurate about the app's behaviour; whether
 // it is sufficient for any particular jurisdiction is a question for a lawyer.
 //
-// The controller is the individual running the site, which is the default for
-// a site with no company behind it.
+// Named as the project rather than as a person, by the owner's decision.
+// Worth knowing what that does and does not do: "controller" normally means a
+// legal person — an individual or a registered company — and Prompted is
+// neither, so the name identifies the project while the contact address is
+// what actually reaches whoever is responsible. That is a reasonable position
+// for a side project with no entity behind it. If Prompted is ever
+// incorporated, this should become the company's registered name.
 //
-// This address is published as the route for data-subject requests, so it has
+// The address is published as the route for data-subject requests, so it has
 // to stay live and monitored: access, correction and portability arrive here.
 // (Erasure does not — that one is self-service in the app.) If it ever stops
 // being read, this page starts making a false promise, which is the exact
 // thing it was written to remove.
-const CONTROLLER = 'Michael Bromwell'
+const CONTROLLER = 'Prompted'
 const CONTACT_EMAIL = 'prompted.thegame@gmail.com'
 
 const LAST_UPDATED = '23 September 2026'

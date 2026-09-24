@@ -110,11 +110,15 @@ the notes below, where each one was easy to lose.
 | # | Item | Why it matters |
 |---|---|---|
 | 1 | ~~Create the contact mailbox~~ — **done**. The policy publishes `prompted.thegame@gmail.com`, a real Gmail, rather than the earlier placeholder on a domain with no mail set up. The standing obligation is that it stays monitored: access, correction and portability requests arrive there, and an unread inbox turns the policy back into a false promise. | — |
-| 2 | **Confirm the data-controller name.** `Privacy.jsx` names *Michael Bromwell*, inferred from the git author and the address. | It is a legal designation naming a real person. If a trading name or a registered entity is the right answer instead, it has to change before anyone relies on it. |
+| 2 | ~~Confirm the data-controller name~~ — **done**. Named as the project, *Prompted*, by the owner's decision rather than the inferred personal name. Neither is a legal person, which is what "controller" usually means; for a side project with no entity behind it the name identifies the project and the contact address reaches whoever is responsible. Revisit if Prompted is ever incorporated — it should then be the registered company name. | — |
 | 3 | ~~Independently review Wave 13~~ — **done** (`REP-W13-1`, Wave 19). Five defects found and fixed. `GS-1`, `NT-1` and `UX-1` had spot checks only, so a deeper pass there is optional rather than blocking. | — |
 | 4 | ~~Reset legacy `GROUP…` invite codes once~~ — **done** (`SEC-1`, Wave 20). Runs automatically at boot; hosts are notified that their old links stopped working. | — |
 | 5 | ~~Set an explicit `Referrer-Policy`~~ — **done** (`SEC-1`, Wave 20), as a meta tag. A real header is still better if the frontend ever gets a host config. | — |
 | 6 | ~~Decide `maxPlayers`~~ — **done** (`SEC-2`, Wave 21): capped at 20 and enforced, with both forms sharing one definition per setting. | — |
+
+**Every item on this list is now closed.** What remains is not a task but a
+standing obligation: the contact inbox has to stay monitored, and the policy has to
+stay honest as the app changes.
 
 Two further items are tracked as their own issues rather than here: `PRIV-1` Part B
 (consent management, untriggered until a tracker or ad exists) and the 27 native
