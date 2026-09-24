@@ -2,7 +2,7 @@
 
 - **Status:** Part A implemented (Wave 18); Part B still `Blocked` (no tracker or ad exists yet, so no consent mechanism is triggered).
 - **Legal review: deliberately deferred** (user decision, 23 Sep 2026). Not legal advice, and the page says as much in a comment — but this is a side project with no revenue, ads or analytics, and the policy is accurate about what the code does, which is the protection that actually matters. The trigger conditions for revisiting are in **Before go-live** in `implementation-queue.md`: money changing hands, an ad or analytics tag shipping, real EU scale, or a data request whose answer is not obvious.
-- **Open before launch:** the policy publishes `michael@promptedthegame.com`, which is a **placeholder and not yet a real mailbox** — it needs an MX record or forwarding and a test send. The controller is named as *Michael Bromwell*, inferred from the git author and the address, and should be confirmed. Both are item 1 and 2 of **Before go-live** in `implementation-queue.md`. Erasure does not depend on the address (it is self-service in the app); access, correction and portability do.
+- **Contact address:** `prompted.thegame@gmail.com`, a real mailbox, replacing an earlier placeholder on a domain with no mail configured. It has to stay monitored — access, correction and portability requests arrive there; erasure does not, being self-service in the app. The controller is named as *Michael Bromwell*, inferred from the git author, and is the last unconfirmed item in **Before go-live**.
 - **Priority:** medium
 - **Guarantee:** The app has a real, linked privacy policy that accurately describes what it collects and shares, and — once any non-essential tracker or ad is added — a compliant consent mechanism gates it.
 

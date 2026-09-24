@@ -109,7 +109,7 @@ the notes below, where each one was easy to lose.
 
 | # | Item | Why it matters |
 |---|---|---|
-| 1 | **Create the `michael@promptedthegame.com` mailbox.** The privacy policy publishes it as the contact for data-subject requests, but it is a placeholder and does not receive mail yet. Registering the domain is not enough — it needs an MX record or forwarding, and a test send. | A published policy naming a dead contact address is the same class of false claim the policy was written to remove. Erasure is unaffected (self-service in the app); access, correction and portability all route here. |
+| 1 | ~~Create the contact mailbox~~ — **done**. The policy publishes `prompted.thegame@gmail.com`, a real Gmail, rather than the earlier placeholder on a domain with no mail set up. The standing obligation is that it stays monitored: access, correction and portability requests arrive there, and an unread inbox turns the policy back into a false promise. | — |
 | 2 | **Confirm the data-controller name.** `Privacy.jsx` names *Michael Bromwell*, inferred from the git author and the address. | It is a legal designation naming a real person. If a trading name or a registered entity is the right answer instead, it has to change before anyone relies on it. |
 | 3 | ~~Independently review Wave 13~~ — **done** (`REP-W13-1`, Wave 19). Five defects found and fixed. `GS-1`, `NT-1` and `UX-1` had spot checks only, so a deeper pass there is optional rather than blocking. | — |
 | 4 | ~~Reset legacy `GROUP…` invite codes once~~ — **done** (`SEC-1`, Wave 20). Runs automatically at boot; hosts are notified that their old links stopped working. | — |

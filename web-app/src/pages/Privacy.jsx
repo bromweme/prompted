@@ -15,14 +15,13 @@ import './Privacy.css'
 // The controller is the individual running the site, which is the default for
 // a site with no company behind it.
 //
-// PLACEHOLDER — NOT YET A REAL MAILBOX. See "Before go-live" in
-// implementation-queue.md. This address has to actually receive mail before
-// launch: access, correction and portability requests arrive here, and a
-// policy that publishes a dead address is the same class of false claim this
-// page was written to remove. (Erasure is the exception — that one is
-// self-service in the app and does not depend on email.)
+// This address is published as the route for data-subject requests, so it has
+// to stay live and monitored: access, correction and portability arrive here.
+// (Erasure does not — that one is self-service in the app.) If it ever stops
+// being read, this page starts making a false promise, which is the exact
+// thing it was written to remove.
 const CONTROLLER = 'Michael Bromwell'
-const CONTACT_EMAIL = 'michael@promptedthegame.com'
+const CONTACT_EMAIL = 'prompted.thegame@gmail.com'
 
 const LAST_UPDATED = '23 September 2026'
 
