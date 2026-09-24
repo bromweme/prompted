@@ -318,10 +318,13 @@ function clampVoteBudget(value) {
 // cast time (see cast_vote). Missing/legacy values fall back to 1.
 const MIN_DOWNVOTE_COST = 1;
 
+// Both forms have always offered at most 5; until now only the forms said so.
+const MAX_DOWNVOTE_COST = 5;
+
 function clampDownvoteCost(value) {
   const n = Number(value);
   if (!Number.isFinite(n) || n < MIN_DOWNVOTE_COST) return MIN_DOWNVOTE_COST;
-  return Math.round(n);
+  return Math.min(Math.round(n), MAX_DOWNVOTE_COST);
 }
 
 // The per-round budget a group actually runs on, read from current settings
@@ -756,6 +759,65 @@ function totalRoundsOf(group) {
   return clampTotalRounds(group.settings.totalRounds ?? DEFAULT_TOTAL_ROUNDS);
 }
 
+// Group size. `maxPlayers` was collected and displayed from the start but was
+// never read, so a group advertising "3/12" would happily take a thirteenth
+// player. It is a real limit now.
+//
+// 20 is the ceiling the Create Group wizard has always offered; the Edit Rules
+// form disagreed with it, accepting anything up to 50 through a free number
+// input, so a host could set a limit the wizard would not have allowed. Both
+// forms now offer the same six choices and the server holds the same line.
+//
+// Clamped to a range rather than snapped to those six values: a group stored
+// with 10 from the old number input is a coherent limit its host chose, and
+// rounding it to 12 would quietly raise a limit rather than enforce one.
+const DEFAULT_MAX_PLAYERS = 12;
+const MAX_PLAYERS_CAP = 20;
+const MIN_MAX_PLAYERS = 2;
+
+function clampMaxPlayers(value) {
+  const n = Math.floor(Number(value));
+  if (!Number.isFinite(n)) return DEFAULT_MAX_PLAYERS;
+  return Math.min(Math.max(n, MIN_MAX_PLAYERS), MAX_PLAYERS_CAP);
+}
+
+// Clamped on read as well as on write, so a value stored before the cap
+// existed (the old form allowed 50) is still held to 20.
+function maxPlayersOf(group) {
+  return clampMaxPlayers(group.settings.maxPlayers ?? DEFAULT_MAX_PLAYERS);
+}
+
+// Scoring knobs. These were bounded only by the `min`/`max` attributes on the
+// two forms, which is not a bound at all: the settings object arrives from the
+// client, so anything could be sent. The ranges mirror
+// web-app/src/utils/groupSettings.js, which is where the forms read theirs.
+const CZAR_POINTS_RANGE = [1, 10];
+const MAX_JURY_POINTS_RANGE = [1, 10];
+// overrideThreshold is deliberately absent. It already has a policy, and it is
+// not clamping: create coerces an invalid value to 70, and update refuses it
+// outright so "a bad threshold surfaces immediately rather than decaying the
+// override mechanic quietly". Clamping it here would have silently replaced
+// both, which is not this change's business. The forms still take their slider
+// bounds from OVERRIDE_THRESHOLD_RANGE in groupSettings.js.
+
+function clampToRange(value, [min, max], fallback) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(Math.max(n, min), max);
+}
+
+// Applies every numeric bound the forms advertise. Called from the create and
+// the update path so neither can be the lenient one.
+function clampScoringSettings(settings) {
+  if (settings.czarPoints !== undefined) {
+    settings.czarPoints = clampToRange(settings.czarPoints, CZAR_POINTS_RANGE, 5);
+  }
+  if (settings.maxJuryPoints !== undefined) {
+    settings.maxJuryPoints = clampToRange(settings.maxJuryPoints, MAX_JURY_POINTS_RANGE, 3);
+  }
+  return settings;
+}
+
 function usesHostTopics(group) {
   return group.settings.allowCustomTopics === false;
 }
@@ -810,6 +872,15 @@ function isBanned(group, uid) {
 function joinRefusal(group, uid) {
   if (isBanned(group, uid)) {
     return { outcome: 'banned', message: "You have been banned from this group. Think about what you've done." };
+  }
+  // Every way in — invite code, invite link, open group, an accepted request —
+  // goes through here, so the limit only has to be stated once. A member
+  // reconnecting never reaches this: completeJoin only asks about someone new.
+  if (group.players.length >= maxPlayersOf(group)) {
+    return {
+      outcome: 'full',
+      message: `This group is full (${maxPlayersOf(group)} players).`
+    };
   }
   if (isRoundInProgress(group)) {
     return {
@@ -1392,6 +1463,8 @@ io.on('connection', (socket) => {
 
     const settings = { ...(data.settings || {}) };
     settings.totalRounds = clampTotalRounds(settings.totalRounds ?? DEFAULT_TOTAL_ROUNDS);
+    settings.maxPlayers = clampMaxPlayers(settings.maxPlayers ?? DEFAULT_MAX_PLAYERS);
+    clampScoringSettings(settings);
     settings.allowCustomTopics = settings.allowCustomTopics !== false;
     if (settings.overrideThreshold !== undefined && !isValidOverrideThreshold(settings.overrideThreshold)) {
       settings.overrideThreshold = 70;
@@ -2282,6 +2355,10 @@ io.on('connection', (socket) => {
     if (settings.totalRounds !== undefined) {
       settings.totalRounds = clampTotalRounds(settings.totalRounds);
     }
+    if (settings.maxPlayers !== undefined) {
+      settings.maxPlayers = clampMaxPlayers(settings.maxPlayers);
+    }
+    clampScoringSettings(settings);
     if (settings.allowCustomTopics !== undefined) {
       settings.allowCustomTopics = settings.allowCustomTopics !== false;
     }
@@ -2612,6 +2689,31 @@ io.on('connection', (socket) => {
   // and no inviteCode) so the suite can prove legacy codes and links still
   // join. Only available under AUTH_TEST_MODE, which refuses to coexist with
   // production (config.js).
+  // Test-only hook: run the legacy invite-code migration on demand. It
+  // normally happens once during start(), which a running suite cannot reach,
+  // so this is the only way to test it from the outside. Guarded like the
+  // other test hooks by AUTH_TEST_MODE, which refuses to coexist with
+  // production (config.js).
+  on('test_upgrade_legacy_codes', () => {
+    if (!config.authTestMode) {
+      socket.emit('error', { message: 'Not available' });
+      return;
+    }
+    const upgraded = upgradeLegacyInviteCodes();
+    socket.emit('test_legacy_codes_upgraded', { upgraded });
+  });
+
+  // Test-only hook: the group-size migration, for the same reason — it runs
+  // once in start(), which a running suite cannot reach.
+  on('test_normalize_max_players', () => {
+    if (!config.authTestMode) {
+      socket.emit('error', { message: 'Not available' });
+      return;
+    }
+    const corrected = normalizeStoredMaxPlayers();
+    socket.emit('test_max_players_normalized', { corrected });
+  });
+
   on('test_create_legacy_group', ({ name }) => {
     if (!config.authTestMode) {
       socket.emit('error', { message: 'Not available' });
@@ -3143,10 +3245,84 @@ io.on('connection', (socket) => {
  * filled from the database here, so listening first would serve a player an
  * empty world and then overwrite the real one when they acted.
  */
+/**
+ * One-time migration: retire the last of the guessable invite codes (UI-2).
+ *
+ * Groups created before UI-2 have no `inviteCode`, so `effectiveCode` falls
+ * back to the group id — and those ids are `GROUP<timestamp>_<n>`. A timestamp
+ * is not a secret: anyone can enumerate plausible ids and walk into a group.
+ * UI-2 accepted that at the time because the join throttle is a brake on
+ * guessing, and because a host could reset their own code. Both are true and
+ * neither is a reason to leave a guessable capability in place indefinitely.
+ *
+ * Runs after the index is built, so `remove` can find the id-keyed entry and
+ * `issue` can see every code already in use. Self-limiting: once a group has a
+ * code it is never a candidate again, so this is a no-op on every later boot.
+ *
+ * This does break old invite links for those groups, which is the point of it.
+ * Each host is told, in a notification and in their host notices, rather than
+ * finding out when someone says the link stopped working.
+ */
+function upgradeLegacyInviteCodes() {
+  const legacy = Array.from(groups.values()).filter((group) => !group.inviteCode);
+  if (legacy.length === 0) return 0;
+
+  for (const group of legacy) {
+    // Drops the entry keyed by the old id before the new code is indexed.
+    inviteIndex.remove(group);
+    group.inviteCode = inviteIndex.issue();
+    inviteIndex.add(group);
+
+    addHostNotice(group, 'invite_code_reset',
+      'The invite code for this group was replaced with a secure one. Older links and codes no longer work — share the new code from Invite players.');
+    groups.set(group.id, group);
+
+    pushNotification(group.host, {
+      type: 'invite_code_reset',
+      group,
+      text: `${group.name} has a new invite code. The old one could be guessed, so it was replaced — share the new one from Invite players.`
+    });
+  }
+
+  console.log(`Replaced ${legacy.length} legacy invite code(s) with issued codes`);
+  logEvent('legacy_invite_codes_upgraded', { groups: legacy.length });
+  return legacy.length;
+}
+
+/**
+ * One-time migration: bring stored group sizes under the cap.
+ *
+ * The Edit Rules form used to accept any number up to 50, so a group can be
+ * stored with a limit the wizard would never have offered. `maxPlayersOf`
+ * clamps on read, so those groups are already held to 20 — but the client
+ * displays the stored value, which would show "3/50" on a group that refuses
+ * a fourth player at 20. Enforcing one number while displaying another is the
+ * bug this whole item started as, so the stored value is corrected too.
+ *
+ * Self-limiting, like the invite-code migration beside it: once a value is
+ * within range, clamping it is a no-op and the group is not rewritten.
+ */
+function normalizeStoredMaxPlayers() {
+  let corrected = 0;
+  for (const group of Array.from(groups.values())) {
+    const current = group.settings && group.settings.maxPlayers;
+    if (current === undefined) continue;
+    const clamped = clampMaxPlayers(current);
+    if (clamped === current) continue;
+    group.settings.maxPlayers = clamped;
+    groups.set(group.id, group);
+    corrected += 1;
+  }
+  if (corrected > 0) console.log(`Brought ${corrected} group size limit(s) under the ${MAX_PLAYERS_CAP}-player cap`);
+  return corrected;
+}
+
 async function start() {
   await initStores();
   // The invite index is derived from the groups that were just loaded.
   groups.forEach((group) => inviteIndex.add(group));
+  upgradeLegacyInviteCodes();
+  normalizeStoredMaxPlayers();
 
   server.listen(config.port, () => {
     console.log(`Server running on port ${config.port} (${driver.describe()})`);

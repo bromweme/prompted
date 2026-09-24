@@ -629,3 +629,70 @@ test.describe('join throttle', () => {
     }
   })
 })
+
+test.describe('retiring the last guessable codes', () => {
+  test('the one-time migration replaces a legacy id-as-code, and the old id stops working', async () => {
+    const runId = testRunId()
+    const host = connectAs(`ic-mig-host-${runId}`, 'Migration Host')
+    const early = connectAs(`ic-mig-early-${runId}`, 'Early Joiner')
+    const late = connectAs(`ic-mig-late-${runId}`, 'Late Joiner')
+    await Promise.all([host.ready, early.ready, late.ready])
+
+    try {
+      host.socket.emit('test_create_legacy_group', { name: `Legacy Migrate ${runId}` })
+      const { group } = await once(host.socket, 'test_legacy_group_created')
+      expect(group.inviteCode).toBeUndefined()
+
+      // Before: the group answers to its own id, which is GROUP<timestamp>_<n>
+      // and therefore guessable. That is the whole reason for the migration.
+      expect(group.id).toMatch(/^GROUP\d+_\d+$/)
+      expect((await joinResult(early.socket, { inviteCode: group.id })).event).toBe('group_joined')
+
+      host.socket.emit('test_upgrade_legacy_codes')
+      const { upgraded } = await once(host.socket, 'test_legacy_codes_upgraded')
+      expect(upgraded).toBeGreaterThanOrEqual(1)
+
+      // After: the guessable id is no longer a way in. This is the point of
+      // the change, and it is also the cost of it — old links break.
+      const refused = await joinResult(late.socket, { inviteCode: group.id })
+      expect(refused.event).not.toBe('group_joined')
+
+      // ...and the group now has a real issued code, which does work.
+      const listed = await new Promise((resolve) => {
+        host.socket.once('groups_list', ({ groups }) => resolve(groups.find((g) => g.id === group.id)))
+        host.socket.emit('get_groups')
+      })
+      expect(listed.inviteCode).toMatch(CODE)
+      expect((await joinResult(late.socket, { inviteCode: listed.inviteCode })).event).toBe('group_joined')
+    } finally {
+      host.socket.close()
+      early.socket.close()
+      late.socket.close()
+    }
+  })
+
+  test('a group that already has an issued code is left alone, so re-running is a no-op', async () => {
+    const runId = testRunId()
+    const host = connectAs(`ic-mig2-host-${runId}`, 'Stable Host')
+    await host.ready
+
+    try {
+      host.socket.emit('create_group', { groupData: { name: `Modern ${runId}`, settings: {} } })
+      const { group } = await once(host.socket, 'group_created')
+      const original = group.inviteCode
+
+      // Self-limiting: once a group has a code it is never a candidate again,
+      // which is what makes this safe to leave in start() forever.
+      host.socket.emit('test_upgrade_legacy_codes')
+      await once(host.socket, 'test_legacy_codes_upgraded')
+
+      const listed = await new Promise((resolve) => {
+        host.socket.once('groups_list', ({ groups }) => resolve(groups.find((g) => g.id === group.id)))
+        host.socket.emit('get_groups')
+      })
+      expect(listed.inviteCode).toBe(original)
+    } finally {
+      host.socket.close()
+    }
+  })
+})

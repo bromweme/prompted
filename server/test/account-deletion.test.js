@@ -199,7 +199,11 @@ test('a ban outlives the account, so deleting is not a way out of moderation', (
   assert.deepEqual(s.groups.get('g1').bannedUsers, [{ userId: ME, username: 'Me' }]);
 });
 
-test('pending join requests, decline counts and host notices about them are cleared', () => {
+test('pending join requests and decline counts are cleared', () => {
+  // hostNotices are deliberately not touched, and the shape below is the real
+  // one: addHostNotice writes { id, kind, message, createdAt } with no user id
+  // on it. An earlier version of this test invented a `userId` field for the
+  // fixture, which made a filter that could never match anything look correct.
   const s = stores({
     groups: [['g1', {
       id: 'g1',
@@ -207,7 +211,7 @@ test('pending join requests, decline counts and host notices about them are clea
       players: [player(OTHER, { isHost: true })],
       joinRequests: [{ userId: ME, username: 'Me' }, { userId: 'third', username: 'Third' }],
       declineCounts: { [ME]: 2, third: 1 },
-      hostNotices: [{ userId: ME, message: 'Me asked to join' }, { userId: 'third', message: 'keep' }]
+      hostNotices: [{ id: 'notice_1', kind: 'join_request', message: 'Me asked to join', createdAt: 'now' }]
     }]]
   });
 
@@ -217,7 +221,7 @@ test('pending join requests, decline counts and host notices about them are clea
   assert.deepEqual(group.joinRequests.map(r => r.userId), ['third']);
   assert.equal(group.declineCounts[ME], undefined);
   assert.equal(group.declineCounts.third, 1);
-  assert.deepEqual(group.hostNotices.map(n => n.userId), ['third']);
+  assert.equal(group.hostNotices.length, 1, "the host's own record of their group is left intact");
 });
 
 test('still-connected members of affected groups are reported, once each', () => {

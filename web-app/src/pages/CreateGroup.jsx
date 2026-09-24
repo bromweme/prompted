@@ -1,4 +1,14 @@
 import { useState, useRef, useEffect } from 'react'
+import {
+  TOTAL_ROUNDS_CHOICES,
+  MAX_PLAYER_CHOICES,
+  CZAR_POINTS_RANGE,
+  MAX_JURY_POINTS_RANGE,
+  VOTE_BUDGET_RANGE,
+  DOWNVOTE_COST_RANGE,
+  OVERRIDE_THRESHOLD_RANGE,
+  numberBounds,
+} from '../utils/groupSettings'
 import { useNavigate } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
@@ -300,11 +310,9 @@ function CreateGroup() {
                       value={totalRounds}
                       onChange={(e) => setTotalRounds(parseInt(e.target.value))}
                     >
-                      <option value={4}>4 Rounds</option>
-                      <option value={6}>6 Rounds</option>
-                      <option value={8}>8 Rounds</option>
-                      <option value={10}>10 Rounds</option>
-                      <option value={12}>12 Rounds</option>
+                      {TOTAL_ROUNDS_CHOICES.map((count) => (
+                        <option key={count} value={count}>{count} Rounds</option>
+                      ))}
                     </select>
                   </div>
 
@@ -315,12 +323,9 @@ function CreateGroup() {
                       value={maxPlayers}
                       onChange={(e) => setMaxPlayers(parseInt(e.target.value))}
                     >
-                      <option value={4}>4 Players</option>
-                      <option value={6}>6 Players</option>
-                      <option value={8}>8 Players</option>
-                      <option value={12}>12 Players</option>
-                      <option value={16}>16 Players</option>
-                      <option value={20}>20 Players</option>
+                      {MAX_PLAYER_CHOICES.map((count) => (
+                        <option key={count} value={count}>{count} Players</option>
+                      ))}
                     </select>
                   </div>
 
@@ -354,8 +359,7 @@ function CreateGroup() {
                       type="number"
                       value={czarPoints}
                       onChange={(e) => setCzarPoints(parseInt(e.target.value))}
-                      min="1"
-                      max="10"
+                      {...numberBounds(CZAR_POINTS_RANGE)}
                     />
                     <small className="form-hint">Points awarded when the Judge selects a winner</small>
                   </div>
@@ -396,8 +400,7 @@ function CreateGroup() {
                       type="number"
                       value={maxJuryPoints}
                       onChange={(e) => setMaxJuryPoints(parseInt(e.target.value))}
-                      min="1"
-                      max="5"
+                      {...numberBounds(MAX_JURY_POINTS_RANGE)}
                     />
                     <small className="form-hint">Maximum points jury can award per vote</small>
                   </div>
@@ -409,8 +412,7 @@ function CreateGroup() {
                       type="number"
                       value={voteBudget}
                       onChange={(e) => setVoteBudget(parseInt(e.target.value))}
-                      min="1"
-                      max="100"
+                      {...numberBounds(VOTE_BUDGET_RANGE)}
                     />
                     <small className="form-hint">Points each player can spend across votes, resetting each round</small>
                   </div>
@@ -437,8 +439,7 @@ function CreateGroup() {
                       type="number"
                       value={downvoteCost}
                       onChange={(e) => setDownvoteCost(parseInt(e.target.value))}
-                      min="0"
-                      max="5"
+                      {...numberBounds(DOWNVOTE_COST_RANGE)}
                       disabled={!allowDownvotes}
                     />
                     <small className="form-hint">Points lost when downvoting</small>

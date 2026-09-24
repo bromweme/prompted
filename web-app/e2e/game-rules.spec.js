@@ -435,3 +435,133 @@ test.describe('notifications', () => {
     asker.socket.close()
   })
 })
+
+// Group size is a real limit now, and every setting the two forms offer is
+// bounded on the server as well (`SEC-2`). `maxPlayers` was collected,
+// displayed as "3/12" and never read, so the number was decorative; the two
+// forms also disagreed about what it could even be, because each held its own
+// copy of every limit.
+
+test.describe('group size is enforced, not decorative', () => {
+  async function group(host, name, settings = {}) {
+    host.socket.emit('create_group', { groupData: { name, isPrivate: false, settings } })
+    const { group: made } = await once(host.socket, 'group_created')
+    return made
+  }
+
+  function joinAttempt(player, inviteCode) {
+    return new Promise((resolve) => {
+      const done = (event) => (payload) => resolve({ event, payload })
+      player.socket.once('group_joined', done('group_joined'))
+      player.socket.once('error', done('error'))
+      player.socket.emit('join_group', { inviteCode })
+    })
+  }
+
+  test('a full group refuses the next player, whichever way in they try', async () => {
+    const runId = testRunId()
+    const host = connectAs(`mp-host-${runId}`, 'Size Host')
+    const second = connectAs(`mp-two-${runId}`, 'Second')
+    const third = connectAs(`mp-three-${runId}`, 'Third')
+    await Promise.all([host.ready, second.ready, third.ready])
+
+    try {
+      // Two is the floor, so the group is full as soon as one person joins.
+      const made = await group(host, `Full Group ${runId}`, { maxPlayers: 2 })
+
+      expect((await joinAttempt(second, made.inviteCode)).event).toBe('group_joined')
+
+      const refused = await joinAttempt(third, made.inviteCode)
+      expect(refused.event).toBe('error')
+      expect(refused.payload.message).toMatch(/full \(2 players\)/)
+    } finally {
+      host.socket.close(); second.socket.close(); third.socket.close()
+    }
+  })
+
+  test('a member who was already in can still get back in when the group is full', async () => {
+    const runId = testRunId()
+    const host = connectAs(`mp2-host-${runId}`, 'Rejoin Host')
+    const member = connectAs(`mp2-mem-${runId}`, 'Returning Member')
+    await Promise.all([host.ready, member.ready])
+
+    try {
+      const made = await group(host, `Rejoin ${runId}`, { maxPlayers: 2 })
+      expect((await joinAttempt(member, made.inviteCode)).event).toBe('group_joined')
+
+      // The group is now at its limit, and this player is part of why. A
+      // reconnect must not be mistaken for a new arrival and bounced out of
+      // their own group.
+      expect((await joinAttempt(member, made.inviteCode)).event).toBe('group_joined')
+    } finally {
+      host.socket.close(); member.socket.close()
+    }
+  })
+
+  test('the server holds the bounds the forms advertise, whatever a client sends', async () => {
+    const runId = testRunId()
+    const host = connectAs(`mp3-host-${runId}`, 'Crafted Host')
+    await host.ready
+
+    try {
+      // None of these are reachable through either form. The point is that the
+      // forms are a convenience and the server is the control: a `min`/`max`
+      // attribute stops an honest mistake, not a crafted payload.
+      const made = await group(host, `Crafted ${runId}`, {
+        maxPlayers: 500,
+        czarPoints: 9999,
+        maxJuryPoints: 0,
+        overrideThreshold: 1,
+        downvoteCost: 0,
+        voteBudget: 100000
+      })
+
+      expect(made.settings.maxPlayers).toBe(20)
+      expect(made.settings.czarPoints).toBe(10)
+      expect(made.settings.maxJuryPoints).toBe(1)
+      // A downvote must always cost something (RT-2-1), which is why neither
+      // form offers 0 any more.
+      expect(made.settings.downvoteCost).toBe(1)
+      expect(made.settings.voteBudget).toBe(100)
+      // overrideThreshold is not clamped with the rest: creating with an
+      // invalid one falls back to the default rather than to the nearest
+      // legal value, which is a deliberate older decision left alone here.
+      expect(made.settings.overrideThreshold).toBe(70)
+    } finally {
+      host.socket.close()
+    }
+  })
+
+  test('editing the rules is held to the same bounds as creating them', async () => {
+    const runId = testRunId()
+    const host = connectAs(`mp4-host-${runId}`, 'Editing Host')
+    await host.ready
+
+    try {
+      const made = await group(host, `Edited ${runId}`, {})
+
+      const updated = waitFor(host.socket, 'group_updated', ({ group: g }) => g.id === made.id)
+      host.socket.emit('update_group', {
+        groupId: made.id,
+        settings: { maxPlayers: 500, czarPoints: 9999 }
+      })
+      const { group: after } = await updated
+
+      // The Edit Rules form used to be the lenient one -- it accepted 50
+      // players where the wizard stopped at 20 -- so this is the path that
+      // most needs holding to the same line.
+      expect(after.settings.maxPlayers).toBe(20)
+      expect(after.settings.czarPoints).toBe(10)
+
+      // overrideThreshold keeps its own, older rule on this path: an invalid
+      // one is refused outright rather than clamped, so that a bad threshold
+      // surfaces instead of quietly decaying the override mechanic. Asserted
+      // here so that rule is not mistaken for an oversight and "fixed".
+      const refusal = new Promise((resolve) => host.socket.once('error', resolve))
+      host.socket.emit('update_group', { groupId: made.id, settings: { overrideThreshold: 1 } })
+      expect((await refusal).message).toMatch(/threshold must be a whole percentage/)
+    } finally {
+      host.socket.close()
+    }
+  })
+})

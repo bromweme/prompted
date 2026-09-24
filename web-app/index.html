@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Stated rather than inherited. This is already every modern browser's
+         default, but relying on a default means the guarantee changes with the
+         browser, and the thing it protects is a join capability: /join/<CODE>
+         puts an invite code in the URL, and a full Referer would hand that code
+         to whatever the player clicks next (a submitted video's "Watch on
+         YouTube" link, say). Cross-origin requests now send the origin and
+         never the path.
+
+         Not `no-referrer`: Google Identity Services checks the requesting
+         origin, so stripping it entirely risks breaking sign-in for a privacy
+         gain this app does not need. The path is the part worth hiding. -->
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
     <title>Prompted</title>
   </head>
   <body>

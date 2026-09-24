@@ -167,12 +167,13 @@ function deleteAccount(userId, stores) {
       if (anonymiseTheme(past, userId, tomb)) changed = true;
     }
 
-    // Host notices name the player they are about.
-    if (Array.isArray(group.hostNotices) && group.hostNotices.length) {
-      const before = group.hostNotices.length;
-      group.hostNotices = group.hostNotices.filter(n => n.userId !== userId);
-      if (group.hostNotices.length !== before) changed = true;
-    }
+    // Host notices are deliberately left alone. They are {id, kind, message,
+    // createdAt} — free text with no user id on them — so there is nothing to
+    // match a player against. A message can name someone ("X asked to join"),
+    // but they are the host's own operational record of their group, and
+    // pattern-matching a username out of prose would be guesswork that fails
+    // quietly. An earlier version filtered on `n.userId`, which no notice has,
+    // so it silently did nothing while reading as though it did.
 
     if (changed && !summary.groupsDeleted.includes(gid)) {
       summary.groupsAnonymised.push(gid);

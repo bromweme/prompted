@@ -1,4 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import {
+  TOTAL_ROUNDS_CHOICES,
+  MAX_PLAYER_CHOICES,
+  CZAR_POINTS_RANGE,
+  MAX_JURY_POINTS_RANGE,
+  VOTE_BUDGET_RANGE,
+  DOWNVOTE_COST_RANGE,
+  OVERRIDE_THRESHOLD_RANGE,
+  numberBounds,
+} from '../utils/groupSettings'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useSocket } from '../context/SocketContext'
 import { useUser } from '../context/UserContext'
@@ -1995,32 +2005,56 @@ function GroupView() {
                       <h3>Game Settings</h3>
                       <div className="form-row">
                         <label htmlFor="rules-total-rounds">Total Rounds:</label>
-                        <input
+                        <select
                           id="rules-total-rounds"
-                          type="number"
                           value={editedSettings.totalRounds}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, totalRounds: parseInt(e.target.value) }))}
-                          min="1"
-                          max="20"
                           disabled={group.status === 'active'}
                           aria-describedby={group.status === 'active' ? 'rules-rounds-locked' : undefined}
-                        />
+                        >
+                          {TOTAL_ROUNDS_CHOICES.map((count) => (
+                            <option key={count} value={count}>{count} Rounds</option>
+                          ))}
+                          {/* A stored value the list does not contain stays
+                              visible rather than the form silently reporting a
+                              different number than the group actually has. */}
+                          {!TOTAL_ROUNDS_CHOICES.includes(editedSettings.totalRounds) && (
+                            <option value={editedSettings.totalRounds}>
+                              {editedSettings.totalRounds} Rounds (current)
+                            </option>
+                          )}
+                        </select>
                         {group.status === 'active' && (
                           <small id="rules-rounds-locked" className="form-hint">
                             The number of rounds can only change before a game starts or after it ends.
                           </small>
                         )}
                       </div>
+                      {/* The same six choices the Create Group wizard offers.
+                          This was a free number input accepting up to 50, so a
+                          host could set a limit the wizard would have refused —
+                          and the server, which now enforces the limit, caps at
+                          20. One control, one answer. */}
                       <div className="form-row">
                         <label htmlFor="rules-max-players">Max Players:</label>
-                        <input
+                        <select
                           id="rules-max-players"
-                          type="number"
                           value={editedSettings.maxPlayers}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, maxPlayers: parseInt(e.target.value) }))}
-                          min="2"
-                          max="50"
-                        />
+                        >
+                          {MAX_PLAYER_CHOICES.map((count) => (
+                            <option key={count} value={count}>{count} Players</option>
+                          ))}
+                          {/* A group stored with something else (the old input
+                              allowed any number) keeps its own value visible
+                              rather than silently jumping to the nearest
+                              option the moment the form opens. */}
+                          {!MAX_PLAYER_CHOICES.includes(editedSettings.maxPlayers) && (
+                            <option value={editedSettings.maxPlayers}>
+                              {editedSettings.maxPlayers} Players (current)
+                            </option>
+                          )}
+                        </select>
                       </div>
                       <div className="form-row checkbox">
                         <label>
@@ -2067,8 +2101,7 @@ function GroupView() {
                           type="number"
                           value={editedSettings.czarPoints}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, czarPoints: parseInt(e.target.value) }))}
-                          min="1"
-                          max="10"
+                          {...numberBounds(CZAR_POINTS_RANGE)}
                         />
                       </div>
                       <div className="form-row checkbox">
@@ -2102,8 +2135,7 @@ function GroupView() {
                           type="number"
                           value={editedSettings.maxJuryPoints}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, maxJuryPoints: parseInt(e.target.value) }))}
-                          min="1"
-                          max="10"
+                          {...numberBounds(MAX_JURY_POINTS_RANGE)}
                         />
                       </div>
                       <div className="form-row">
@@ -2113,8 +2145,7 @@ function GroupView() {
                           type="number"
                           value={editedSettings.voteBudget}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, voteBudget: parseInt(e.target.value) }))}
-                          min="1"
-                          max="100"
+                          {...numberBounds(VOTE_BUDGET_RANGE)}
                         />
                       </div>
                       <p className="form-hint">
@@ -2181,8 +2212,7 @@ function GroupView() {
                           type="number"
                           value={editedSettings.downvoteCost}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, downvoteCost: parseInt(e.target.value) }))}
-                          min="0"
-                          max="5"
+                          {...numberBounds(DOWNVOTE_COST_RANGE)}
                         />
                       </div>
                     </div>
@@ -2203,12 +2233,13 @@ function GroupView() {
                         <label htmlFor="rules-override-threshold">Override Threshold (%):</label>
                         <input
                           id="rules-override-threshold"
-                          type="number"
+                          type="range"
                           value={editedSettings.overrideThreshold}
                           onChange={(e) => setEditedSettings(prev => ({ ...prev, overrideThreshold: parseInt(e.target.value) }))}
-                          min="51"
-                          max="100"
+                          {...numberBounds(OVERRIDE_THRESHOLD_RANGE)}
+                          disabled={editedSettings.allowOverride !== true}
                         />
+                        <div className="range-value">{editedSettings.overrideThreshold}%</div>
                       </div>
                     </div>
 
