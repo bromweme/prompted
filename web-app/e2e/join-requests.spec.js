@@ -22,8 +22,8 @@ function waitFor(socket, event, match = () => true) {
   })
 }
 
-async function createGroup(host, { name, isPrivate = false }) {
-  host.socket.emit('create_group', { groupData: { name, isPrivate, settings: {} } })
+async function createGroup(host, { name, isPrivate = false, settings = {} }) {
+  host.socket.emit('create_group', { groupData: { name, isPrivate, settings } })
   const { group } = await once(host.socket, 'group_created')
   return group
 }
@@ -372,5 +372,174 @@ test.describe('the my-groups list', () => {
 
     host.socket.close()
     member.socket.close()
+  })
+})
+
+// --- Wave 13 review fixes ---------------------------------------------------
+//
+// Removing someone from the roster used to stop at `group.players`, leaving
+// their fingerprints in the round still being decided. Each of these fails
+// against the pre-fix server.
+
+test.describe('removing a player mid-round', () => {
+  let runId, host, member, third
+
+  test.beforeEach(async () => {
+    runId = testRunId()
+    host = connectAs(`jrr-host-${runId}`, 'Round Host')
+    member = connectAs(`jrr-mem-${runId}`, 'Doomed Member')
+    third = connectAs(`jrr-third-${runId}`, 'Third Player')
+    await Promise.all([host.ready, member.ready, third.ready])
+  })
+
+  test.afterEach(() => {
+    host.socket.close()
+    member.socket.close()
+    third.socket.close()
+  })
+
+  // Puts the group into the submission phase with `host` as Judge, so the
+  // other two are the contestants.
+  async function startSubmissionPhase(name) {
+    const group = await createGroup(host, { name })
+    await joinByInvite(member, group)
+    await joinByInvite(third, group)
+
+    await startRound(host, group.id, { czarUserId: host.id })
+
+    const topicMade = once(host.socket, 'topic_submitted')
+    host.socket.emit('submit_topic', { text: `Roster topic ${runId}`, isPublic: false })
+    const { topic } = await topicMade
+
+    const submitting = waitFor(host.socket, 'group_updated', ({ group: g }) =>
+      g.id === group.id && g.currentTheme && g.currentTheme.status === 'submission')
+    host.socket.emit('select_topic', { groupId: group.id, topicId: topic.id })
+    await submitting
+
+    return group
+  }
+
+  test("a kicked player's submission leaves the round with them", async () => {
+    const group = await startSubmissionPhase(`Kick Mid Round ${runId}`)
+
+    const submitted = waitFor(host.socket, 'group_updated', ({ group: g }) =>
+      g.currentTheme && g.currentTheme.submissionCount === 1)
+    member.socket.emit('submit_video', { groupId: group.id, videoId: 'dQw4w9WgXcQ', title: 'Doomed entry' })
+    await submitted
+
+    // Kicking them must take the entry with them. Left behind, it could win a
+    // round they are no longer in: the scoring lookup is by player, so the
+    // reveal named the winner "Unknown" and awarded the points to nobody,
+    // while everyone who voted for it still scored.
+    const kicked = waitFor(host.socket, 'group_updated', ({ group: g }) => g.players.length === 2)
+    host.socket.emit('kick_player', { groupId: group.id, targetId: member.id })
+    const after = await kicked
+
+    expect(after.group.currentTheme.submissionCount).toBe(0)
+  })
+
+  test('kicking the last player a round is waiting on opens voting instead of stalling', async () => {
+    const group = await startSubmissionPhase(`Kick Opens Voting ${runId}`)
+
+    const submitted = waitFor(host.socket, 'group_updated', ({ group: g }) =>
+      g.currentTheme && g.currentTheme.submissionCount === 1)
+    third.socket.emit('submit_video', { groupId: group.id, videoId: 'dQw4w9WgXcQ', title: 'Only entry' })
+    await submitted
+
+    // The all-submitted check used to live inside submit_video alone, so it
+    // was only ever reachable by someone submitting. With the one outstanding
+    // contestant removed, everybody left had submitted and nothing noticed —
+    // the round sat until its deadline hours later.
+    const voting = waitFor(host.socket, 'group_updated', ({ group: g }) =>
+      g.currentTheme && g.currentTheme.status === 'voting')
+    host.socket.emit('kick_player', { groupId: group.id, targetId: member.id })
+
+    await expect(voting).resolves.toBeTruthy()
+  })
+
+  test('kicking the Judge during topic selection passes the role on', async () => {
+    // anonymousCzar: false publishes czarUsername, which is the only way to
+    // see who holds the role from outside — czarId is stripped from every
+    // broadcast. Asserting on the name is direct; inferring it from whether a
+    // topic can be chosen is not, and gets confounded by topic visibility.
+    const group = await createGroup(host, {
+      name: `Kick Judge ${runId}`,
+      settings: { anonymousCzar: false }
+    })
+    await joinByInvite(member, group)
+    await joinByInvite(third, group)
+
+    // The doomed member is the Judge, and topic selection has no deadline —
+    // the submission clock only starts once a topic is chosen. So a Judge who
+    // is removed and not replaced strands the round outright, and the host has
+    // to notice and reassign by hand.
+    const started = await startRound(host, group.id, { czarUserId: member.id })
+    expect(started.group.currentTheme.status).toBe('topic_selection')
+    expect(started.group.currentTheme.czarUsername).toBe('Doomed Member')
+
+    const kicked = waitFor(host.socket, 'group_updated', ({ group: g }) => g.players.length === 2)
+    host.socket.emit('kick_player', { groupId: group.id, targetId: member.id })
+    const after = await kicked
+
+    // Still choosing a topic, but somebody who is actually in the group now
+    // holds the role.
+    expect(after.group.currentTheme.status).toBe('topic_selection')
+    expect(after.group.currentTheme.czarUsername).not.toBe('Doomed Member')
+    expect(['Round Host', 'Third Player']).toContain(after.group.currentTheme.czarUsername)
+  })
+})
+
+test.describe('what a non-member can learn', () => {
+  test('cancelling a join request cannot be used to discover which groups exist', async () => {
+    const runId = testRunId()
+    const host = connectAs(`jro-host-${runId}`, 'Oracle Host')
+    const stranger = connectAs(`jro-str-${runId}`, 'Curious Stranger')
+    await Promise.all([host.ready, stranger.ready])
+
+    // A private group: the one thing UI-2's membership gate promises is that a
+    // non-member learns nothing about it, "not even that it exists".
+    const secret = await createGroup(host, { name: `Secret ${runId}`, isPrivate: true })
+
+    const realReply = waitFor(stranger.socket, 'join_request_update', (u) => u.groupId === secret.id)
+    stranger.socket.emit('cancel_join_request', { groupId: secret.id })
+
+    const madeUp = `group_does_not_exist_${runId}`
+    const fakeReply = waitFor(stranger.socket, 'join_request_update', (u) => u.groupId === madeUp)
+    stranger.socket.emit('cancel_join_request', { groupId: madeUp })
+
+    // The handler used to return early for a missing group, so a reply meant
+    // "this id is real" and silence meant "it isn't" — an existence oracle for
+    // any id, private groups included.
+    const real = await realReply
+    const fake = await fakeReply
+    expect(real.request).toEqual(fake.request)
+
+    host.socket.close()
+    stranger.socket.close()
+  })
+})
+
+test.describe('the shared group payload', () => {
+  test('carries only named fields, so a new one cannot leak by default', async () => {
+    const runId = testRunId()
+    const host = connectAs(`jrp-host-${runId}`, 'Payload Host')
+    await host.ready
+
+    const group = await createGroup(host, { name: `Payload ${runId}` })
+    const reply = await details(host, group.id)
+    const received = reply.group
+
+    // publicizeGroup is an allowlist. A field added to a group and not named
+    // there must not reach players; this states that contract from the outside
+    // so it fails if the allowlist ever becomes a spread again.
+    const allowed = new Set([
+      'id', 'inviteCode', 'name', 'description', 'isPrivate', 'host', 'players',
+      'settings', 'status', 'currentRound', 'history', 'usedTopicIds', 'hostTopics',
+      'setNumber', 'completedSets', 'finalStandings', 'election', 'judgedThisCycle',
+      'createdAt', 'currentTheme', 'hostAbandoned'
+    ])
+    expect(Object.keys(received).filter((key) => !allowed.has(key))).toEqual([])
+
+    host.socket.close()
   })
 })

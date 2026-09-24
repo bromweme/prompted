@@ -206,17 +206,35 @@ function electionMajorityNeeded(group) {
   return Math.floor(electionElectorate(group) / 2) + 1;
 }
 
+// Everything a group carries that every member is allowed to see.
+//
+// An allowlist, not a denylist. This used to spread the whole group and delete
+// the four private fields, which meant the default for anything new was to
+// publish it: adding a field to a group shipped it to every member unless
+// someone remembered to come back here. Listing what goes out inverts that —
+// a new field stays server-side until it is named, and the omission shows up
+// as a missing value in the client rather than as a silent leak.
+//
+// Deliberately absent, and why: `hostNotices` (the host's private log),
+// `joinRequests`, `declineCounts` and `bannedUsers` (JR-1 — the host alone
+// gets these, through hostPanelFor).
+const PUBLIC_GROUP_FIELDS = [
+  'id', 'inviteCode', 'name', 'description', 'isPrivate', 'host', 'players',
+  'settings', 'status', 'currentRound', 'history', 'usedTopicIds', 'hostTopics',
+  'setNumber', 'completedSets', 'finalStandings', 'election', 'judgedThisCycle',
+  'createdAt'
+];
+
 // Builds the shared, publicized view of a group that every player receives.
-// Strips the host's private notices and attaches the derived host-abandoned
-// flag so the client can offer the leave-or-vote election (HG-1).
+// The current round goes through publicizeTheme, which hides submissions,
+// votes and the Judge's id until the round reveals them; the derived
+// host-abandoned flag lets the client offer the leave-or-vote election (HG-1).
 function publicizeGroup(group) {
-  const publicGroup = { ...group, currentTheme: publicizeTheme(group.currentTheme, group) };
-  delete publicGroup.hostNotices;
-  // Join requests, decline counts and bans are the host's alone (JR-1); the
-  // host gets them separately through hostPanelFor.
-  delete publicGroup.joinRequests;
-  delete publicGroup.declineCounts;
-  delete publicGroup.bannedUsers;
+  const publicGroup = {};
+  for (const field of PUBLIC_GROUP_FIELDS) {
+    if (group[field] !== undefined) publicGroup[field] = group[field];
+  }
+  publicGroup.currentTheme = publicizeTheme(group.currentTheme, group);
   publicGroup.hostAbandoned = isHostAbandoned(group);
   return publicGroup;
 }
@@ -366,6 +384,91 @@ function openVoting(theme, group) {
   theme.status = 'voting';
   const hours = votingHours(group);
   theme.deadline = new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+}
+
+/**
+ * Opens voting if every eligible contestant has now submitted.
+ *
+ * Extracted from `submit_video`, which used to be the only place this was
+ * evaluated. That made the check reachable only by someone submitting, so
+ * anything *else* that changed the eligible count — a kick, a ban, a player
+ * leaving — could leave a round waiting on a submission that can never arrive.
+ * Whoever changes the roster now re-asks the same question.
+ *
+ * @returns {boolean} true when voting was opened, so the caller can log it.
+ */
+function maybeOpenVoting(group) {
+  const theme = group && group.currentTheme;
+  if (!theme || theme.status !== 'submission') return false;
+
+  const eligiblePlayers = group.players.filter(p => p.connected !== false && p.userId !== theme.czarId);
+  if (eligiblePlayers.length === 0 || theme.submissions.length < eligiblePlayers.length) return false;
+
+  openVoting(theme, group);
+  return true;
+}
+
+/**
+ * Takes a departing player out of the round that is currently in flight.
+ *
+ * Removing someone from `group.players` used to be the whole of a kick, a ban
+ * or a leave, which left their fingerprints competing in the live round: their
+ * submission could still win it, and because the scoring lookup is by player,
+ * the reveal named the winner "Unknown" and awarded the points to nobody —
+ * while everyone who voted for it still scored. Their votes also kept counting
+ * toward a result they were no longer part of.
+ *
+ * History is deliberately untouched. Rounds they actually played are shared
+ * records, and rewriting them would change other players' scores after the
+ * fact. This is only about the round still being decided.
+ *
+ * @returns {boolean} true when the live round changed.
+ */
+function detachFromLiveRound(group, targetId) {
+  const theme = group && group.currentTheme;
+  if (!theme || theme.status === 'reveal') return false;
+
+  let changed = false;
+
+  const theirSubmissions = (theme.submissions || []).filter(sub => sub.playerUserId === targetId);
+  if (theirSubmissions.length > 0) {
+    const orphaned = new Set(theirSubmissions.map(sub => sub.id));
+    theme.submissions = theme.submissions.filter(sub => sub.playerUserId !== targetId);
+    // Votes cast *for* a withdrawn submission would otherwise point at nothing.
+    theme.votes = (theme.votes || []).filter(vote => !orphaned.has(vote.submissionId));
+    changed = true;
+  }
+
+  const beforeVotes = (theme.votes || []).length;
+  theme.votes = (theme.votes || []).filter(vote => vote.voterUserId !== targetId);
+  if (theme.votes.length !== beforeVotes) changed = true;
+
+  if (theme.voteBudgetUsed && Object.prototype.hasOwnProperty.call(theme.voteBudgetUsed, targetId)) {
+    delete theme.voteBudgetUsed[targetId];
+    changed = true;
+  }
+
+  // The Judge leaving is the one case that can strand a round outright:
+  // topic selection has no deadline (the submission clock only starts once a
+  // topic is chosen), so nothing would ever move it on. The host can reassign
+  // by hand, but nothing tells them they need to, so the role is passed here.
+  if (theme.czarId === targetId && theme.status === 'topic_selection') {
+    const served = new Set(group.judgedThisCycle || []);
+    const pool = group.players.filter(p => p.userId !== targetId);
+    if (pool.length > 0) {
+      const fresh = pool.filter(p => !served.has(p.userId));
+      const candidates = fresh.length > 0 ? fresh : pool;
+      const next = candidates[Math.floor(Math.random() * candidates.length)];
+      theme.czarId = next.userId;
+      // A fresh assignment, so the new Judge may skip even if the one they
+      // replaced had been forced to play — the same rule a host hand-pick uses.
+      theme.judgeMustPlay = false;
+      if (theme.firstAssignedJudge === targetId) theme.firstAssignedJudge = next.userId;
+      changed = true;
+    }
+  }
+
+  return changed;
 }
 
 /**
@@ -1716,8 +1819,19 @@ io.on('connection', (socket) => {
 
   // The requester withdraws their own pending request.
   on('cancel_join_request', ({ groupId }) => {
-    const group = groups.get(cleanId(groupId));
-    if (!group) return;
+    const gid = cleanId(groupId);
+    const group = groups.get(gid);
+    // A missing group is answered exactly like a real one the caller has no
+    // request in. Returning early instead made this an existence oracle: a
+    // reply for a live id and silence for a made-up one told a non-member
+    // which groups exist, including private ones — the one thing UI-2's
+    // membership gate is there to prevent.
+    if (!group) {
+      notifyUser(userId, 'join_request_update', {
+        groupId: gid, request: { status: 'none', declinesLeft: DECLINE_LIMIT }
+      });
+      return;
+    }
     const before = (group.joinRequests || []).length;
     group.joinRequests = (group.joinRequests || []).filter(r => r.userId !== userId);
     if (group.joinRequests.length !== before) {
@@ -1823,6 +1937,15 @@ io.on('connection', (socket) => {
       return;
     }
     group.players.splice(index, 1);
+    // Their submission must not stay in the round they were just removed from,
+    // and losing them may have been the last thing the round was waiting on.
+    detachFromLiveRound(group, target);
+    if (maybeOpenVoting(group)) {
+      logEvent('voting_opened', {
+        groupId: gid, round: group.currentRound, trigger: 'roster_changed',
+        submissions: group.currentTheme.submissions.length
+      });
+    }
     groups.set(gid, group);
     logEvent('member_removed', { groupId: gid, actorId: userId, reason: 'kicked', players: group.players.length });
     broadcastGroup(group);
@@ -1862,6 +1985,13 @@ io.on('connection', (socket) => {
       username: (member || request).username,
       bannedAt: new Date().toISOString()
     }];
+    detachFromLiveRound(group, target);
+    if (maybeOpenVoting(group)) {
+      logEvent('voting_opened', {
+        groupId: gid, round: group.currentRound, trigger: 'roster_changed',
+        submissions: group.currentTheme.submissions.length
+      });
+    }
     groups.set(gid, group);
     logEvent('member_removed', { groupId: gid, actorId: userId, reason: 'banned', players: group.players.length });
     broadcastGroup(group);
@@ -2220,6 +2350,15 @@ io.on('connection', (socket) => {
     const index = group.players.findIndex(p => p.userId === userId);
     if (index !== -1) {
       group.players.splice(index, 1);
+      // Same reasoning as a kick: a player who has left must not still be
+      // competing in, or voting on, the round in flight.
+      detachFromLiveRound(group, userId);
+      if (maybeOpenVoting(group)) {
+        logEvent('voting_opened', {
+          groupId: gid, round: group.currentRound, trigger: 'roster_changed',
+          submissions: group.currentTheme.submissions.length
+        });
+      }
       groups.set(gid, group);
       broadcastGroup(group);
       console.log('Player left group:', { userId, groupId: gid });
@@ -2807,9 +2946,7 @@ io.on('connection', (socket) => {
       groupId: gid, actorId: userId, round: group.currentRound, submissionNumber: theme.submissions.length
     });
 
-    const eligiblePlayers = group.players.filter(p => p.connected !== false && p.userId !== theme.czarId);
-    if (eligiblePlayers.length > 0 && theme.submissions.length >= eligiblePlayers.length) {
-      openVoting(theme, group);
+    if (maybeOpenVoting(group)) {
       logEvent('voting_opened', {
         groupId: gid, round: group.currentRound, trigger: 'all_submitted', submissions: theme.submissions.length
       });
