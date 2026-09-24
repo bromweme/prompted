@@ -10,6 +10,8 @@ Games are asynchronous — rounds run on deadlines measured in hours, not while 
 - **Hosts run their group.** Invite links with resettable codes, join requests (three declines and that player can't keep asking), kick, and ban. Nobody new joins in the middle of a round.
 - **Notifications.** A bell in the header and a full history page: your turn to judge, a round opening or resolving, a game finishing, join requests and their answers. They're kept per player on the server, so they survive being away.
 - **Host-supplied topics.** A group can turn off custom topics and play from a list the host writes, and the app won't start a round without enough unused topics for the rounds left.
+- **Light or dark, whichever the device is set to.** No toggle and no flash of the wrong one on load. Both schemes meet WCAG 2.1 AA, and the suite fails if either stops meeting it — including hover, focus and the one pseudo-element in the app.
+- **Leaving is as real as joining.** Delete Account removes the profile, topics and notifications, hands any hosted group to its longest-standing member instead of destroying it, and detaches the player from rounds other people played without rewriting their scores. The privacy policy at `/privacy` describes what the code does, because it was written from the code.
 
 `GAME_DESIGN.md` describes the rules and architecture as built; `implementation/issues/` holds the per-feature specs.
 
@@ -19,12 +21,12 @@ The test suite is the main focus of this repository. Tests are split into layers
 
 | Layer | Tests | Runs | Tool |
 |---|---|---|---|
-| **Unit** (backend and frontend logic) | 28 | once | Node test runner |
+| **Unit** (backend and frontend logic) | 40 | once | Node test runner |
 | **Persistence** (state survives its cache being dropped) | 3 | once | Playwright `persistence` project |
-| **API** (game rules, driven over socket.io with no browser) | 92 | once | Playwright `api` project |
-| **End-to-end** (real browsers) | 102 | x 4 projects | Playwright |
+| **API** (game rules, driven over socket.io with no browser) | 101 | once | Playwright `api` project |
+| **End-to-end** (real browsers) | 145 | x 4 projects | Playwright |
 
-That's **503 Playwright runs per suite**, plus the unit tests. The persistence layer runs first and alone: it reloads every store from the database mid-run to prove the data really came back, which affects the whole server process, so every other project waits on it. The end-to-end tests run across four browser/device projects:
+That's **684 Playwright runs per suite**, plus the unit tests. The persistence layer runs first and alone: it reloads every store from the database mid-run to prove the data really came back, which affects the whole server process, so every other project waits on it. The end-to-end tests run across four browser/device projects:
 
 | Project | Engine | Viewport |
 |---|---|---|
@@ -46,8 +48,10 @@ Two checks run alongside the tests. A **Postgres job** runs the server unit test
 - **Players in more than one group.** Activity in one group never changes the group on screen.
 - **Live updates.** When one player acts, tests confirm the other players' open pages update without a refresh.
 - **What the server sends, not just what the screen shows.** Tests listen to the raw WebSocket traffic and check that the judge's identity never appears in any message before the reveal, even though the UI already hides it.
-- **Accessibility.** Pages are checked against WCAG 2.1 AA with axe-core, including hover states. Tests locate elements by role and accessible name (`getByRole`, `getByLabel`), so an unlabeled control fails the test.
+- **Accessibility, in both colour schemes.** Every page and nine modal states are checked against WCAG 2.1 AA with axe-core, in light *and* dark. axe only sees a resting page, so three bespoke audits cover what it cannot: hover contrast, focus indicators measured from what was actually painted (2.4.7 and the 3:1 of 1.4.11), and controls that are present but indistinguishable from their background. Pseudo-elements are read with `getComputedStyle(el, ':before')`, since no selector can reach them. Tests locate elements by role and accessible name (`getByRole`, `getByLabel`), so an unlabeled control fails the test.
 - **Game rules, at the API level.** Round deadlines, per-round vote budgets, judge skips, host election when a host leaves, which groups are open, and join requests, kicks, and bans, tested by driving the server directly over socket.io.
+- **Account deletion, which a privacy policy promises.** Unit tests hold the semantics directly: a profile and its topics go, a hosted group is handed to its longest-standing member rather than destroyed, rounds other people played in lose the departing player's identity but keep their scores, and a ban outlives the account so deleting is not a way around moderation.
+- **Limits that are actually limits.** A full group refuses the next player while still letting an existing member reconnect, and settings sent straight over the socket are clamped, because a `min` attribute on a form stops a slip and not a crafted payload.
 - **Logic and styling guards, at the unit level.** Time-window conversions round-trip exactly, and no stylesheet references an undefined CSS token or restyles a shared button app-wide.
 
 ### Design choices
@@ -56,7 +60,7 @@ Two checks run alongside the tests. A **Postgres job** runs the server unit test
 - **Deterministic data.** Tests use fixture results instead of the live YouTube API. Results are the same on every run, and runs cost no API quota and work offline.
 - **Test-only sign-in.** A test mode lets the suite create players without going through Google. The server refuses to start with it enabled in production.
 - **Zero retries, on purpose.** A flaky test fails visibly instead of passing on a second try. Traces are kept for every failure (`retain-on-failure`) so failures can be stepped through afterward.
-- **Tuned parallelism.** Four workers, parallel by file. Higher worker counts overloaded WebKit and produced timeouts caused by machine load rather than real bugs.
+- **Tuned parallelism.** Four workers, parallel by file. Higher counts overloaded WebKit and produced timeouts caused by machine load rather than real bugs. The two WebKit projects also get a 120s per-test timeout, and half the workers in CI, for the same reason — deliberately instead of retries, which would have hidden the load problem rather than named it.
 
 ### Two checks that sit outside the suite
 
@@ -110,6 +114,9 @@ cd web-app && npm test
 - A reveal that names the judge and plays the winning video
 - Scoring and round history
 - Host election when the host leaves
+- Group size limits that are enforced, not just displayed
+- Dark mode from the device setting, WCAG 2.1 AA in both schemes
+- A privacy policy, and account deletion that really deletes
 
 ## Tech stack
 
@@ -135,6 +142,8 @@ server/          Express + Socket.io backend, Postgres/SQLite storage, unit test
 web-app/         React frontend
 web-app/e2e/     Playwright API and end-to-end suites
 web-app/test/    Frontend unit tests
+web-app/perf/    Load harness (run on demand, not in CI)
+web-app/smoke/   Smoke checks against a deployed site
 docs/            Discovery, design, and planning documents
 implementation/  Issue specs and review notes
 .design/         Feature design explorations
