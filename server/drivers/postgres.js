@@ -158,6 +158,13 @@ function createPostgresDriver(connectionString) {
       await pool.query(`DELETE FROM ${events} WHERE ts < $1`, [cutoffTs]);
     },
 
+    // Erasure by actor (PRIV-1). actor_id is already an HMAC, so the caller
+    // hashes the raw user id the same way logEvent did.
+    async deleteEventsByActor(actorId) {
+      const { rowCount } = await pool.query(`DELETE FROM ${events} WHERE actor_id = $1`, [actorId]);
+      return rowCount;
+    },
+
     async readEvents({ groupId } = {}) {
       const scoped = groupId !== undefined && groupId !== null;
       const { rows } = await pool.query(

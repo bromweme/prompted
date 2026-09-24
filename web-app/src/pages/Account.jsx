@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { useUser } from '../context/UserContext'
 import { useTopics } from '../hooks/useTopics'
 import { useSocket } from '../context/SocketContext'
@@ -14,6 +14,24 @@ function Account() {
   const { socket, isConnected } = useSocket()
   const [saveError, setSaveError] = useState(null)
   const themeModalRef = useRef(null)
+
+  // Account deletion (PRIV-1). The privacy policy promises erasure, so this
+  // button has to do it rather than say "coming soon", which is what it said
+  // while the policy already claimed the right existed.
+  const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [deleteConfirm, setDeleteConfirm] = useState('')
+  const [deleteError, setDeleteError] = useState(null)
+  const [deleting, setDeleting] = useState(false)
+  const deleteModalRef = useRef(null)
+
+  // Declared here rather than with the other handlers: useModalA11y below
+  // takes it as its close callback, and a const declared later is still in
+  // its temporal dead zone at that point.
+  const closeDeleteModal = () => {
+    setShowDeleteModal(false)
+    setDeleteConfirm('')
+    setDeleteError(null)
+  }
   
   const [activeTab, setActiveTab] = useState('profile')
   const [isEditing, setIsEditing] = useState(false)
@@ -38,6 +56,7 @@ function Account() {
   } = useTopics('global')
 
   useModalA11y(showAddModal, themeModalRef, handleCloseModal)
+  useModalA11y(showDeleteModal, deleteModalRef, closeDeleteModal)
 
   // The server is the source of truth: it echoes the saved profile back
   // through the session payload, which re-runs this and closes the form.
@@ -79,6 +98,47 @@ function Account() {
     signOut()
     navigate('/')
   }
+
+  // Typing the word is deliberate friction. This cannot be undone and it can
+  // change other people's groups (a group this player hosts is handed to
+  // someone else), so a single mis-click should not be enough.
+  const deleteArmed = deleteConfirm.trim().toUpperCase() === 'DELETE'
+
+  const handleDeleteAccount = () => {
+    if (!deleteArmed || deleting) return
+    if (!socket || !isConnected) {
+      setDeleteError('Still connecting — try again in a moment.')
+      return
+    }
+
+    setDeleteError(null)
+    setDeleting(true)
+    socket.emit('delete_account', { confirm: true })
+  }
+
+  // The server answers exactly once, either way. Both listeners are torn down
+  // together so a failed attempt cannot leave one armed for the next.
+  useEffect(() => {
+    if (!socket || !deleting) return
+
+    const onDeleted = () => {
+      // Sign out first: the account is gone, so any further socket traffic
+      // under the old identity would just recreate an empty profile.
+      signOut()
+      navigate('/')
+    }
+    const onError = ({ message }) => {
+      setDeleting(false)
+      setDeleteError(message || 'Could not delete the account.')
+    }
+
+    socket.on('account_deleted', onDeleted)
+    socket.on('error', onError)
+    return () => {
+      socket.off('account_deleted', onDeleted)
+      socket.off('error', onError)
+    }
+  }, [socket, deleting, signOut, navigate])
 
   if (!user) {
     return <div className="loading">Loading...</div>
@@ -381,13 +441,19 @@ function Account() {
 
               <div className="danger-section">
                 <h2>Danger Zone</h2>
+                {/* The policy describes exactly what Delete Account does, so it
+                    belongs next to the button rather than only on the sign-in
+                    screen, which a signed-in player never sees again. */}
+                <p className="danger-policy-link">
+                  <Link to="/privacy">What we store, and what deleting removes</Link>
+                </p>
                 
                 <div className="danger-actions">
                   <button 
                     className="danger-button secondary"
-                    onClick={() => alert('Account deactivation coming soon!')}
+                    onClick={() => setShowDeleteModal(true)}
                   >
-                    Deactivate Account
+                    Delete Account
                   </button>
                   <button 
                     className="danger-button primary"
@@ -474,6 +540,84 @@ function Account() {
                 </div>
               </form>
             )}
+          </div>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div
+          className="modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-account-title"
+          aria-describedby="delete-account-detail"
+          ref={deleteModalRef}
+          onClick={closeDeleteModal}
+        >
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h2 id="delete-account-title">Delete Account</h2>
+              <button
+                className="close-button"
+                onClick={closeDeleteModal}
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="modal-body" id="delete-account-detail">
+              {/* Saying exactly what happens, including the parts that are not
+                  deletion. A vague warning invites a mis-click; this is the
+                  same list the privacy policy gives. */}
+              <p>This cannot be undone. Deleting your account will:</p>
+              <ul className="delete-account-list">
+                <li>Delete your profile, your saved topics and your notifications</li>
+                <li>Remove you from every group you are in</li>
+                <li>Hand any group you host to its longest-standing member, or delete it if you are the only one there</li>
+                <li>Remove your name from rounds other players took part in, keeping their scores and history intact</li>
+              </ul>
+              <p className="delete-account-note">
+                Any ban on your account stays in place, so deleting is not a way back
+                into a group you were removed from.
+              </p>
+
+              {/* .form-group, not a bespoke rule: its input styling already
+                  carries the 3:1 border WCAG 1.4.11 wants, which a hand-rolled
+                  --color-border box does not (1.51:1 on a white panel). */}
+              <div className="form-group">
+                <label htmlFor="delete-confirm">Type <strong>DELETE</strong> to confirm</label>
+                <input
+                  id="delete-confirm"
+                  type="text"
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  autoComplete="off"
+                  disabled={deleting}
+                />
+              </div>
+
+              {deleteError && (
+                <p className="save-error" role="alert">{deleteError}</p>
+              )}
+            </div>
+
+            <div className="modal-actions">
+              <button
+                className="setup-button secondary"
+                onClick={closeDeleteModal}
+                disabled={deleting}
+              >
+                Cancel
+              </button>
+              <button
+                className="danger-button primary"
+                onClick={handleDeleteAccount}
+                disabled={!deleteArmed || deleting}
+              >
+                {deleting ? 'Deleting…' : 'Delete my account'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -85,4 +85,7 @@ function updateProfile(userId, { displayName, avatar }, maxNameLength) {
   return { profile: updated };
 }
 
-module.exports = { getOrCreateProfile, updateProfile, AVATAR_CHOICES };
+// `users` is exported for account deletion (PRIV-1), which has to remove a
+// profile outright rather than update one. Nothing else should write to it
+// directly — go through updateProfile so validation still runs.
+module.exports = { getOrCreateProfile, updateProfile, AVATAR_CHOICES, profileStore: users };

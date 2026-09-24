@@ -426,3 +426,33 @@ input:checked + .slider:before {
   font-size: var(--text-caption);
   margin: 0;
 }
+
+/* Delete-account confirmation (PRIV-1). The modal chrome is shared, so these
+   only cover what is specific to spelling out an irreversible action. */
+.delete-account-list {
+  margin: var(--space-2) 0 var(--space-3);
+  padding-left: var(--space-4);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+}
+
+.delete-account-list li + li {
+  margin-top: var(--space-1);
+}
+
+/* The one consequence that is not deletion, so it should not read like the
+   rest of the list. Secondary text still clears AA in both schemes. */
+.delete-account-note {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+}
+
+.danger-policy-link {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-caption);
+}
+
+.danger-policy-link a {
+  color: var(--color-accent);
+}

@@ -189,3 +189,9 @@
     grid-template-columns: repeat(3, 1fr);
   }
 }
+
+/* The policy link sits on secondary text, so it needs its own colour to stay
+   distinguishable rather than inheriting the muted grey around it. */
+.login-footer a {
+  color: var(--color-accent);
+}

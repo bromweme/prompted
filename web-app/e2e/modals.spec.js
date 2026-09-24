@@ -65,6 +65,23 @@ for (const colorScheme of ['light', 'dark']) {
       await scanOpenModal(page, 'join group')
     })
 
+    // The delete-account modal (PRIV-1). Worth its own scan: it is the only
+    // modal with a destructive primary action, and it is the one a player is
+    // most likely to be reading carefully.
+    test('delete account modal', async ({ page, context }) => {
+      await seedTestUser(context, { id: `modal-del-${testRunId()}`, name: 'Modal Tester' })
+      await page.goto('/account')
+      await page.getByRole('button', { name: 'Settings', exact: true }).click()
+      await page.getByRole('button', { name: 'Delete Account' }).click()
+      await scanOpenModal(page, 'delete account')
+
+      // Again with the confirmation typed, because that is when the
+      // destructive button becomes enabled and its colours actually apply.
+      await page.getByLabel(/Type DELETE to confirm/).fill('DELETE')
+      await expect(page.getByRole('button', { name: 'Delete my account' })).toBeEnabled()
+      await scanOpenModal(page, 'delete account (armed)')
+    })
+
     test('topic library add and edit modals', async ({ page, context }) => {
       const runId = testRunId()
       await seedTestUser(context, { id: `modal-topic-${runId}`, name: 'Modal Tester' })

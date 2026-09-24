@@ -144,6 +144,26 @@ async function readEvents(options = {}) {
   return driver.readEvents(options);
 }
 
+/**
+ * Erases every event attributed to one user (PRIV-1, right to erasure).
+ *
+ * Rows are stored against an HMAC of the user id, never the id itself, so the
+ * only way to find someone's rows is to hash the id the same way `logEvent`
+ * did — which is exactly what makes erasure possible while the log stays
+ * pseudonymous. Events with no actor (server-side, group-scoped) are untouched.
+ *
+ * This is a hard delete rather than a re-hash: re-keying would leave a row
+ * that is still one person's action, and the point is that it stops existing.
+ *
+ * @returns {Promise<number>} how many rows were removed.
+ */
+async function eraseActorEvents(userId) {
+  if (!userId) return 0;
+  await ensureSchema();
+  await flushEvents();
+  return driver.deleteEventsByActor(hashActor(userId));
+}
+
 // Group settings that are safe to name (and, for number/boolean values, to
 // record) in an event. The settings object is client-supplied, so its keys are
 // filtered against this list rather than trusted: a crafted client could
@@ -185,6 +205,7 @@ module.exports = {
   logEvent,
   readEvents,
   flushEvents,
+  eraseActorEvents,
   hashActor,
   settingsSnapshot,
   changedSettingKeys,

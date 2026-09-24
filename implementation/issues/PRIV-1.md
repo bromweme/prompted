@@ -1,6 +1,7 @@
 # PRIV-1 — Privacy policy page + consent management (CMP)
 
-- **Status:** Blocked on product/legal decisions (data controller identity, jurisdictions, CMP choice). The policy-page *scaffold* and the disclosure of current data practices can be drafted now; the CMP piece is only triggered by third-party trackers/ads. **Not legal advice — a lawyer should review the final policy.**
+- **Status:** Part A implemented (Wave 18); Part B still `Blocked` (no tracker or ad exists yet, so no consent mechanism is triggered). **Not legal advice — a lawyer should review the policy.**
+- **Open before launch:** the policy publishes `michael@promptedthegame.com`, which is a **placeholder and not yet a real mailbox** — it needs an MX record or forwarding and a test send. The controller is named as *Michael Bromwell*, inferred from the git author and the address, and should be confirmed. Both are item 1 and 2 of **Before go-live** in `implementation-queue.md`. Erasure does not depend on the address (it is self-service in the app); access, correction and portability do.
 - **Priority:** medium
 - **Guarantee:** The app has a real, linked privacy policy that accurately describes what it collects and shares, and — once any non-essential tracker or ad is added — a compliant consent mechanism gates it.
 
@@ -33,13 +34,55 @@
 - **Not required for `EVT-1`** (first-party, no cookies, no third-party sharing) or for the strictly-necessary session token — those only need disclosure in Part A.
 - **Required before** GA4, any ad tag, or any other non-essential cookie/tracker, for EU/UK/California users: a Google-certified CMP (e.g. Cookiebot, Osano, Iubenda, Google's own) or a carefully-built banner that blocks the tracker until opt-in and records consent. Personalized ads raise the bar (IAB TCF / Google EU user consent policy).
 
-## Decisions needed
+## Decisions settled (Wave 18)
+
+1. **Deletion**: build a real path now, rather than "email us". Done — see below.
+2. **Terms of Service**: out of scope. The sign-in line now names only the Privacy Policy, because that is the only document that exists. A ToS is a separate artifact with different content (acceptable use, liability, termination) and inventing one to make a sentence true would repeat the original mistake.
+3. **Jurisdictions**: EU/UK + California. Anyone can reach the site and nothing gates by region, so the broader shape was the only defensible one.
+
+Still open: 4 (CMP choice) and 5 (retention windows) — 4 is Part B, and 5 is now answered in the policy itself (12 months for events, 30 days for sessions, until deletion for content).
+
+## Decisions needed (original)
 
 1. Who is the data controller (individual / entity), and which jurisdictions must the policy cover (EU/UK/US-CA at least)?
 2. Is a data-deletion / account-closure path in scope now (making the Deactivate stub real), or is the policy scoped to "email us to delete"?
 3. Terms of Service: in scope here or separate?
 4. CMP: build-minimal vs a paid certified CMP — decide when Part B is triggered.
 5. Data retention windows for content, sessions, and `EVT-1` events.
+
+## What Part A actually did (Wave 18)
+
+### The policy
+
+`/privacy`, a **public** route — it is linked from the sign-in screen, so it has to be readable by someone who has not signed up yet. The content was written from the code rather than from intent: the collection list maps to `auth.js`, the four `PersistentStore`s, `events.js` and `youtube.js`.
+
+The sign-in line changed from a claim to a link, and lost its Terms of Service half.
+
+### Real deletion, because the policy promises it
+
+`server/account-deletion.js`, with its stores injected so the semantics can be unit-tested directly rather than through a socket. Three rules, each of which is a judgement call worth recording:
+
+| Rule | Why |
+|---|---|
+| Erase what is theirs, **anonymise what is shared** | Deleting a round's submissions and votes would silently rewrite other players' scores. Those records lose their owner instead of their existence. |
+| A hosted group is **handed over**, not destroyed | `leave_group` refuses to let a host leave at all, because a host-less group is unmanageable. Deletion cannot refuse, so the group goes to the longest-standing remaining member — and is deleted only when nobody else is in it. Destroying other people's group because one member left is the worse failure. |
+| **A ban outlives the account** | Google returns the same `sub` forever, so clearing bans would make deletion a moderation-evasion route. The one place a deleted user's id deliberately survives, and the policy says so rather than making a quiet exception. |
+
+Each deletion gets a **unique** tombstone. A shared `'deleted'` sentinel would merge two deleted players into one identity and corrupt per-user round maths (`voteBudgetUsed`, the self-vote check) — that is a test, and it was proven by forcing a constant and watching exactly that one test go red.
+
+Event-log rows are erased too, via a new `deleteEventsByActor` on both drivers. Rows are keyed by an HMAC of the user id, so the only way to find someone's is to hash the id the way `logEvent` did — which is what lets the log stay pseudonymous *and* be erasable. The deletion is recorded as an event with counts and **no actor**.
+
+### What the tests caught
+
+- A `ReferenceError: Cannot access 'closeDeleteModal' before initialization` — the whole Account page threw on render, so the deletion UI was entirely dead. `npm run build` succeeded, `oxlint` was clean and all 36 server unit tests passed. Only loading the page found it.
+- The first version of the "group is gone" assertion was worthless: it looked for the server's internal `Group not found` string, but UI-2 deliberately shows a non-member the *same* page a missing group gives, so a stranger's view cannot tell the two apart. Rewritten to use the invite link, which a surviving group would have honoured.
+
+## Not covered
+
+- **Terms of Service** still does not exist. It is no longer claimed, which is the important half.
+- **Sign-in tokens still cannot be revoked** (`f.norevoke`). Deleting an account does not invalidate an outstanding token; the policy states this rather than implying otherwise.
+- **Notifications other players received** that mention the deleted player by name are left alone. They are other people's records, capped at 100 and transient.
+- **Part B (consent management)** is untriggered and stays `Blocked`.
 
 ## Affected surface
 

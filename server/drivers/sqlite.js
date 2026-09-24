@@ -69,6 +69,9 @@ function createSqliteDriver() {
           'INSERT INTO events (id, ts, name, group_id, actor_id, props) VALUES (?, ?, ?, ?, ?, ?)'
         ),
         prune: db.prepare('DELETE FROM events WHERE ts < ?'),
+        // Erasure by actor (PRIV-1). actor_id is already an HMAC, so the
+        // caller hashes the raw user id the same way logEvent did.
+        deleteActor: db.prepare('DELETE FROM events WHERE actor_id = ?'),
         // rowid is the insertion order, which `ts` alone does not give: several
         // events of one round land in the same millisecond.
         readAll: db.prepare('SELECT * FROM events ORDER BY rowid'),
@@ -84,6 +87,10 @@ function createSqliteDriver() {
 
     async pruneEvents(cutoffTs) {
       events.prune.run(cutoffTs);
+    },
+
+    async deleteEventsByActor(actorId) {
+      return events.deleteActor.run(actorId).changes;
     },
 
     async readEvents({ groupId } = {}) {

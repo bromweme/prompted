@@ -33,6 +33,16 @@ for (const colorScheme of ['light', 'dark']) {
       expect(results.violations, reportViolations(results.violations)).toEqual([])
     })
 
+    // Signed out, like the page itself: it is linked from the sign-in screen,
+    // so the people most likely to read it do not have an account yet.
+    test('Privacy Policy page has no violations', async ({ page }) => {
+      await page.goto('/privacy')
+      await expect(page.getByRole('heading', { name: 'Privacy Policy', level: 1 })).toBeVisible()
+
+      const results = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze()
+      expect(results.violations, reportViolations(results.violations)).toEqual([])
+    })
+
     test('Dashboard has no violations', async ({ page, context }) => {
       await seedTestUser(context, { id: `a11y-dash-${testRunId()}`, name: 'A11y Tester' })
       await page.goto('/dashboard')

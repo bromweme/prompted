@@ -7,9 +7,10 @@ const helmet = require('helmet');
 const config = require('./config');
 const { createAuthMiddleware } = require('./auth');
 const { searchVideos, describeVideo, isValidVideoId, thumbnailFor } = require('./youtube');
-const { getOrCreateProfile, updateProfile, AVATAR_CHOICES } = require('./profiles');
+const { getOrCreateProfile, updateProfile, AVATAR_CHOICES, profileStore } = require('./profiles');
 const { PersistentStore, initStores, flushStores, driver } = require('./db');
-const { logEvent, flushEvents, settingsSnapshot, changedSettingKeys } = require('./events');
+const { logEvent, flushEvents, eraseActorEvents, settingsSnapshot, changedSettingKeys } = require('./events');
+const { deleteAccount } = require('./account-deletion');
 const { createInviteIndex, createJoinThrottle } = require('./invites');
 
 // The origins the app is actually served from, resolved from the
@@ -2269,6 +2270,76 @@ io.on('connection', (socket) => {
     connectedSockets.forEach(socketId => {
       io.to(socketId).emit('group_deleted', { groupId: gid });
     });
+  });
+
+  // Delete account (PRIV-1): erases the caller's profile, topics and
+  // notifications, removes them from every group, and strips their id from
+  // rounds other people played in. The semantics — and why a hosted group is
+  // handed over rather than destroyed, and why a ban is kept — live in
+  // account-deletion.js, which is unit-tested directly.
+  //
+  // `confirm: true` is required. The client already asks, but a destructive,
+  // irreversible action should not be one stray emit away, and an explicit
+  // flag makes a replayed or malformed payload a no-op instead.
+  //
+  // Async on purpose (the event log is erased over the driver), which means
+  // withErrorHandling cannot catch a rejection here — it does not await the
+  // handler — so everything is inside its own try/catch.
+  on('delete_account', async (payload) => {
+    if (!payload || payload.confirm !== true) {
+      socket.emit('error', { message: 'Account deletion needs an explicit confirmation' });
+      return;
+    }
+
+    console.log('Delete account request:', { socketId: socket.id, userId });
+
+    try {
+      const summary = deleteAccount(userId, {
+        groups, topics, notifications: notificationStore, users: profileStore, inviteIndex
+      });
+
+      // Groups that are gone: tell whoever was in them, and drop them from the
+      // open-groups list, which is a separate index from the store.
+      for (const group of summary.removedGroups) {
+        notifyOpenGroupsChanged(group, { removed: true });
+        (group.players || [])
+          .filter(p => p.userId !== userId && p.connected !== false)
+          .forEach(p => io.to(p.id).emit('group_deleted', { groupId: group.id }));
+      }
+
+      // Groups that survive: everyone still in them needs the new player list,
+      // and in a rehosted group, the new host needs their new powers.
+      for (const gid of summary.groupsAnonymised) {
+        const group = groups.get(gid);
+        if (group) broadcastGroup(group);
+      }
+
+      // Erase the event log rows before recording that this happened, so the
+      // new event is not immediately attributable to the account just deleted.
+      const eventsErased = await eraseActorEvents(userId);
+
+      // Logged without an actor: it is a record that a deletion occurred, not
+      // a record of who. Counts only.
+      logEvent('account_deleted', {
+        groupsDeleted: summary.groupsDeleted.length,
+        groupsRehosted: summary.groupsRehosted.length,
+        groupsLeft: summary.groupsLeft.length,
+        topicsDeleted: summary.topicsDeleted,
+        eventsErased
+      });
+
+      console.log('Account deleted:', {
+        groupsDeleted: summary.groupsDeleted.length,
+        groupsRehosted: summary.groupsRehosted.length,
+        topicsDeleted: summary.topicsDeleted,
+        eventsErased
+      });
+
+      socket.emit('account_deleted', { ok: true });
+    } catch (error) {
+      console.error('Account deletion failed:', error);
+      socket.emit('error', { message: 'Could not delete the account. Nothing was changed.' });
+    }
   });
 
   // Host election (HG-1): when the host has abandoned the group (gone > 30

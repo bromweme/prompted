@@ -1,0 +1,75 @@
+/* Legal pages (PRIV-1). A reading surface, not an app screen: one column,
+   measured line length, generous vertical rhythm. Everything resolves to a
+   token so it follows the light/dark scheme like the rest of the site. */
+.legal-page {
+  min-height: 100vh;
+  background: var(--color-bg);
+  padding: var(--space-6) var(--space-4);
+}
+
+.legal-content {
+  /* ~70 characters at this size, which is the comfortable range for prose. */
+  max-width: 68ch;
+  margin: 0 auto;
+  color: var(--color-text-primary);
+  line-height: 1.65;
+}
+
+.legal-back {
+  margin: 0 0 var(--space-5);
+  font-size: var(--text-caption);
+}
+
+.legal-back a {
+  color: var(--color-accent);
+}
+
+.legal-content h1 {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-heading);
+  color: var(--color-text-primary);
+}
+
+.legal-updated {
+  margin: 0 0 var(--space-5);
+  color: var(--color-text-secondary);
+  font-size: var(--text-caption);
+}
+
+.legal-content h2 {
+  margin: var(--space-6) 0 var(--space-2);
+  font-size: var(--text-subheading);
+  color: var(--color-text-primary);
+}
+
+.legal-content h3 {
+  margin: var(--space-4) 0 var(--space-1);
+  font-size: var(--text-body);
+  color: var(--color-text-primary);
+}
+
+.legal-content p {
+  margin: 0 0 var(--space-3);
+}
+
+.legal-content ul {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-5);
+}
+
+.legal-content li + li {
+  margin-top: var(--space-1);
+}
+
+.legal-content code {
+  padding: 0 4px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface-muted);
+  font-size: 0.9em;
+}
+
+@media (max-width: 480px) {
+  .legal-page {
+    padding: var(--space-4) var(--space-3);
+  }
+}

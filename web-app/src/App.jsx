@@ -10,6 +10,7 @@ import Account from './pages/Account'
 import ThemeIdeas from './pages/ThemeIdeas'
 import OpenGroups from './pages/OpenGroups'
 import Notifications from './pages/Notifications'
+import Privacy from './pages/Privacy'
 import ConnectionBanner from './components/ConnectionBanner'
 import './App.css'
 
@@ -63,6 +64,9 @@ function App() {
               <Route path="/topics" element={<RequireAuth><ThemeIdeas /></RequireAuth>} />
               <Route path="/open-groups" element={<RequireAuth><OpenGroups /></RequireAuth>} />
               <Route path="/notifications" element={<RequireAuth><Notifications /></RequireAuth>} />
+              {/* Public on purpose: it is linked from the sign-in screen, so it
+                  has to be readable before anyone has an account. */}
+              <Route path="/privacy" element={<Privacy />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </div>

@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useUser } from '../context/UserContext'
 import { useGoogleSignIn } from '../hooks/useGoogleSignIn'
 import './Login.css'
@@ -100,7 +100,10 @@ function Login() {
           </div>
 
           <footer className="login-footer">
-            <p>By continuing, you agree to our Terms of Service and Privacy Policy</p>
+            {/* This used to claim agreement to a Terms of Service and a Privacy
+                Policy, neither of which existed, and neither of which was a link.
+                Only the policy exists, so only the policy is named. */}
+            <p>By continuing, you agree to our <Link to="/privacy">Privacy Policy</Link>.</p>
           </footer>
         </div>
       </main>
